@@ -3,30 +3,30 @@ Ouvrir un PDF local (dialogue / glisser-déposer / double-clic),lecture,must,yes
 Associer l'app aux fichiers .pdf (desktop),lecture,must,yes,partial,"M1 : l'installeur déclare l'association ; ProgID générique « PDF » à renommer, et il écrit HKCU .pdf par défaut (UserChoice reste prioritaire)"
 Onglets multi-documents,lecture,must,yes,yes,"M1 : onglets, Ctrl+Tab, Ctrl+W, point « modifié »"
 Rendu fidèle des pages (polices / images / transparence),lecture,must,yes,partial,PDFium natif ; japonais non embarqué invisible (table de polices en M2)
-Rendu progressif et virtualisé des gros PDF,lecture,must,yes,partial,M1 : seules les pages proches de l'écran sont rendues ; pas encore d'aperçu basse résolution pendant le chargement
-Zoom (+/- / % / ajuster page / largeur),lecture,must,yes,partial,"M1 : +/-, %, Ctrl+molette, Ctrl+=/-, ajusté à la largeur à l'ouverture ; menu « Ajuster à la page / largeur » pas encore branché"
-Modes d'affichage (une page / deux pages / défilement continu),lecture,must,yes,partial,M1 : défilement continu seulement
-Navigation (page suivante / précédente / aller à / première / dernière),lecture,must,yes,yes,M1 : PageNavigator + page courante suivie au défilement
+Rendu progressif et virtualisé des gros PDF,lecture,must,yes,yes,M2 : seules les rangées proches de l'écran existent dans la page ; aperçu flou (image de la vignette) affiché tout de suite puis recouvert par les tuiles ; pas encore d'annulation des tuiles devenues invisibles
+Zoom (+/- / % / ajuster page / largeur),lecture,must,yes,yes,"M2 : +/-, %, menu Page entière (Ctrl+0) / Pleine largeur (Ctrl+2) / 100 % (Ctrl+1), Ctrl+molette centré sur la souris, ajustement conservé au redimensionnement"
+Modes d'affichage (une page / deux pages / défilement continu),lecture,must,yes,yes,"M2 : une page, continu, deux pages, deux pages en continu, couverture seule ; mémorisé par document"
+Navigation (page suivante / précédente / aller à / première / dernière),lecture,must,yes,yes,"M2 : PageNavigator, Ctrl+Pg préc./suiv., Début / Fin, flèches gauche / droite, page restaurée à la réouverture"
 Vue précédente / suivante (historique de navigation),lecture,should,yes,no,
-Pivoter l'affichage,lecture,must,yes,no,
+Pivoter l'affichage,lecture,must,yes,yes,"M2 : rotation de la vue par 90° (menu Affichage, Ctrl+Maj+flèches), sélection et surlignage justes sur une page tournée (test e2e : écart < 1 pt)"
 Plein écran et mode lecture,lecture,should,yes,no,S10
 Défilement automatique,lecture,could,yes,no,
-Thème clair / sombre,lecture,must,yes,partial,suit le thème de Windows (jetons) ; pas de réglage dans l'app
-Ouvrir un PDF protégé par mot de passe,lecture,must,yes,partial,"M1 : boîte de mot de passe codée, pas encore testée de bout en bout"
-Respect des permissions (impression / copie interdites),lecture,must,yes,no,
-Rechercher dans le document (Ctrl+F),recherche,must,yes,no,S05 F02
+Thème clair / sombre,lecture,must,yes,yes,"M2 : menu Apparence (Comme Windows / Clair / Sombre / Contraste élevé), mémorisé, barre de titre comprise"
+Ouvrir un PDF protégé par mot de passe,lecture,must,yes,yes,"M2 : testé de bout en bout (AES-256 : mot de passe demandé, mauvais mot de passe refusé, ouverture)"
+Respect des permissions (impression / copie interdites),lecture,must,yes,partial,"M2 : droits lus par l'API brute (AES-256 compris), copie bloquée, outils de commentaire désactivés, bandeau ; l'interdiction d'imprimer sera appliquée avec l'impression (S13)"
+Rechercher dans le document (Ctrl+F),recherche,must,yes,yes,"M2 : S05 : Ctrl+F, Entrée / Maj+Entrée / F3, casse, mot entier, résultats surlignés, recherche par lots de 10 pages (1000 pages sans bloquer le rendu), message pour un document sans texte"
 Recherche avancée (casse / mot entier / commentaires / signets),recherche,should,yes,no,
 Recherche dans plusieurs PDF d'un dossier,recherche,could,yes,no,
 Sélectionner et copier du texte,lecture,must,yes,partial,"M1 : couche de texte DOM, sélection souris et copier ; pas de sélection au clavier"
-Panneau Vignettes,navigation,must,yes,no,S06
-Panneau Signets (lecture),navigation,must,yes,no,S07
+Panneau Vignettes,navigation,must,yes,yes,"M2 : S06 : vignettes virtualisées, page courante suivie, clavier (flèches, Pg préc./suiv., Début / Fin) ; menu contextuel d'organisation avec les outils de pages (phase 2)"
+Panneau Signets (lecture),navigation,must,yes,yes,"M2 : S07 : arbre, tout déplier / replier, aller à la page et à la position, signets web confirmés ; vide « Aucun signet »"
 Créer / renommer / supprimer des signets,navigation,should,yes,no,
 Panneau Pièces jointes (ouvrir / enregistrer),navigation,should,yes,no,S09
 Panneau Calques (afficher / masquer),navigation,could,yes,no,S09
 Articles (fils de lecture),navigation,could,yes,no,
-Liens internes et externes cliquables,lecture,must,yes,no,avertissement avant d'ouvrir un site
+Liens internes et externes cliquables,lecture,must,yes,yes,"M2 : liens internes (page et position), adresses web et mailto après confirmation ; autres actions ignorées. Clic dans l'interface non automatisé (extraction testée dans le moteur)"
 Barre d'actions rapides personnalisable,interface,should,yes,no,S03 QuickActionToolbar
-Raccourcis clavier (navigation / outils),interface,must,yes,partial,"M1 : Ctrl+O/S/Maj+S/W/Tab, Ctrl+=/-/1, V, U"
+Raccourcis clavier (navigation / outils),interface,must,yes,partial,"M2 : + Ctrl+F, F3, Ctrl+0/1/2, Ctrl+Maj+flèches, Début / Fin, flèches ; pas encore désactivables (S14)"
 Accueil avec récents et favoris,accueil,must,yes,partial,"M1 : récents avec vignette, fichier introuvable, retirer ; favoris non"
 Restaurer la dernière page et le zoom à la réouverture,accueil,should,yes,no,
 Surligner / souligner / barrer du texte,annotation,must,yes,partial,"M1 : surlignage jaune seulement (multi-lignes, multi-pages)"
@@ -112,7 +112,7 @@ Ouvrir depuis Google Drive / OneDrive / Dropbox,cloud,could,yes,skip,les applis 
 Fonctionne sans compte et sans connexion,accessibilité,must,no,yes,M1 : aucun appel réseau
 Aucune publicité ni télémétrie,accessibilité,must,no,yes,M1
 PWA installable et utilisable hors ligne,web,must,no,skip,appli desktop uniquement : pas de version navigateur
-Thème contraste élevé et respect du mode contraste élevé de Windows,accessibilité,must,yes,no,forced-colors
+Thème contraste élevé et respect du mode contraste élevé de Windows,accessibilité,must,yes,partial,M2 : thème Contraste élevé choisissable ; forced-colors dans les jetons ; pas encore vérifié avec le mode de Windows
 Zoom de l'interface indépendant du document,accessibilité,should,yes,no,
 Ordre de lecture des PDF balisés pour les lecteurs d'écran,accessibilité,should,yes,no,StructTreeRoot
 Export / import des préférences en JSON,interface,should,no,no,remplace la synchro par compte

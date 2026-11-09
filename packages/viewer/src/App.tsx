@@ -1,14 +1,30 @@
-import { Button, Dialog, DocumentTabs, Spinner, TextField, useToast } from "@pdfreader/ui";
-import { Home } from "lucide-react";
+import { Button, Dialog, DocumentTabs, IconButton, Menu, MenuItem, MenuSection, MenuTrigger, Spinner, TextField, useToast } from "@pdfreader/ui";
+import { Home, Palette } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { DocumentView } from "./DocumentView";
 import { runE2E } from "./e2e";
-import { type DocInfo, type EngineClient, isOpenError } from "./engine";
+import { type DocInfo, type EngineClient, isOpenError, type Theme } from "./engine";
 import { HomeView } from "./HomeView";
 import { selectionToPageRects } from "./selection";
 import { reducer } from "./state";
 
 const HIGHLIGHT_YELLOW: [number, number, number] = [255, 225, 77];
+
+const THEMES: { id: Theme; label: string }[] = [
+  { id: "system", label: "Comme Windows" },
+  { id: "light", label: "Clair" },
+  { id: "dark", label: "Sombre" },
+  { id: "contrast", label: "Contraste élevé" },
+];
+
+/** Applique le thème : jetons CSS (attribut data-theme) et barre de titre de la fenêtre. */
+function applyTheme(engine: EngineClient, theme: Theme) {
+  const root = document.documentElement;
+  if (theme === "system") delete root.dataset.theme;
+  else root.dataset.theme = theme;
+  const dark = theme === "dark" || (theme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  void engine.setWindowTheme(theme === "system" ? null : dark ? "dark" : "light").catch(() => undefined);
+}
 
 export interface AppActions {
   openPath(path: string, password?: string): Promise<DocInfo | null>;
@@ -27,6 +43,7 @@ export function App({ engine }: { engine: EngineClient }) {
   const [password, setPassword] = useState<{ path: string; wrong: boolean; value: string } | null>(null);
   const [confirmClose, setConfirmClose] = useState<{ ids: number[]; quit: boolean } | null>(null);
   const [homeRefresh, setHomeRefresh] = useState(0);
+  const [theme, setTheme] = useState<Theme>("system");
   const pagesEls = useRef(new Map<number, HTMLDivElement>());
   const docsRef = useRef(docs);
   docsRef.current = docs;
@@ -38,6 +55,22 @@ export function App({ engine }: { engine: EngineClient }) {
   useEffect(() => {
     engine.setTitle(activeDoc ? `${activeDoc.dirty ? "• " : ""}${activeDoc.info.name} — PDFReader` : "PDFReader");
   }, [engine, activeDoc]);
+
+  // ------------------------------------------------------------ thème
+  useEffect(() => {
+    engine
+      .preferences()
+      .then((p) => {
+        const t = p.theme;
+        if (t === "light" || t === "dark" || t === "contrast" || t === "system") setTheme(t);
+      })
+      .catch(() => undefined);
+  }, [engine]);
+  useEffect(() => applyTheme(engine, theme), [engine, theme]);
+  const chooseTheme = (t: Theme) => {
+    setTheme(t);
+    void engine.setPreference("theme", t).catch(() => undefined);
+  };
 
   // ------------------------------------------------------------ ouverture
   const openPath = useCallback(
@@ -82,6 +115,7 @@ export function App({ engine }: { engine: EngineClient }) {
     const id = Number(activeRef.current);
     const root = pagesEls.current.get(id);
     if (!root) return 0;
+    if (docsRef.current.find((d) => d.info.id === id)?.info.permissions.annotate === false) return 0;
     const byPage = selectionToPageRects(root);
     if (byPage.size === 0) {
       if (tool === "select") toast({ tone: "info", message: "Sélectionnez d'abord du texte à surligner." });
@@ -107,7 +141,7 @@ export function App({ engine }: { engine: EngineClient }) {
       if (!d) return false;
       try {
         const r = await engine.save(id, asPath);
-        dispatch({ type: "saved", id, generation: r.generation, path: r.path });
+        dispatch({ type: "saved", id, generation: r.generation, path: r.path, fingerprint: r.fingerprint });
         toast({ tone: "success", message: `« ${r.path.split(/[\\/]/).pop()} » enregistré` });
         setHomeRefresh((n) => n + 1);
         return true;
@@ -247,6 +281,28 @@ export function App({ engine }: { engine: EngineClient }) {
             <Spinner label="" /> Ouverture de {opening}…
           </span>
         )}
+        <div className="mb-1 ml-auto shrink-0">
+          <MenuTrigger>
+            <IconButton label="Apparence" icon={<Palette size={18} />} />
+            <Menu aria-label="Apparence">
+              <MenuSection
+                title="Thème"
+                selectionMode="single"
+                selectedKeys={[theme]}
+                onSelectionChange={(keys) => {
+                  const k = [...(keys as Set<string>)][0] as Theme | undefined;
+                  if (k) chooseTheme(k);
+                }}
+              >
+                {THEMES.map((t) => (
+                  <MenuItem key={t.id} id={t.id}>
+                    {t.label}
+                  </MenuItem>
+                ))}
+              </MenuSection>
+            </Menu>
+          </MenuTrigger>
+        </div>
       </div>
 
       <HomeView engine={engine} isActive={active === "home"} refreshKey={homeRefresh} onOpenPath={(p) => void openPath(p)} onPick={() => void pick()} />
@@ -259,7 +315,6 @@ export function App({ engine }: { engine: EngineClient }) {
           isActive={active === String(d.info.id)}
           tool={tool}
           onToolChange={setTool}
-          onZoom={(zoom) => dispatch({ type: "zoom", id: d.info.id, zoom })}
           onHighlightSelection={() => void highlightSelection()}
           onSave={() => void save(d.info.id)}
           onOpen={() => void pick()}

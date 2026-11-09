@@ -210,6 +210,9 @@ pub fn process_memory() -> u64 {
     memory_stats::memory_stats().map(|m| m.physical_mem as u64).unwrap_or(0)
 }
 
+pub mod reading;
+pub use reading::*;
+
 #[cfg(windows)]
 pub mod print_win;
 

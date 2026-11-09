@@ -5,12 +5,15 @@ import {
   Button as RACButton,
   Dialog as RACDialog,
   DialogTrigger,
+  Header,
   Heading,
   Keyboard,
   Menu as RACMenu,
   MenuItem as RACMenuItem,
   type MenuItemProps as RACMenuItemProps,
   type MenuProps as RACMenuProps,
+  MenuSection as RACMenuSection,
+  type MenuSectionProps as RACMenuSectionProps,
   MenuTrigger,
   Modal,
   ModalOverlay,
@@ -76,6 +79,17 @@ export function MenuItem({ children, icon, shortcut, destructive, hasSubmenu, ..
         </>
       )}
     </RACMenuItem>
+  );
+}
+
+/** Groupe d'éléments de menu, avec titre facultatif. Avec `selectionMode`, ses éléments deviennent
+ *  des choix (cases ou boutons radio pour les lecteurs d'écran). */
+export function MenuSection<T extends object>({ title, className, children, ...props }: Omit<RACMenuSectionProps<T>, "className" | "children"> & { title?: string; className?: string; children: ReactNode }) {
+  return (
+    <RACMenuSection {...props} className={clsx("flex flex-col", className)}>
+      {title && <Header className="px-2 pt-1.5 pb-1 text-xs font-semibold text-muted">{title}</Header>}
+      {children}
+    </RACMenuSection>
   );
 }
 

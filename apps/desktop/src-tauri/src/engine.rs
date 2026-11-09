@@ -28,6 +28,11 @@ pub struct DocInfo {
     pub encrypted: bool,
     pub has_form: bool,
     pub is_xfa: bool,
+    pub permissions: eng::Permissions,
+    /// Empreinte du fichier (clé des récents et de l'état de vue).
+    pub fingerprint: String,
+    /// Dernier état de vue mémorisé, rempli par la commande `doc_open`.
+    pub view_state: Option<serde_json::Value>,
     /// Change à chaque rechargement (après enregistrement) : invalide le cache des tuiles.
     pub generation: u32,
 }
@@ -35,8 +40,6 @@ pub struct DocInfo {
 #[derive(Debug, Serialize)]
 pub struct OpenResult {
     pub info: DocInfo,
-    #[serde(skip)]
-    pub fingerprint: String,
     #[serde(skip)]
     pub size: u64,
     #[serde(skip)]
@@ -49,6 +52,9 @@ pub struct SaveResult {
     pub path: String,
     pub bytes: u64,
     pub generation: u32,
+    pub fingerprint: String,
+    #[serde(skip)]
+    pub old_fingerprint: String,
 }
 
 pub enum Cmd {
@@ -57,6 +63,9 @@ pub enum Cmd {
     Highlight { doc: u32, page: i32, rects: Vec<[f32; 4]>, color: [u8; 3], author: String, reply: Reply<usize> },
     Save { doc: u32, path: Option<PathBuf>, reply: Reply<SaveResult> },
     CountHighlights { doc: u32, page: i32, reply: Reply<usize> },
+    Links { doc: u32, page: i32, reply: Reply<Vec<eng::PageLink>> },
+    Bookmarks { doc: u32, reply: Reply<Vec<eng::Bookmark>> },
+    Search { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool, reply: Reply<eng::SearchBatch> },
     Close { doc: u32 },
     Tile { doc: u32, page: i32, scale: f32, x: i32, y: i32, size: i32, responder: UriSchemeResponder },
 }
@@ -67,6 +76,7 @@ struct Entry {
     password: Option<String>,
     mtime: Option<SystemTime>,
     generation: u32,
+    fingerprint: String,
 }
 
 #[derive(Clone)]
@@ -101,6 +111,9 @@ fn info_of(id: u32, e: &Entry) -> DocInfo {
         encrypted: e.password.is_some(),
         has_form: doc.form().is_some(),
         is_xfa: doc.form().map(|f| matches!(f.form_type(), PdfFormType::XfaFull | PdfFormType::XfaForeground)).unwrap_or(false),
+        permissions: eng::permissions(doc),
+        fingerprint: e.fingerprint.clone(),
+        view_state: None,
         generation: e.generation,
     }
 }
@@ -141,12 +154,12 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                     let thumbnail = eng::thumbnail_png(&doc, 160).unwrap_or_default();
                     let fingerprint = eng::fingerprint(&path).map_err(|e| eng::OpenError::Other(e.to_string()))?;
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    let entry = Entry { doc, path: path.clone(), password: password.clone(), mtime: eng::file_mtime(&path), generation: 1 };
+                    let entry = Entry { doc, path: path.clone(), password: password.clone(), mtime: eng::file_mtime(&path), generation: 1, fingerprint };
                     let id = next_id;
                     next_id += 1;
                     let info = info_of(id, &entry);
                     docs.insert(id, entry);
-                    Ok(OpenResult { info, fingerprint, size, thumbnail })
+                    Ok(OpenResult { info, size, thumbnail })
                 })();
                 let _ = reply.send(result);
             }
@@ -170,6 +183,24 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                     let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
                     Ok(eng::count_annotations(&p, PdfPageAnnotationType::Highlight))
                 });
+                let _ = reply.send(r);
+            }
+            Cmd::Links { doc, page, reply } => {
+                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
+                    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
+                    Ok(eng::page_links(&e.doc, &p))
+                });
+                let _ = reply.send(r);
+            }
+            Cmd::Bookmarks { doc, reply } => {
+                let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::bookmarks(&e.doc));
+                let _ = reply.send(r);
+            }
+            Cmd::Search { doc, from, count, query, match_case, whole_word, reply } => {
+                let r = docs
+                    .get(&doc)
+                    .ok_or("document fermé".to_string())
+                    .and_then(|e| eng::search(&e.doc, from, count, &query, match_case, whole_word).map_err(|e| e.to_string()));
                 let _ = reply.send(r);
             }
             Cmd::Save { doc, path, reply } => {
@@ -214,11 +245,13 @@ fn save(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, target
     })?;
     let password = e.password.clone();
     let generation = e.generation + 1;
+    let old_fingerprint = e.fingerprint.clone();
     let doc = eng::open_typed(pdfium, &target, password.as_deref()).map_err(|e| e.to_string())?;
     let bytes = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
-    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation };
+    let fingerprint = eng::fingerprint(&target).map_err(|e| e.to_string())?;
+    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone() };
     docs.insert(id, entry);
-    Ok(SaveResult { path: target.display().to_string(), bytes, generation })
+    Ok(SaveResult { path: target.display().to_string(), bytes, generation, fingerprint, old_fingerprint })
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -237,6 +270,15 @@ fn fail(cmd: Cmd, msg: &str) {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Highlight { reply, .. } | Cmd::CountHighlights { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::Links { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::Bookmarks { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::Search { reply, .. } => {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Save { reply, .. } => {

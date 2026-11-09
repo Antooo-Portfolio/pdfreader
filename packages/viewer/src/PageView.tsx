@@ -1,5 +1,7 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { type EngineClient, PT_TO_CSS, TILE, type TextWord } from "./engine";
+import { clsx } from "clsx";
+import { memo, useEffect, useMemo, useState } from "react";
+import { type Box, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextWord, thumbScale } from "./engine";
+import { type PageBox, rotationTransform } from "./layout";
 
 const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
 
@@ -9,17 +11,28 @@ interface Props {
   generation: number;
   version: number;
   index: number;
+  /** Taille de la page en points, sans la rotation de la vue. */
   size: [number, number];
+  /** Position et taille affichées (rotation comprise), en px CSS. */
+  box: PageBox;
   zoom: number;
   dpr: number;
-  /** Rendue (tuiles + texte) seulement quand la page est proche de la zone visible. */
+  rotation: Rotation;
+  /** Rendue (tuiles, texte, liens) seulement quand la page est proche de la zone visible. */
   active: boolean;
   textCache: Map<string, TextWord[][]>;
+  linkCache: Map<string, PageLink[]>;
+  /** Résultats de recherche de la page et rang du résultat courant sur cette page (-1 : aucun). */
+  hits?: Box[][];
+  currentHit: number;
+  onLink: (action: LinkAction) => void;
 }
 
-/** Une page : tuiles WebP rendues par le moteur, couche de texte DOM par-dessus (sélection,
- *  copier, lecteurs d'écran). Hors zone visible : simple emplacement de la bonne taille. */
-export const PageView = memo(function PageView({ engine, docId, generation, version, index, size, zoom, dpr, active, textCache }: Props) {
+/** Une page : aperçu basse résolution, tuiles WebP rendues par le moteur, résultats de
+ *  recherche, couche de texte DOM (sélection, copier, lecteurs d'écran) et liens. La rotation de
+ *  la vue tourne le tout d'un bloc. */
+export const PageView = memo(function PageView(p: Props) {
+  const { engine, docId, generation, version, index, size, box, zoom, dpr, rotation, active, textCache, linkCache } = p;
   const [pw, ph] = size;
   const cssW = pw * PT_TO_CSS * zoom;
   const cssH = ph * PT_TO_CSS * zoom;
@@ -28,7 +41,13 @@ export const PageView = memo(function PageView({ engine, docId, generation, vers
   const devH = Math.ceil(ph * scale);
   const cacheKey = `${docId}:${generation}:${index}`;
   const [lines, setLines] = useState<TextWord[][] | null>(() => textCache.get(cacheKey) ?? null);
+  const [links, setLinks] = useState<PageLink[] | null>(() => linkCache.get(cacheKey) ?? null);
   const [textError, setTextError] = useState(false);
+
+  useEffect(() => {
+    setLines(textCache.get(cacheKey) ?? null);
+    setLinks(linkCache.get(cacheKey) ?? null);
+  }, [cacheKey, textCache, linkCache]);
 
   useEffect(() => {
     if (!active || lines) return;
@@ -45,6 +64,21 @@ export const PageView = memo(function PageView({ engine, docId, generation, vers
     };
   }, [active, lines, engine, docId, index, cacheKey, textCache]);
 
+  useEffect(() => {
+    if (!active || links) return;
+    let alive = true;
+    engine
+      .links(docId, index)
+      .then((l) => {
+        linkCache.set(cacheKey, l);
+        if (alive) setLinks(l);
+      })
+      .catch(() => alive && setLinks([]));
+    return () => {
+      alive = false;
+    };
+  }, [active, links, engine, docId, index, cacheKey, linkCache]);
+
   const tiles = useMemo(() => {
     if (!active) return [];
     const t: { x: number; y: number; w: number; h: number }[] = [];
@@ -52,13 +86,17 @@ export const PageView = memo(function PageView({ engine, docId, generation, vers
     return t;
   }, [active, devW, devH]);
 
+  const k = PT_TO_CSS * zoom;
+  const preview = thumbScale(pw, ph, dpr);
+
   return (
     <div
-      className="pdf-page relative mx-auto select-none"
-      style={{ width: cssW, height: cssH }}
+      className="pdf-page absolute select-none"
+      style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
       data-page-index={index}
       data-pw={pw}
       data-ph={ph}
+      data-rot={rotation}
       role="region"
       aria-label={`Page ${index + 1}`}
     >
@@ -67,27 +105,87 @@ export const PageView = memo(function PageView({ engine, docId, generation, vers
           {index + 1}
         </span>
       )}
-      {tiles.map((t) => (
-        <img
-          key={`${t.x}-${t.y}-${scale}`}
-          alt=""
-          aria-hidden
-          draggable={false}
-          decoding="async"
-          src={engine.tileUrl(docId, generation, version, index, scale, t.x, t.y)}
-          className="pointer-events-none absolute max-w-none"
-          style={{ left: t.x / dpr, top: t.y / dpr, width: t.w / dpr, height: t.h / dpr }}
-        />
-      ))}
-      {active && lines && <TextLayer lines={lines} k={PT_TO_CSS * zoom} />}
+      <div className="absolute top-0 left-0 origin-top-left" style={{ width: cssW, height: cssH, transform: rotationTransform(rotation, cssW, cssH) }}>
+        {active && (
+          // Aperçu flou affiché tout de suite (même image que la vignette), recouvert par les tuiles.
+          <img
+            alt=""
+            aria-hidden
+            draggable={false}
+            src={engine.tileUrl(docId, generation, version, index, preview, 0, 0)}
+            className="pointer-events-none absolute inset-0 size-full max-w-none"
+          />
+        )}
+        {tiles.map((t) => (
+          <img
+            key={`${t.x}-${t.y}-${scale}`}
+            alt=""
+            aria-hidden
+            draggable={false}
+            decoding="async"
+            src={engine.tileUrl(docId, generation, version, index, scale, t.x, t.y)}
+            className="pointer-events-none absolute max-w-none"
+            style={{ left: t.x / dpr, top: t.y / dpr, width: t.w / dpr, height: t.h / dpr }}
+          />
+        ))}
+        {p.hits && <Hits hits={p.hits} current={p.currentHit} k={k} />}
+        {active && lines && <TextLayer lines={lines} k={k} />}
+        {active && links && links.length > 0 && <Links links={links} k={k} onLink={p.onLink} />}
+      </div>
       {active && textError && <span className="sr-only">Le texte de cette page n'a pas pu être lu.</span>}
     </div>
   );
 });
 
+function Hits({ hits, current, k }: { hits: Box[][]; current: number; k: number }) {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0">
+      {hits.map((boxes, i) =>
+        boxes.map(([x, y, w, h], j) => (
+          <div
+            key={`${i}-${j}`}
+            data-current-hit={i === current ? "" : undefined}
+            className={clsx(
+              "absolute rounded-[1px] mix-blend-multiply forced-colors:mix-blend-normal forced-colors:outline-2 forced-colors:outline-[Highlight]",
+              i === current ? "bg-search-hit-current outline-2 outline-offset-1 outline-search-hit-current" : "bg-search-hit opacity-70",
+            )}
+            style={{ left: x * k - 1, top: y * k - 1, width: w * k + 2, height: h * k + 2 }}
+          />
+        )),
+      )}
+    </div>
+  );
+}
+
+function linkLabel(a: LinkAction): string {
+  if (a.kind === "goto") return `Lien vers la page ${a.page + 1}`;
+  if (a.kind === "uri") return a.uri.toLowerCase().startsWith("mailto:") ? `Lien e-mail : ${a.uri.slice(7)}` : `Lien vers ${a.uri}`;
+  return "Lien";
+}
+
+function Links({ links, k, onLink }: { links: PageLink[]; k: number; onLink: (a: LinkAction) => void }) {
+  return (
+    <div className="absolute inset-0">
+      {links.map((l, i) => (
+        <a
+          key={i}
+          href="#"
+          aria-label={linkLabel(l.action)}
+          title={l.action.kind === "uri" ? l.action.uri : linkLabel(l.action)}
+          onClick={(e) => {
+            e.preventDefault();
+            onLink(l.action);
+          }}
+          className="focus-ring absolute cursor-pointer rounded-[2px] hover:bg-accent/10"
+          style={{ left: l.x * k, top: l.y * k, width: Math.max(4, l.w * k), height: Math.max(4, l.h * k) }}
+        />
+      ))}
+    </div>
+  );
+}
+
 /** Mots placés au-dessus de l'image, texte transparent : la sélection et le copier sont natifs. */
 function TextLayer({ lines, k }: { lines: TextWord[][]; k: number }) {
-  const ref = useRef<HTMLDivElement>(null);
   const words = useMemo(() => {
     const out: { key: string; text: string; left: number; top: number; fontSize: number; sx: number; br: boolean }[] = [];
     lines.forEach((line, li) =>
@@ -105,7 +203,7 @@ function TextLayer({ lines, k }: { lines: TextWord[][]; k: number }) {
     return out;
   }, [lines, k]);
   return (
-    <div ref={ref} className="pdf-text-layer absolute inset-0 select-text" lang="fr">
+    <div className="pdf-text-layer absolute inset-0 select-text" lang="fr">
       {words.map((w) => (
         <span key={w.key}>
           <span

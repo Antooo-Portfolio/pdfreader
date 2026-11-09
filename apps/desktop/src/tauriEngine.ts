@@ -1,4 +1,4 @@
-import type { DocInfo, EngineClient, PdfRect, RecentFile, SaveResult, TextWord } from "@pdfreader/viewer";
+import type { Bookmark, DocInfo, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -14,6 +14,14 @@ export const tauriEngine: EngineClient = {
   textLayer: (doc, page) => invoke<TextWord[][]>("doc_text_layer", { doc, page }),
   addHighlight: (doc, page, rects: PdfRect[], color) => invoke<number>("annot_add_highlight", { doc, page, rects, color }),
   countHighlights: (doc, page) => invoke<number>("doc_count_highlights", { doc, page }),
+  links: (doc, page) => invoke<PageLink[]>("doc_links", { doc, page }),
+  bookmarks: (doc) => invoke<Bookmark[]>("doc_bookmarks", { doc }),
+  search: (doc, from, count, query, matchCase, wholeWord) => invoke<SearchBatch>("doc_search", { doc, from, count, query, matchCase, wholeWord }),
+  setViewState: (fingerprint, state) => invoke("view_state_set", { fingerprint, state }),
+  preferences: () => invoke<Record<string, unknown>>("pref_all"),
+  setPreference: (key, value) => invoke("pref_set", { key, value }),
+  openUrl: (url) => invoke("open_url", { url }),
+  setWindowTheme: (theme) => getCurrentWindow().setTheme(theme),
   save: (doc, path) => invoke<SaveResult>("doc_save", { doc, path: path ?? null }),
   close: (doc) => void invoke("doc_close", { doc }),
   recents: () => invoke<RecentFile[]>("recent_list"),

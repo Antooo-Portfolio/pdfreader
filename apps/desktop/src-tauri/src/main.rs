@@ -7,7 +7,7 @@ mod engine;
 use std::path::{Path, PathBuf};
 
 use engine::{Cmd, DocInfo, EngineHandle, SaveResult};
-use pdfreader_engine::{OpenError, TextWord};
+use pdfreader_engine::{Bookmark, OpenError, PageLink, SearchBatch, TextWord};
 use tauri::http::Response;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::oneshot;
@@ -48,8 +48,9 @@ fn get_launch_files() -> Vec<String> {
 async fn doc_open(path: String, password: Option<String>, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<DocInfo, OpenError> {
     let (tx, rx) = oneshot::channel();
     engine.send(Cmd::Open { path: PathBuf::from(&path), password, reply: tx });
-    let r = rx.await.map_err(|_| OpenError::Other("moteur indisponible".into()))??;
-    let _ = db.touch(&r.fingerprint, &r.info.path, &r.info.name, r.size, r.info.page_count, &r.thumbnail);
+    let mut r = rx.await.map_err(|_| OpenError::Other("moteur indisponible".into()))??;
+    let _ = db.touch(&r.info.fingerprint, &r.info.path, &r.info.name, r.size, r.info.page_count, &r.thumbnail);
+    r.info.view_state = db.view_state(&r.info.fingerprint);
     Ok(r.info)
 }
 
@@ -69,8 +70,114 @@ async fn doc_count_highlights(doc: u32, page: i32, engine: State<'_, EngineHandl
 }
 
 #[tauri::command]
-async fn doc_save(doc: u32, path: Option<String>, engine: State<'_, EngineHandle>) -> Result<SaveResult, String> {
-    ask(&engine, |reply| Cmd::Save { doc, path: path.map(PathBuf::from), reply }).await
+async fn doc_save(doc: u32, path: Option<String>, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<SaveResult, String> {
+    let as_copy = path.is_some();
+    let r = ask(&engine, |reply| Cmd::Save { doc, path: path.map(PathBuf::from), reply }).await?;
+    // Enregistrer sur place : même document, nouvelle empreinte. Enregistrer sous : l'original
+    // garde la sienne, la copie sera ajoutée aux récents à sa prochaine ouverture.
+    if !as_copy {
+        let _ = db.rekey(&r.old_fingerprint, &r.fingerprint, r.bytes, None);
+    }
+    Ok(r)
+}
+
+#[tauri::command]
+async fn doc_links(doc: u32, page: i32, engine: State<'_, EngineHandle>) -> Result<Vec<PageLink>, String> {
+    ask(&engine, |reply| Cmd::Links { doc, page, reply }).await
+}
+
+#[tauri::command]
+async fn doc_bookmarks(doc: u32, engine: State<'_, EngineHandle>) -> Result<Vec<Bookmark>, String> {
+    ask(&engine, |reply| Cmd::Bookmarks { doc, reply }).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn doc_search(
+    doc: u32,
+    from: i32,
+    count: i32,
+    query: String,
+    match_case: bool,
+    whole_word: bool,
+    engine: State<'_, EngineHandle>,
+) -> Result<SearchBatch, String> {
+    let count = count.clamp(1, 200);
+    ask(&engine, |reply| Cmd::Search { doc, from, count, query, match_case, whole_word, reply }).await
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewStateIn {
+    page: i64,
+    zoom_mode: String,
+    zoom: Option<f64>,
+    layout: String,
+    cover: bool,
+    rotation: i64,
+    panel: Option<String>,
+}
+
+#[tauri::command]
+fn view_state_set(fingerprint: String, state: ViewStateIn, db: State<'_, db::Db>) -> Result<(), String> {
+    let zoom_mode = match state.zoom_mode.as_str() {
+        m @ ("fit-page" | "fit-width") => m,
+        _ => "custom",
+    };
+    let layout = match state.layout.as_str() {
+        l @ ("single" | "double" | "continuous" | "continuous-double") => l,
+        _ => "continuous",
+    };
+    let rotation = if [0, 90, 180, 270].contains(&state.rotation) { state.rotation } else { 0 };
+    let panel = state.panel.as_deref().filter(|p| ["thumbnails", "bookmarks", "comments", "attachments", "layers"].contains(p));
+    let zoom = state.zoom.map(|z| z.clamp(0.08, 64.0));
+    db.set_view_state(&fingerprint, state.page, zoom_mode, zoom, layout, state.cover, rotation, panel).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pref_all(db: State<'_, db::Db>) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    db.preferences().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn pref_set(key: String, value: serde_json::Value, db: State<'_, db::Db>) -> Result<(), String> {
+    if key.is_empty() || key.len() > 64 {
+        return Err("clé invalide".into());
+    }
+    db.set_preference(&key, &value).map_err(|e| e.to_string())
+}
+
+/// Ouvre une adresse web dans le navigateur par défaut, après confirmation dans l'interface.
+/// Seuls http, https et mailto sont acceptés : jamais de fichier local ni de programme.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    let lower = url.trim().to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")) || url.len() > 4096 {
+        return Err("adresse refusée".into());
+    }
+    if url.chars().any(|c| c.is_control()) {
+        return Err("adresse refusée".into());
+    }
+    shell_open(url.trim())
+}
+
+#[cfg(windows)]
+fn shell_open(url: &str) -> Result<(), String> {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::{HSTRING, w};
+    let r = unsafe { ShellExecuteW(None, w!("open"), &HSTRING::from(url), None, None, SW_SHOWNORMAL) };
+    // ShellExecuteW renvoie une valeur > 32 en cas de succès.
+    if r.0 as isize > 32 { Ok(()) } else { Err(format!("ouverture impossible ({})", r.0 as isize)) }
+}
+
+#[cfg(not(windows))]
+fn shell_open(url: &str) -> Result<(), String> {
+    std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" })
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -187,6 +294,13 @@ fn main() {
             annot_add_highlight,
             doc_count_highlights,
             doc_save,
+            doc_links,
+            doc_bookmarks,
+            doc_search,
+            view_state_set,
+            pref_all,
+            pref_set,
+            open_url,
             doc_close,
             recent_list,
             recent_remove,

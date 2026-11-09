@@ -1,22 +1,24 @@
 import { clsx } from "clsx";
 import { CaseSensitive, ChevronDown, ChevronUp, MessageSquare, Minus, Plus, Undo2, WholeWord, X } from "lucide-react";
-import { type PointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { Group, Heading, Tab, TabList, TabPanel, Tabs } from "react-aria-components";
+import { type PointerEvent, type ReactNode, type Ref, useEffect, useRef, useState } from "react";
+import { Group, Heading, Input, Button as RACButton, SearchField as RACSearchField, Tab, TabList, TabPanel, Tabs } from "react-aria-components";
 import { Button, IconButton, ToolButton } from "./Button";
-import { NumberField, SearchField } from "./Fields";
+import { NumberField } from "./Fields";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "./Overlays";
 
 /* ---------------------------- Zoom ---------------------------- */
 
-export function ZoomControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const steps = [25, 50, 75, 100, 125, 150, 200, 300, 400];
+export type FitMode = "fit-page" | "fit-width";
+
+export function ZoomControl({ value, onChange, onFit, fit }: { value: number; onChange: (v: number) => void; onFit?: (mode: FitMode) => void; fit?: FitMode | null }) {
+  const steps = [10, 25, 33, 50, 67, 75, 100, 125, 150, 200, 300, 400, 600, 800, 1200, 1600, 3200, 6400];
   const next = (dir: 1 | -1) => {
     const list = dir === 1 ? steps : [...steps].reverse();
-    onChange(list.find((s) => (dir === 1 ? s > value : s < value)) ?? value);
+    onChange(list.find((s) => (dir === 1 ? s > value + 0.5 : s < value - 0.5)) ?? value);
   };
   return (
     <Group aria-label="Zoom" className="flex items-center gap-0.5">
-      <IconButton label="Zoom arrière" shortcut="Ctrl+-" icon={<Minus size={18} />} onPress={() => next(-1)} />
+      <IconButton label="Zoom arrière" shortcut="Ctrl+-" icon={<Minus size={18} />} onPress={() => next(-1)} isDisabled={value <= 8} />
       <NumberField
         aria-label="Niveau de zoom"
         value={value}
@@ -29,17 +31,24 @@ export function ZoomControl({ value, onChange }: { value: number; onChange: (v: 
       />
       <MenuTrigger>
         <IconButton label="Options de zoom" icon={<ChevronDown size={16} />} size="sm" />
-        <Menu onAction={(k) => typeof k === "string" && /^\d+$/.test(k) && onChange(Number(k))}>
-          <MenuItem id="fit-page" shortcut="Ctrl+0">Ajuster à la page</MenuItem>
-          <MenuItem id="fit-width" shortcut="Ctrl+2">Ajuster à la largeur</MenuItem>
-          <MenuItem id="100" shortcut="Ctrl+1">Taille réelle</MenuItem>
+        <Menu
+          onAction={(k) => {
+            if (k === "fit-page" || k === "fit-width") onFit?.(k);
+            else if (typeof k === "string" && /^\d+$/.test(k)) onChange(Number(k));
+          }}
+          selectionMode="single"
+          selectedKeys={fit ? [fit] : []}
+        >
+          <MenuItem id="fit-page" shortcut="Ctrl+0">Page entière</MenuItem>
+          <MenuItem id="fit-width" shortcut="Ctrl+2">Pleine largeur</MenuItem>
+          <MenuItem id="100" shortcut="Ctrl+1">Taille réelle (100 %)</MenuItem>
           <MenuSeparator />
-          {[50, 75, 100, 125, 150, 200, 400].map((s) => (
+          {[50, 75, 125, 150, 200, 400].map((s) => (
             <MenuItem key={s} id={String(s)}>{`${s} %`}</MenuItem>
           ))}
         </Menu>
       </MenuTrigger>
-      <IconButton label="Zoom avant" shortcut="Ctrl+=" icon={<Plus size={18} />} onPress={() => next(1)} />
+      <IconButton label="Zoom avant" shortcut="Ctrl+=" icon={<Plus size={18} />} onPress={() => next(1)} isDisabled={value >= 6400} />
     </Group>
   );
 }
@@ -69,23 +78,74 @@ export function PageNavigator({ page, total, onChange }: { page: number; total: 
 
 /* ---------------------------- Recherche ---------------------------- */
 
-export function FindBar({ onClose }: { onClose?: () => void }) {
-  const [query, setQuery] = useState("contrat");
-  const [index, setIndex] = useState(3);
-  const [caseSensitive, setCase] = useState(false);
-  const [wholeWord, setWhole] = useState(false);
-  const total = query.trim() === "" ? 0 : query.toLowerCase() === "introuvable" ? 0 : 27;
+export interface FindBarProps {
+  query: string;
+  onQueryChange: (q: string) => void;
+  /** Résultat courant (à partir de 1) et nombre total trouvé jusqu'ici. */
+  index: number;
+  total: number;
+  /** Recherche en cours : le total peut encore augmenter. */
+  searching?: boolean;
+  /** Message à la place du compteur (document sans texte, erreur…). */
+  notice?: string | null;
+  matchCase: boolean;
+  onMatchCaseChange: (v: boolean) => void;
+  wholeWord: boolean;
+  onWholeWordChange: (v: boolean) => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  onClose?: () => void;
+  autoFocus?: boolean;
+  inputRef?: Ref<HTMLInputElement>;
+}
+
+export function FindBar(p: FindBarProps) {
+  const empty = p.query.trim() === "";
+  const none = !empty && !p.searching && p.total === 0;
+  const status = empty
+    ? ""
+    : p.notice
+      ? p.notice
+      : none
+        ? "Aucun résultat"
+        : p.total === 0
+          ? "Recherche…"
+          : `${p.index || "–"} sur ${p.total}${p.searching ? "+" : ""}`;
   return (
     <div role="search" aria-label="Rechercher dans le document" className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-raised p-1.5 shadow-raised">
-      <SearchField label="Rechercher" value={query} onChange={setQuery} size="sm" placeholder="Rechercher" className="w-56" />
-      <span aria-live="polite" className={clsx("min-w-22 text-sm tabular-nums", total === 0 && query ? "text-danger" : "text-muted")}>
-        {query === "" ? "" : total === 0 ? "Aucun résultat" : `${index} sur ${total}`}
+      <RACSearchField
+        aria-label="Texte à rechercher"
+        value={p.query}
+        onChange={p.onQueryChange}
+        autoFocus={p.autoFocus}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (e.shiftKey) p.onPrevious();
+            else p.onNext();
+          }
+        }}
+        onClear={() => p.onQueryChange("")}
+        onSubmit={() => undefined}
+        className="group relative flex items-center"
+      >
+        <Input
+          ref={p.inputRef}
+          placeholder="Rechercher"
+          className="focus-ring h-(--control-sm) w-56 rounded-md border border-border-input bg-bg pr-7 pl-2 text-base [&::-webkit-search-cancel-button]:hidden"
+        />
+        <RACButton aria-label="Effacer" className="absolute right-1 grid size-5 place-items-center rounded-sm text-muted group-data-empty:hidden">
+          <X size={14} aria-hidden />
+        </RACButton>
+      </RACSearchField>
+      <span aria-live="polite" className={clsx("min-w-24 text-sm tabular-nums", none || p.notice ? "text-danger" : "text-muted")}>
+        {status}
       </span>
-      <IconButton label="Résultat précédent" shortcut="Maj+Entrée" size="sm" icon={<ChevronUp size={16} />} isDisabled={total === 0} onPress={() => setIndex((i) => (i > 1 ? i - 1 : total))} />
-      <IconButton label="Résultat suivant" shortcut="Entrée" size="sm" icon={<ChevronDown size={16} />} isDisabled={total === 0} onPress={() => setIndex((i) => (i < total ? i + 1 : 1))} />
-      <ToolButton label="Respecter la casse" size="sm" icon={<CaseSensitive size={16} />} isSelected={caseSensitive} onChange={setCase} />
-      <ToolButton label="Mot entier" size="sm" icon={<WholeWord size={16} />} isSelected={wholeWord} onChange={setWhole} />
-      {onClose && <IconButton label="Fermer la recherche" shortcut="Échap" size="sm" icon={<X size={16} />} onPress={onClose} />}
+      <IconButton label="Résultat précédent" shortcut="Maj+Entrée" size="sm" icon={<ChevronUp size={16} />} isDisabled={p.total === 0} onPress={p.onPrevious} />
+      <IconButton label="Résultat suivant" shortcut="Entrée" size="sm" icon={<ChevronDown size={16} />} isDisabled={p.total === 0} onPress={p.onNext} />
+      <ToolButton label="Respecter la casse" size="sm" icon={<CaseSensitive size={16} />} isSelected={p.matchCase} onChange={p.onMatchCaseChange} />
+      <ToolButton label="Mot entier" size="sm" icon={<WholeWord size={16} />} isSelected={p.wholeWord} onChange={p.onWholeWordChange} />
+      {p.onClose && <IconButton label="Fermer la recherche" shortcut="Échap" size="sm" icon={<X size={16} />} onPress={p.onClose} />}
     </div>
   );
 }

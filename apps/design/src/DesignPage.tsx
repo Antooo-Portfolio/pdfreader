@@ -262,7 +262,7 @@ function ReaderShell() {
         <main aria-label={`Document, page ${page} sur 14`} className="relative min-w-0 flex-1 overflow-auto bg-canvas">
           {findOpen && (
             <div className="sticky top-2 z-(--z-toolbar) flex justify-end px-3">
-              <FindBar onClose={() => setFindOpen(false)} />
+              <DemoFindBar onClose={() => setFindOpen(false)} />
             </div>
           )}
           <div className="mx-auto my-4 w-[440px]">
@@ -590,7 +590,7 @@ export function DesignPage() {
 
           <Section id="lecteur" title="Composants du lecteur">
             <Row label="Recherche (S05)">
-              <FindBar />
+              <DemoFindBar />
             </Row>
             <Row label="Commentaire (S08)">
               <div className="w-80">
@@ -601,5 +601,29 @@ export function DesignPage() {
         </div>
       </div>
     </ToastProvider>
+  );
+}
+
+/** Barre de recherche avec des résultats factices, pour la page de design. */
+function DemoFindBar({ onClose }: { onClose?: () => void }) {
+  const [query, setQuery] = useState("contrat");
+  const [index, setIndex] = useState(3);
+  const [matchCase, setMatchCase] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
+  const total = query.trim() === "" || query.toLowerCase() === "introuvable" ? 0 : 27;
+  return (
+    <FindBar
+      query={query}
+      onQueryChange={setQuery}
+      index={total ? index : 0}
+      total={total}
+      matchCase={matchCase}
+      onMatchCaseChange={setMatchCase}
+      wholeWord={wholeWord}
+      onWholeWordChange={setWholeWord}
+      onNext={() => setIndex((i) => (i < total ? i + 1 : 1))}
+      onPrevious={() => setIndex((i) => (i > 1 ? i - 1 : total))}
+      onClose={onClose}
+    />
   );
 }
