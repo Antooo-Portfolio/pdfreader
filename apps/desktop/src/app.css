@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@import "@pdfreader/ui/styles/tokens.css";
+@import "@pdfreader/ui/styles/tailwind-theme.css";
+@import "@pdfreader/ui/styles/base.css";
+
+@source "../../../packages/ui/src";
+@source "../../../packages/viewer/src";
+
+html, body, #root { height: 100%; overflow: hidden; }
+
+/* Couche de texte : texte invisible mais sélectionnable ; la sélection reste visible. */
+.pdf-text-layer ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); color: transparent; }
