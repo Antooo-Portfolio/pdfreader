@@ -1,0 +1,8 @@
+# Fins de ligne LF partout (le code est édité sous Windows et compilé par des outils Unix-friendly).
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.dll binary
