@@ -1,0 +1,144 @@
+feature,area,priority,original,clone,notes
+Ouvrir un PDF local (dialogue / glisser-déposer / double-clic),lecture,must,yes,yes,"M1 : dialogue, glisser-déposer, argument de lancement, instance unique"
+Associer l'app aux fichiers .pdf (desktop),lecture,must,yes,partial,"M1 : l'installeur déclare l'association ; ProgID générique « PDF » à renommer, et il écrit HKCU .pdf par défaut (UserChoice reste prioritaire)"
+Onglets multi-documents,lecture,must,yes,yes,"M1 : onglets, Ctrl+Tab, Ctrl+W, point « modifié »"
+Rendu fidèle des pages (polices / images / transparence),lecture,must,yes,partial,PDFium natif ; japonais non embarqué invisible (table de polices en M2)
+Rendu progressif et virtualisé des gros PDF,lecture,must,yes,partial,M1 : seules les pages proches de l'écran sont rendues ; pas encore d'aperçu basse résolution pendant le chargement
+Zoom (+/- / % / ajuster page / largeur),lecture,must,yes,partial,"M1 : +/-, %, Ctrl+molette, Ctrl+=/-, ajusté à la largeur à l'ouverture ; menu « Ajuster à la page / largeur » pas encore branché"
+Modes d'affichage (une page / deux pages / défilement continu),lecture,must,yes,partial,M1 : défilement continu seulement
+Navigation (page suivante / précédente / aller à / première / dernière),lecture,must,yes,yes,M1 : PageNavigator + page courante suivie au défilement
+Vue précédente / suivante (historique de navigation),lecture,should,yes,no,
+Pivoter l'affichage,lecture,must,yes,no,
+Plein écran et mode lecture,lecture,should,yes,no,S10
+Défilement automatique,lecture,could,yes,no,
+Thème clair / sombre,lecture,must,yes,partial,suit le thème de Windows (jetons) ; pas de réglage dans l'app
+Ouvrir un PDF protégé par mot de passe,lecture,must,yes,partial,"M1 : boîte de mot de passe codée, pas encore testée de bout en bout"
+Respect des permissions (impression / copie interdites),lecture,must,yes,no,
+Rechercher dans le document (Ctrl+F),recherche,must,yes,no,S05 F02
+Recherche avancée (casse / mot entier / commentaires / signets),recherche,should,yes,no,
+Recherche dans plusieurs PDF d'un dossier,recherche,could,yes,no,
+Sélectionner et copier du texte,lecture,must,yes,partial,"M1 : couche de texte DOM, sélection souris et copier ; pas de sélection au clavier"
+Panneau Vignettes,navigation,must,yes,no,S06
+Panneau Signets (lecture),navigation,must,yes,no,S07
+Créer / renommer / supprimer des signets,navigation,should,yes,no,
+Panneau Pièces jointes (ouvrir / enregistrer),navigation,should,yes,no,S09
+Panneau Calques (afficher / masquer),navigation,could,yes,no,S09
+Articles (fils de lecture),navigation,could,yes,no,
+Liens internes et externes cliquables,lecture,must,yes,no,avertissement avant d'ouvrir un site
+Barre d'actions rapides personnalisable,interface,should,yes,no,S03 QuickActionToolbar
+Raccourcis clavier (navigation / outils),interface,must,yes,partial,"M1 : Ctrl+O/S/Maj+S/W/Tab, Ctrl+=/-/1, V, U"
+Accueil avec récents et favoris,accueil,must,yes,partial,"M1 : récents avec vignette, fichier introuvable, retirer ; favoris non"
+Restaurer la dernière page et le zoom à la réouverture,accueil,should,yes,no,
+Surligner / souligner / barrer du texte,annotation,must,yes,partial,"M1 : surlignage jaune seulement (multi-lignes, multi-pages)"
+Note (commentaire épinglé),annotation,must,yes,no,
+Zone de texte et légende,annotation,must,yes,no,
+Formes (rectangle / ellipse / ligne / flèche / polygone / nuage),annotation,should,yes,no,
+Dessin à main levée et gomme,annotation,must,yes,no,
+Tampons prédéfinis,annotation,should,yes,no,
+Tampons personnalisés et dynamiques (date / nom),annotation,could,yes,no,
+Pièce jointe en commentaire,annotation,could,yes,no,
+Propriétés d'annotation (couleur / opacité / épaisseur),annotation,must,yes,no,
+Panneau Commentaires (liste / filtre / tri),annotation,must,yes,no,S08
+Répondre à un commentaire / statut (résolu / coché),annotation,should,yes,no,IRT et State de la norme
+Réactions et non lu sur les commentaires,annotation,could,yes,no,hors norme : données de l'app
+Nom d'auteur des commentaires,annotation,must,yes,no,S14
+Remplir un formulaire AcroForm,formulaires,must,yes,no,F04 S11
+Calculs et validation JavaScript des champs,formulaires,should,yes,no,sous-ensemble sûr de l'API JS en bac à sable
+Remplir un formulaire plat (texte libre / coche / date),formulaires,must,yes,no,S11
+Créer sa signature (taper / dessiner / image),signature,must,yes,no,S12
+Signature et initiales mémorisées,signature,must,yes,no,
+Enregistrer (incrémental) / Enregistrer sous,fichier,must,yes,yes,"M1 : Ctrl+S incrémental atomique, Ctrl+Maj+S, détection de modification externe et de verrou"
+Alerte de modifications non enregistrées,fichier,must,yes,yes,M1 : à la fermeture d'un onglet et de la fenêtre
+Imprimer (plage / échelle / recto-verso / commentaires),impression,must,yes,no,S13 F06
+Impression livret / plusieurs pages par feuille / affiche,impression,could,yes,no,
+Propriétés du document (lecture),fichier,should,yes,no,S15
+Modifier les métadonnées,fichier,could,yes,no,payant chez Adobe
+Préférences,interface,must,yes,no,S14
+Vue protégée / bac à sable pour PDF non fiables,sécurité,should,yes,no,bandeau + JS désactivé par défaut
+Mises à jour automatiques (desktop),distribution,must,yes,no,S35 ; tauri-plugin-updater ; vérification sur consentement uniquement
+Interface en français et anglais,interface,must,yes,partial,M1 : français seulement (Lingui en M2)
+Accessibilité (lecteur d'écran / navigation clavier / contraste),interface,must,yes,partial,"M1 : couche de texte lisible, région document nommée, focus visible ; NVDA pas encore testé à la main"
+Lecture à voix haute,accessibilité,should,yes,no,synthèse vocale du système
+Organiser les pages (réordonner / pivoter / supprimer),pages,must,yes,no,S16 F07 ; payant
+Insérer des pages (autre PDF / page blanche),pages,must,yes,no,
+Extraire / remplacer des pages,pages,should,yes,no,
+Diviser un PDF,pages,should,yes,no,
+Rogner les pages,pages,could,yes,no,
+Renuméroter les pages (étiquettes),pages,could,yes,no,
+Combiner plusieurs fichiers en un PDF,pages,must,yes,no,S17 F08
+Compresser / réduire la taille,optimisation,must,yes,no,S21 F12
+Optimiseur avancé et audit de l'espace,optimisation,could,yes,no,
+Protéger par mot de passe (AES-256),sécurité,must,yes,no,S22 F13
+Restreindre impression / copie / modification,sécurité,should,yes,no,
+Retirer la protection (avec le mot de passe),sécurité,should,yes,no,
+Chiffrement par certificat,sécurité,could,yes,no,
+Créer un PDF depuis une image,création,must,yes,no,S20 F11
+Créer un PDF depuis Word / Excel / PowerPoint,création,should,yes,no,traitement local obligatoire : LibreOffice embarqué sur desktop ; web à trancher
+Créer un PDF depuis le presse-papiers / une page web / une page blanche,création,could,yes,no,
+Imprimante virtuelle « Enregistrer en PDF » (Windows),création,could,yes,no,pilote d'impression : coûteux
+Exporter en image (PNG / JPEG),conversion,must,yes,no,S19
+Exporter en texte brut,conversion,should,yes,no,
+Exporter vers Word,conversion,should,yes,no,F10 ; fidélité de mise en page difficile ; traitement local
+Exporter vers Excel / PowerPoint,conversion,could,yes,no,
+Modifier le texte existant,édition,must,yes,no,S18 F09 ; la fonction payante phare
+Ajouter du texte,édition,must,yes,no,
+Ajouter / remplacer / supprimer des images,édition,should,yes,no,
+Ajouter et modifier des liens,édition,should,yes,no,
+Filigrane / arrière-plan,édition,should,yes,no,S27
+En-tête / pied de page / numéros de page,édition,should,yes,no,S27
+Numérotation Bates,édition,could,yes,no,niche juridique ; Pro chez Adobe
+Correcteur orthographique,édition,could,yes,no,
+OCR d'un document scanné,ocr,should,yes,no,S25 F16 ; Tesseract
+Détection auto d'un scan + suggestion d'OCR,ocr,should,yes,no,bandeau dans S03
+Redresser / améliorer un scan,ocr,could,yes,no,
+Numériser depuis un scanner (TWAIN / WIA),ocr,could,yes,no,desktop seulement
+Caviarder (marquer / rechercher / appliquer),sécurité,should,yes,no,S23 F14 ; suppression réelle du contenu
+Nettoyer le document (métadonnées / calques / texte caché),sécurité,should,yes,no,
+Comparer deux versions,comparaison,should,yes,no,S24 F15
+Préparer un formulaire (détection auto des champs),formulaires,should,yes,no,S26 F17
+Éditeur de champs (types / propriétés / alignement / ordre de tabulation),formulaires,should,yes,no,
+Champs code-barres,formulaires,could,yes,no,
+Signature numérique avec certificat (PAdES),signature,should,yes,no,S28 F18
+Valider une signature numérique (panneau Signatures),signature,should,yes,no,
+Certifier un document (DocMDP) / horodatage,signature,could,yes,no,
+Créer une ID numérique auto-signée,signature,could,yes,no,
+Compte utilisateur et connexion,compte,must,yes,skip,appli gratuite sans compte
+Abonnement et déverrouillage des outils payants,compte,must,yes,skip,appli entièrement gratuite : rien à déverrouiller
+Licence desktop utilisable hors ligne,compte,should,yes,skip,pas de licence
+Web : pages outil publiques avec dépôt de fichier,web,must,yes,skip,appli desktop uniquement : pas de version navigateur
+Web : traitement 100 % local dans le navigateur (WASM),web,must,no,skip,appli desktop uniquement : pas de version navigateur ; tout est traité localement par le moteur natif
+Stockage cloud de ses fichiers,cloud,should,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur
+Ouvrir depuis Google Drive / OneDrive / Dropbox,cloud,could,yes,skip,les applis OneDrive / Google Drive / Dropbox créent des dossiers locaux : rien à intégrer
+Fonctionne sans compte et sans connexion,accessibilité,must,no,yes,M1 : aucun appel réseau
+Aucune publicité ni télémétrie,accessibilité,must,no,yes,M1
+PWA installable et utilisable hors ligne,web,must,no,skip,appli desktop uniquement : pas de version navigateur
+Thème contraste élevé et respect du mode contraste élevé de Windows,accessibilité,must,yes,no,forced-colors
+Zoom de l'interface indépendant du document,accessibilité,should,yes,no,
+Ordre de lecture des PDF balisés pour les lecteurs d'écran,accessibilité,should,yes,no,StructTreeRoot
+Export / import des préférences en JSON,interface,should,no,no,remplace la synchro par compte
+Installeur setup.exe (NSIS) téléchargeable,distribution,must,no,yes,"M1 : PDFReader_0.1.0_x64-setup.exe, 6,2 Mo, installation utilisateur sans admin, désinstalleur"
+Signature de code de l'installeur,distribution,should,no,skip,choix zéro coût pour l'éditeur : setup non signé ; page de téléchargement qui explique l'avertissement SmartScreen
+Page de téléchargement statique,distribution,must,no,no,GitHub Pages d'un dépôt public de versions (sans le code) : Télécharger + marche à suivre SmartScreen + notes + EULA + confidentialité + licences
+Fiche Microsoft Store gratuite (installation sans avertissement),distribution,could,no,no,"facultatif, en plus du setup ; MSIX signé gratuitement par le Store"
+Moteur PDF dans un processus séparé et redémarrable,sécurité,should,no,no,un PDF piégé ne fait tomber que son onglet
+Setup « hors ligne » avec WebView2 embarqué,distribution,could,no,no,postes sans Internet
+Écran Licences tierces (mentions MIT / BSD / Apache / OFL),distribution,must,no,no,obligatoire en code fermé ; dans À propos (S35)
+Contrôle des licences des dépendances en CI,distribution,must,no,partial,cargo-deny + tools/check-npm-licenses.py ; pas encore de CI
+EULA et politique de confidentialité,distribution,must,no,no,EULA affiché dans l'installeur ; pages sur le site de téléchargement
+Partager un lien de lecture / relecture,collaboration,should,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur
+Relecteur commente sans compte,collaboration,should,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur
+Suivi des vues d'un partage,collaboration,could,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur
+Demander des signatures (envoi / ordre / suivi),signature,could,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur ; partage possible par simple envoi du fichier
+Envoi de signatures en masse,signature,could,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur
+Assistant IA (résumé / questions avec citations),ia,could,yes,skip,coût par requête incompatible avec la gratuité ; à reconsidérer avec un modèle local
+Édition du PDF par chat,ia,could,yes,skip,même raison que l'assistant IA
+Logo / nom / icône / police Adobe Clean,marque,could,yes,skip,marques déposées et police sous licence : à remplacer par /replica-brand
+Validation via l'Adobe Approved Trust List,signature,could,yes,skip,programme de partenariat Adobe ; utiliser le magasin système + EUTL
+Signature qualifiée eIDAS via Acrobat Sign,signature,could,yes,skip,passe par un prestataire de confiance (QTSP) sous contrat
+Formulaires XFA dynamiques,formulaires,could,yes,skip,technologie propriétaire abandonnée dans PDF 2.0
+Adobe Express (designs / images IA / pages de couverture / traduction),ia,could,yes,skip,autre produit Adobe
+Podcasts et présentations générés,ia,could,yes,skip,fonctions Adobe Studio liées à Express
+PDF Spaces,ia,could,yes,skip,produit Adobe Studio ; à repenser si l'IA est développée
+Intégration Microsoft Purview (MPIP) et politiques de sécurité serveur,entreprise,could,yes,skip,intégrations entreprise propriétaires
+Acrobat Distiller / PostScript / production d'impression (séparations / défonce),impression,could,yes,skip,marché de niche ; Ghostscript est AGPL
+Polices Adobe embarquées pour la substitution,lecture,could,yes,skip,polices sous licence ; utiliser Noto / Liberation
