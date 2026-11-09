@@ -1,0 +1,77 @@
+/* Styles de base de @pdfreader/ui (écrits à la main). À importer après tailwindcss,
+   tokens.css et tailwind-theme.css. */
+
+@layer base {
+  html {
+    font-family: var(--ff-sans);
+    font-size: 100%; /* le zoom de l'interface change cette valeur (87.5 %, 112.5 %, 125 %…) */
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    margin: 0;
+    font-size: var(--fs-base);
+    line-height: var(--lh-base);
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+}
+
+/* Anneau de focus unique pour toute l'app : clavier seulement, décalé de 2px. */
+@utility focus-ring {
+  outline: none;
+  &[data-focus-visible],
+  &:focus-visible {
+    outline: var(--focus-ring) solid var(--focus);
+    outline-offset: var(--focus-offset);
+  }
+}
+
+/* Variante : anneau à l'intérieur (pour les éléments collés à un bord : onglets, lignes). */
+@utility focus-ring-inset {
+  outline: none;
+  &[data-focus-visible],
+  &:focus-visible {
+    outline: var(--focus-ring) solid var(--focus);
+    outline-offset: calc(var(--focus-ring) * -1);
+  }
+}
+
+/* Transition standard des contrôles. */
+@utility transition-control {
+  transition-property: background-color, border-color, color, box-shadow, opacity;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--motion-ease);
+}
+
+/* Page PDF posée sur le canevas. */
+@utility pdf-page {
+  background: var(--page);
+  box-shadow: var(--elev-page);
+  outline: var(--page-outline, none);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+@media (forced-colors: active) {
+  /* Les états sélectionnés restent visibles quand le système impose ses couleurs. */
+  [data-selected] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+}

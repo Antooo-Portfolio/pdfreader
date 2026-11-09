@@ -1,0 +1,181 @@
+== thème light
+  AAA   17.77:1  text                     on bg                   
+  AAA   16.44:1  text                     on surface              
+  AAA   17.77:1  text                     on surface-raised       
+  AAA   15.00:1  text                     on surface-hover        
+  AAA   14.89:1  text                     on surface-selected     
+  AAA   14.06:1  text                     on canvas               
+  AA     6.77:1  text-muted               on bg                   
+  AA     6.26:1  text-muted               on surface              
+  AA     6.77:1  text-muted               on surface-raised       
+  AA     5.71:1  text-muted               on surface-hover        
+  AA     5.67:1  text-muted               on surface-selected     
+  AA     5.35:1  text-muted               on canvas               
+  AAA    7.60:1  accent-text              on bg                   
+  AAA    7.03:1  accent-text              on surface              
+  AAA    7.60:1  accent-text              on surface-raised       
+  AA     6.37:1  accent-text              on surface-selected     
+  AA     5.69:1  on-accent                on accent               
+  AAA    7.60:1  on-accent                on accent-hover         
+  AA     5.73:1  on-danger                on danger               
+  AAA    7.50:1  on-danger                on danger-hover         
+  AA     5.73:1  danger                   on bg                   
+  AA     5.30:1  danger                   on surface              
+  AA     5.73:1  danger                   on surface-raised       
+  AA     5.88:1  success                  on bg                   
+  AA     5.44:1  success                  on surface              
+  AA     6.50:1  warning                  on bg                   
+  AA     5.87:1  warning                  on warning-bg           
+  AAA   15.39:1  text                     on info-bg              
+  AAA   16.07:1  text                     on warning-bg           
+  AAA   15.03:1  text                     on danger-bg            
+  AAA   15.39:1  text                     on success-bg           
+  AA     4.85:1  danger                   on danger-bg            
+  AA     5.09:1  success                  on success-bg           
+  PASS   4.23:1  border-input             on bg                   ui
+  PASS   3.91:1  border-input             on surface              ui
+  PASS   4.23:1  border-input             on surface-raised       ui
+  PASS   5.69:1  focus                    on bg                   ui
+  PASS   5.26:1  focus                    on surface              ui
+  PASS   5.69:1  focus                    on surface-raised       ui
+  PASS   4.76:1  focus                    on surface-selected     ui
+  PASS   4.50:1  focus                    on canvas               ui
+  PASS   5.69:1  accent                   on bg                   ui
+  PASS   5.26:1  accent                   on surface              ui
+  PASS   5.69:1  accent                   on surface-raised       ui
+  PASS   4.50:1  accent                   on canvas               ui
+
+  45 pairs, 0 failing AA
+   -- encre du PDF sur annotations
+  AAA   16.13:1  page-ink                 on yellow               
+  AAA   13.59:1  page-ink                 on green                
+  AAA   11.82:1  page-ink                 on blue                 
+  AAA   11.02:1  page-ink                 on pink                 
+  AAA   11.98:1  page-ink                 on orange               
+  AAA    8.09:1  page-ink                 on purple               
+  AAA   15.17:1  page-ink                 on search-hit           
+  AAA   10.29:1  page-ink                 on search-hit-current   
+
+  8 pairs, 0 failing AA
+
+== thème dark
+  AAA   14.66:1  text                     on bg                   
+  AAA   13.51:1  text                     on surface              
+  AAA   12.15:1  text                     on surface-raised       
+  AAA   10.55:1  text                     on surface-hover        
+  AAA   10.45:1  text                     on surface-selected     
+  AAA   16.12:1  text                     on canvas               
+  AAA    7.72:1  text-muted               on bg                   
+  AAA    7.11:1  text-muted               on surface              
+  AA     6.40:1  text-muted               on surface-raised       
+  AA     5.55:1  text-muted               on surface-hover        
+  AA     5.50:1  text-muted               on surface-selected     
+  AAA    8.49:1  text-muted               on canvas               
+  AAA    8.49:1  accent-text              on bg                   
+  AAA    7.82:1  accent-text              on surface              
+  AAA    7.04:1  accent-text              on surface-raised       
+  AA     6.05:1  accent-text              on surface-selected     
+  AAA    7.45:1  on-accent                on accent               
+  AAA    9.51:1  on-accent                on accent-hover         
+  AAA    7.77:1  on-danger                on danger               
+  AAA    9.59:1  on-danger                on danger-hover         
+  AA     6.79:1  danger                   on bg                   
+  AA     6.26:1  danger                   on surface              
+  AA     5.63:1  danger                   on surface-raised       
+  AAA    8.84:1  success                  on bg                   
+  AAA    8.15:1  success                  on surface              
+  AAA   10.15:1  warning                  on bg                   
+  AAA    8.26:1  warning                  on warning-bg           
+  AAA   12.44:1  text                     on info-bg              
+  AAA   11.93:1  text                     on warning-bg           
+  AAA   13.28:1  text                     on danger-bg            
+  AAA   11.93:1  text                     on success-bg           
+  AA     6.15:1  danger                   on danger-bg            
+  AAA    7.20:1  success                  on success-bg           
+  PASS   5.38:1  border-input             on bg                   ui
+  PASS   4.95:1  border-input             on surface              ui
+  PASS   4.46:1  border-input             on surface-raised       ui
+  PASS   7.97:1  focus                    on bg                   ui
+  PASS   7.34:1  focus                    on surface              ui
+  PASS   6.61:1  focus                    on surface-raised       ui
+  PASS   5.68:1  focus                    on surface-selected     ui
+  PASS   8.77:1  focus                    on canvas               ui
+  PASS   6.66:1  accent                   on bg                   ui
+  PASS   6.13:1  accent                   on surface              ui
+  PASS   5.52:1  accent                   on surface-raised       ui
+  PASS   7.32:1  accent                   on canvas               ui
+
+  45 pairs, 0 failing AA
+   -- encre du PDF sur annotations
+  AAA   16.13:1  page-ink                 on yellow               
+  AAA   13.59:1  page-ink                 on green                
+  AAA   11.82:1  page-ink                 on blue                 
+  AAA   11.02:1  page-ink                 on pink                 
+  AAA   11.98:1  page-ink                 on orange               
+  AAA    8.09:1  page-ink                 on purple               
+  AAA   15.17:1  page-ink                 on search-hit           
+  AAA   10.29:1  page-ink                 on search-hit-current   
+
+  8 pairs, 0 failing AA
+
+== thème contrast
+  AAA   21.00:1  text                     on bg                   
+  AAA   21.00:1  text                     on surface              
+  AAA   19.44:1  text                     on surface-raised       
+  AAA   15.13:1  text                     on surface-hover        
+  AAA   14.16:1  text                     on surface-selected     
+  AAA   21.00:1  text                     on canvas               
+  AAA   16.83:1  text-muted               on bg                   
+  AAA   16.83:1  text-muted               on surface              
+  AAA   15.57:1  text-muted               on surface-raised       
+  AAA   12.13:1  text-muted               on surface-hover        
+  AAA   11.34:1  text-muted               on surface-selected     
+  AAA   16.83:1  text-muted               on canvas               
+  AAA   14.87:1  accent-text              on bg                   
+  AAA   14.87:1  accent-text              on surface              
+  AAA   13.76:1  accent-text              on surface-raised       
+  AAA   10.03:1  accent-text              on surface-selected     
+  AAA   14.87:1  on-accent                on accent               
+  AAA   16.87:1  on-accent                on accent-hover         
+  AAA    7.80:1  on-danger                on danger               
+  AAA   10.34:1  on-danger                on danger-hover         
+  AAA    7.80:1  danger                   on bg                   
+  AAA    7.80:1  danger                   on surface              
+  AAA    7.22:1  danger                   on surface-raised       
+  AAA   16.02:1  success                  on bg                   
+  AAA   16.02:1  success                  on surface              
+  AAA   14.87:1  warning                  on bg                   
+  AAA   14.87:1  warning                  on warning-bg           
+  AAA   21.00:1  text                     on info-bg              
+  AAA   21.00:1  text                     on warning-bg           
+  AAA   21.00:1  text                     on danger-bg            
+  AAA   21.00:1  text                     on success-bg           
+  AAA    7.80:1  danger                   on danger-bg            
+  AAA   16.02:1  success                  on success-bg           
+  PASS  21.00:1  border-input             on bg                   ui
+  PASS  21.00:1  border-input             on surface              ui
+  PASS  19.44:1  border-input             on surface-raised       ui
+  PASS  13.65:1  focus                    on bg                   ui
+  PASS  13.65:1  focus                    on surface              ui
+  PASS  12.63:1  focus                    on surface-raised       ui
+  PASS   9.20:1  focus                    on surface-selected     ui
+  PASS  13.65:1  focus                    on canvas               ui
+  PASS  14.87:1  accent                   on bg                   ui
+  PASS  14.87:1  accent                   on surface              ui
+  PASS  13.76:1  accent                   on surface-raised       ui
+  PASS  14.87:1  accent                   on canvas               ui
+
+  45 pairs, 0 failing AA
+   -- encre du PDF sur annotations
+  AAA   16.13:1  page-ink                 on yellow               
+  AAA   13.59:1  page-ink                 on green                
+  AAA   11.82:1  page-ink                 on blue                 
+  AAA   11.02:1  page-ink                 on pink                 
+  AAA   11.98:1  page-ink                 on orange               
+  AAA    8.09:1  page-ink                 on purple               
+  AAA   14.87:1  page-ink                 on search-hit           
+  AAA   13.65:1  page-ink                 on search-hit-current   
+
+  8 pairs, 0 failing AA
+
+RÉSULTAT : 0 échec AA sur les 3 thèmes

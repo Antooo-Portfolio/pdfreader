@@ -1,0 +1,11 @@
+{
+  "name": "pdfreader",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "tokens": "python replica/design/build-tokens.py",
+    "contrast": "python replica/design/check-contrast.py",
+    "design": "npm run dev -w @pdfreader/design",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

@@ -1,0 +1,7 @@
+@import "tailwindcss";
+@import "@pdfreader/ui/styles/tokens.css";
+@import "@pdfreader/ui/styles/tailwind-theme.css";
+@import "@pdfreader/ui/styles/base.css";
+
+/* Tailwind doit voir les classes du paquet ui. */
+@source "../../../packages/ui/src";

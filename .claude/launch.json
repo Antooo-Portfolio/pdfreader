@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "design",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "@pdfreader/design"],
+      "port": 5174
+    }
+  ]
+}
