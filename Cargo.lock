@@ -2571,6 +2571,7 @@ name = "pdfreader-desktop"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
  "pdfium-render",
  "pdfreader-engine",
  "rusqlite",

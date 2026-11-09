@@ -19,6 +19,7 @@ import {
 } from "@pdfreader/ui";
 import { clsx } from "clsx";
 import {
+  Check,
   BookOpen,
   Bookmark as BookmarkIcon,
   Eraser,
@@ -32,15 +33,19 @@ import {
   RotateCw,
   Save,
   Search,
+  Signature as SignatureIcon,
   StickyNote,
+  Type,
+  X as XIcon,
   Strikethrough,
   Underline,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_STYLES, hitTest, isMarkupTool, KIND_LABELS, type Tool, type ToolStyle, type ToolStyles } from "./annot";
+import { DEFAULT_STYLES, hitTest, isMarkupTool, KIND_LABELS, type Tool, type ToolStyle, type ToolStyles, toHex } from "./annot";
 import { PropertyBar } from "./AnnotTools";
 import { CommentsPanel } from "./CommentsPanel";
-import type { Annot, AnnotPatch, AnnotResult, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
+import { SignatureDialog } from "./FillTools";
+import type { Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
 import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
 import { PageView } from "./PageView";
@@ -68,6 +73,12 @@ interface Props {
 
 export interface DocActions {
   markupSelection: (kind: MarkupKind) => Promise<number>;
+  fields: (page: number) => Promise<Field[]>;
+  setField: (page: number, index: number, input: FieldInput) => Promise<Field[] | null>;
+  addText: (page: number, x: number, y: number, text: string) => Promise<string | null>;
+  addMark: (page: number, x: number, y: number) => Promise<string | null>;
+  saveSignature: (kind: SignatureKind, data: string) => Promise<void>;
+  placeSignature: (page: number, x: number, y: number, kind: SignatureKind) => Promise<string | null>;
   createNote: (page: number, x: number, y: number, text: string) => Promise<string | null>;
   createInk: (page: number, strokes: [number, number][][]) => Promise<string | null>;
   updateAnnot: (page: number, id: string, patch: AnnotPatch) => Promise<boolean>;
@@ -110,7 +121,11 @@ const TOOL_LABELS: Record<Exclude<Tool, "select" | "eraser">, string> = {
   strikeout: "Barrer",
   note: "Note",
   ink: "Dessin",
+  text: "Texte",
+  check: "Coche",
+  sign: "Signer",
 };
+const STAMP_KINDS = new Set(["text", "mark", "signature", "stamp"]);
 
 export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles, onStyleChange, author, onAuthorChange, onAnnotated, onSave, onOpen, register }: Props) {
   const toast = useToast();
@@ -660,6 +675,22 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
     [selected, updateAnnot],
   );
 
+  /** Texte d'un commentaire. Pour un tampon « texte », le texte affiché change aussi : on le
+   *  recrée au même endroit, à la même taille. */
+  const saveComment = useCallback(
+    async (a: Annot, text: string) => {
+      if (a.kind !== "text") return void updateAnnot(a.page, a.id, { contents: text });
+      if (!text.trim()) return void deleteAnnot(a.page, a.id);
+      const st = stylesRef.current.text;
+      const r = await attempt(() => engine.addText(info.id, a.page, a.rect[0] + 1, a.rect[1] + 1, text, a.fontSize ?? st.width, a.color ?? st.color), "Le texte n'a pas pu être modifié");
+      if (r) {
+        apply(a.page, r);
+        await deleteAnnot(a.page, a.id);
+      }
+    },
+    [updateAnnot, deleteAnnot, attempt, engine, info.id, apply],
+  );
+
   const selectAnnot = useCallback(
     (a: Annot) => {
       setSelected({ page: a.page, id: a.id });
@@ -681,6 +712,163 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
     if (sel && !sel.isCollapsed && sel.anchorNode && scroller.current?.contains(sel.anchorNode)) void markupSelection(tool);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool]);
+
+  // ------------------------------------------------------------ formulaires et signature (S11, S12)
+  const canFill = perms.fillForms;
+  const [fields, setFields] = useState<Map<number, Field[]>>(() => new Map());
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
+  const loadingFields = useRef(new Map<number, Promise<Field[]>>());
+  const [highlightFields, setHighlightFields] = useState(true);
+  const [formBannerClosed, setFormBannerClosed] = useState(false);
+  const [textDraft, setTextDraft] = useState<{ page: number; x: number; y: number } | null>(null);
+  const [markCross, setMarkCross] = useState(false);
+  const [sigKind, setSigKind] = useState<SignatureKind>("signature");
+  const [sigs, setSigs] = useState<Partial<Record<SignatureKind, SavedSignature | null>>>({});
+  const [sigDialog, setSigDialog] = useState<{ kind: SignatureKind; then?: (s: SavedSignature) => void } | null>(null);
+
+  useEffect(() => {
+    loadingFields.current.clear();
+    setFields(new Map());
+  }, [info.generation]);
+
+  const loadFields = useCallback(
+    (p: number): Promise<Field[]> => {
+      if (!info.hasForm) return Promise.resolve([]);
+      const have = fieldsRef.current.get(p);
+      if (have) return Promise.resolve(have);
+      const inflight = loadingFields.current.get(p);
+      if (inflight) return inflight;
+      const job = engine
+        .fields(info.id, p)
+        .catch(() => [] as Field[])
+        .then((list) => {
+          loadingFields.current.delete(p);
+          setFields((m) => (m.has(p) ? m : new Map(m).set(p, list)));
+          return list;
+        });
+      loadingFields.current.set(p, job);
+      return job;
+    },
+    [engine, info.id, info.hasForm],
+  );
+
+  const setField = useCallback(
+    async (p: number, index: number, input: FieldInput): Promise<Field[] | null> => {
+      const r = await attempt(() => engine.setField(info.id, p, index, input), "La saisie n'a pas pu être enregistrée");
+      if (!r) return null;
+      fieldsRef.current = new Map(fieldsRef.current).set(p, r);
+      setFields(fieldsRef.current);
+      onAnnotated(p);
+      return r;
+    },
+    [attempt, engine, info.id, onAnnotated],
+  );
+
+  const addText = useCallback(
+    async (p: number, x: number, y: number, text: string): Promise<string | null> => {
+      const st = stylesRef.current.text;
+      const r = await attempt(() => engine.addText(info.id, p, x, y, text, st.width, st.color), "Le texte n'a pas pu être ajouté");
+      if (!r) return null;
+      apply(p, r);
+      return r.id;
+    },
+    [attempt, engine, info.id, apply],
+  );
+
+  const markCrossRef = useRef(markCross);
+  markCrossRef.current = markCross;
+  const addMark = useCallback(
+    async (p: number, x: number, y: number): Promise<string | null> => {
+      const st = stylesRef.current.check;
+      // La coche est centrée sur le clic.
+      const r = await attempt(() => engine.addMark(info.id, p, Math.max(0, x - st.width / 2), Math.max(0, y - st.width / 2), st.width, markCrossRef.current, st.color), "La coche n'a pas pu être ajoutée");
+      if (!r) return null;
+      apply(p, r);
+      return r.id;
+    },
+    [attempt, engine, info.id, apply],
+  );
+
+  const getSignature = useCallback(
+    async (kind: SignatureKind): Promise<SavedSignature | null> => {
+      if (sigs[kind] !== undefined) return sigs[kind] ?? null;
+      const s = await engine.signature(kind).catch(() => null);
+      setSigs((m) => ({ ...m, [kind]: s }));
+      return s;
+    },
+    [engine, sigs],
+  );
+  useEffect(() => {
+    if (tool === "sign") {
+      void getSignature("signature");
+      void getSignature("initials");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool]);
+
+  const saveSignature = useCallback(
+    async (kind: SignatureKind, data: string, method: SavedSignature["method"] = "image", font: string | null = null) => {
+      await engine.setSignature(kind, method, data, font);
+      const s = await engine.signature(kind);
+      setSigs((m) => ({ ...m, [kind]: s }));
+    },
+    [engine],
+  );
+
+  /** Taille de la signature posée : largeur fixe (signature 150 pt, initiales 60 pt), hauteur selon
+   *  l'image ; ou ajustée à un champ de signature. */
+  const signatureSize = async (s: SavedSignature, kind: SignatureKind, fit?: [number, number]): Promise<[number, number]> => {
+    const img = new Image();
+    img.src = s.data;
+    await img.decode().catch(() => undefined);
+    const ratio = img.naturalWidth > 0 ? img.naturalHeight / img.naturalWidth : 0.35;
+    if (fit) {
+      const [fw, fh] = fit;
+      const w = Math.min(fw, fh / ratio);
+      return [w, w * ratio];
+    }
+    const w = kind === "initials" ? 60 : 150;
+    return [w, w * ratio];
+  };
+
+  const placeSignature = useCallback(
+    async (p: number, x: number, y: number, kind: SignatureKind, fit?: Field): Promise<string | null> => {
+      const s = await getSignature(kind);
+      if (!s) return null;
+      const [w, h] = await signatureSize(s, kind, fit ? [fit.rect[2], fit.rect[3]] : undefined);
+      const [pw, ph] = info.pages[p] ?? [612, 792];
+      const rect: Box = fit
+        ? [fit.rect[0] + (fit.rect[2] - w) / 2, fit.rect[1] + (fit.rect[3] - h) / 2, w, h]
+        : [Math.min(Math.max(0, x - w / 2), pw - w), Math.min(Math.max(0, y - h / 2), ph - h), w, h];
+      const r = await attempt(() => engine.addSignature(info.id, p, rect, kind), "La signature n'a pas pu être posée");
+      if (!r) return null;
+      apply(p, r);
+      return r.id;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [getSignature, info.pages, attempt, engine, info.id, apply],
+  );
+
+  /** Signer : avec la signature mémorisée, ou après l'avoir créée. */
+  const signAt = useCallback(
+    async (p: number, x: number, y: number, kind: SignatureKind, fit?: Field) => {
+      const s = await getSignature(kind);
+      if (s) return void placeSignature(p, x, y, kind, fit);
+      setSigDialog({ kind, then: () => void placeSignature(p, x, y, kind, fit) });
+    },
+    [getSignature, placeSignature],
+  );
+
+  const onPlace = useCallback(
+    (p: number, t: Tool, x: number, y: number) => {
+      if (t === "note") void createNote(p, Math.max(0, x - 10), Math.max(0, y - 10));
+      else if (t === "text") setTextDraft({ page: p, x, y });
+      else if (t === "check") void addMark(p, x, y);
+      else if (t === "sign") void signAt(p, x, y, sigKind);
+    },
+    [createNote, addMark, signAt, sigKind],
+  );
 
   /** Clic sur la page avec l'outil de sélection : sélectionne le commentaire sous le pointeur. */
   const onDocClick = (e: React.MouseEvent) => {
@@ -712,6 +900,12 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
 
   useEffect(() => {
     register?.({
+      fields: loadFields,
+      setField,
+      addText,
+      addMark,
+      saveSignature: (kind, data) => saveSignature(kind, data, "drawn"),
+      placeSignature: (p, x, y, kind) => placeSignature(p, x, y, kind),
       markupSelection,
       createNote,
       createInk,
@@ -723,7 +917,7 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
       },
       openPanel: setPanel,
     });
-  }, [register, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots]);
+  }, [register, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, saveSignature, placeSignature]);
   useEffect(() => () => register?.(null), [register]);
 
   // ------------------------------------------------------------ clavier
@@ -841,10 +1035,14 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
   const visibleKey = visiblePages.join(",");
   useEffect(() => {
     if (!isActive) return;
-    for (const p of visibleKey.split(",")) if (p !== "") void loadAnnots(Number(p));
-  }, [visibleKey, isActive, loadAnnots, annots]);
+    for (const p of visibleKey.split(",")) if (p !== "") {
+      void loadAnnots(Number(p));
+      void loadFields(Number(p));
+    }
+  }, [visibleKey, isActive, loadAnnots, loadFields, annots, fields]);
   const selectedAnnot = selected ? annots.get(selected.page)?.find((a) => a.id === selected.id) : undefined;
   const styleTool = tool === "select" || tool === "eraser" ? null : tool;
+  const sig = sigs[sigKind];
   const notice = !search.searching && search.flat.length === 0 && search.pagesWithText === 0 ? "Aucun texte dans ce document (numérisé ?)" : null;
 
   return (
@@ -870,6 +1068,9 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
           <ToolButton id="note" label="Ajouter une note (cliquez sur la page)" shortcut="N" icon={<StickyNote size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="ink" label="Dessiner à main levée" shortcut="D" icon={<PenLine size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="eraser" label="Gomme (efface les dessins)" shortcut="E" icon={<Eraser size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="text" label="Ajouter du texte (cliquez sur la page)" shortcut="T" icon={<Type size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="check" label="Ajouter une coche ou une croix" icon={<Check size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="sign" label="Signer (cliquez sur la page)" shortcut="S" icon={<SignatureIcon size={18} />} isDisabled={!canAnnotate} />
         </ToolGroup>
         <div className="ml-auto flex items-center gap-1">
           <IconButton label="Rechercher" shortcut="Ctrl+F" icon={<Search size={18} />} onPress={openFind} />
@@ -925,25 +1126,103 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
         <PropertyBar
           title={`Sélection : ${KIND_LABELS[selectedAnnot.kind]}`}
           style={{ color: selectedAnnot.color ?? DEFAULT_STYLES.highlight.color, opacity: selectedAnnot.opacity, width: selectedAnnot.width }}
-          showOpacity={selectedAnnot.kind !== "note"}
+          showColor={!STAMP_KINDS.has(selectedAnnot.kind)}
+          showOpacity={!STAMP_KINDS.has(selectedAnnot.kind) && selectedAnnot.kind !== "note"}
           showWidth={selectedAnnot.kind === "ink"}
           onChange={patchSelected}
           onDelete={() => void deleteAnnot(selectedAnnot.page, selectedAnnot.id)}
         />
       ) : (
         canAnnotate &&
-        styleTool && (
+        styleTool &&
+        (styleTool === "sign" ? (
+          <PropertyBar
+            title="Signer"
+            style={styles.text}
+            showColor={false}
+            showOpacity={false}
+            showWidth={false}
+            onChange={() => undefined}
+            extra={
+              <div className="flex items-center gap-3">
+                <ToolGroup
+                  aria-label="Que poser"
+                  selectionMode="single"
+                  disallowEmptySelection
+                  selectedKeys={new Set([sigKind])}
+                  onSelectionChange={(k) => {
+                    const v = [...k][0];
+                    if (v === "signature" || v === "initials") setSigKind(v);
+                  }}
+                >
+                  <ToolButton id="signature" label="Signature" icon={<SignatureIcon size={16} />} size="sm" />
+                  <ToolButton id="initials" label="Initiales" icon={<Type size={16} />} size="sm" />
+                </ToolGroup>
+                {sig ? (
+                  <img src={sig.data} alt={sigKind === "initials" ? "Vos initiales" : "Votre signature"} className="h-7 max-w-40 rounded-sm bg-page object-contain px-1" />
+                ) : (
+                  <span className="text-sm text-muted">{sigKind === "initials" ? "Aucunes initiales enregistrées" : "Aucune signature enregistrée"}</span>
+                )}
+                <Button size="sm" onPress={() => setSigDialog({ kind: sigKind })}>
+                  {sig ? "Modifier" : "Créer"}
+                </Button>
+                {sig && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onPress={async () => {
+                      await engine.deleteSignature(sigKind).catch(() => undefined);
+                      setSigs((m) => ({ ...m, [sigKind]: null }));
+                    }}
+                  >
+                    Oublier
+                  </Button>
+                )}
+                <span className="text-sm text-muted">Cliquez sur la page pour la poser.</span>
+              </div>
+            }
+          />
+        ) : (
           <PropertyBar
             title={TOOL_LABELS[styleTool]}
             style={styles[styleTool]}
-            showOpacity={styleTool !== "note"}
-            showWidth={styleTool === "ink"}
+            showOpacity={styleTool !== "note" && styleTool !== "text" && styleTool !== "check"}
+            showWidth={styleTool === "ink" || styleTool === "text" || styleTool === "check"}
+            widthLabel={styleTool === "ink" ? "Épaisseur" : "Taille"}
+            widthRange={styleTool === "ink" ? [0.5, 12, 0.5] : [6, 48, 1]}
             onChange={(patch) => onStyleChange(styleTool, patch)}
+            extra={
+              styleTool === "check" ? (
+                <ToolGroup
+                  aria-label="Forme"
+                  selectionMode="single"
+                  disallowEmptySelection
+                  selectedKeys={new Set([markCross ? "cross" : "check"])}
+                  onSelectionChange={(k) => setMarkCross([...k][0] === "cross")}
+                >
+                  <ToolButton id="check" label="Coche" icon={<Check size={16} />} size="sm" />
+                  <ToolButton id="cross" label="Croix" icon={<XIcon size={16} />} size="sm" />
+                </ToolGroup>
+              ) : undefined
+            }
           />
-        )
+        ))
       )}
       {info.isXfa && (
         <Banner tone="warning">Ce document utilise des formulaires XFA, qui ne sont pas pris en charge : certaines pages peuvent s'afficher incomplètes.</Banner>
+      )}
+      {info.hasForm && !info.isXfa && !formBannerClosed && (
+        <Banner
+          tone="info"
+          onDismiss={() => setFormBannerClosed(true)}
+          actions={
+            <Button size="sm" variant="ghost" onPress={() => setHighlightFields((h) => !h)}>
+              {highlightFields ? "Ne plus surligner les champs" : "Surligner les champs"}
+            </Button>
+          }
+        >
+          {canFill ? "Ce document contient un formulaire : cliquez dans les champs pour les remplir (Tab passe au suivant)." : "Ce document contient un formulaire, mais son auteur en a interdit le remplissage."}
+        </Banner>
       )}
       {restricted && !restrictionsDismissed && (
         <Banner tone="info" onDismiss={() => setRestrictionsDismissed(true)}>
@@ -1021,7 +1300,18 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
                       editing={editing?.page === i ? editing : null}
                       tool={canAnnotate ? tool : "select"}
                       toolStyle={styles.ink}
-                      onCreateNote={createNote}
+                      onPlace={onPlace}
+                      fields={fields.get(i) ?? null}
+                      canFill={canFill}
+                      highlightFields={highlightFields}
+                      onSetField={(pg, idx, input) => void setField(pg, idx, input)}
+                      onSignField={(f) => void signAt(f.page, 0, 0, "signature", f)}
+                      textDraft={textDraft?.page === i ? { x: textDraft.x, y: textDraft.y, size: styles.text.width, color: toHex(styles.text.color) } : null}
+                      onCommitText={(pg, x, y, t) => {
+                        setTextDraft(null);
+                        void addText(pg, x, y, t);
+                      }}
+                      onCancelText={() => setTextDraft(null)}
                       onCreateInk={createInk}
                       onDeleteAnnot={deleteAnnot}
                       onSaveNote={saveNote}
@@ -1049,7 +1339,7 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
                 canEdit={canAnnotate}
                 onAuthorChange={onAuthorChange}
                 onSelect={selectAnnot}
-                onSave={(a, t) => void updateAnnot(a.page, a.id, { contents: t })}
+                onSave={(a, t) => void saveComment(a, t)}
                 onDelete={(a) => void deleteAnnot(a.page, a.id)}
                 onClose={() => setPanel(null)}
               />
@@ -1068,6 +1358,18 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
         </Toolbar>
       </div>
 
+      {sigDialog && (
+        <SignatureDialog
+          kind={sigDialog.kind}
+          initialName={author}
+          onClose={() => setSigDialog(null)}
+          onSave={async (method, data, font) => {
+            await saveSignature(sigDialog.kind, data, method, font);
+            const s = await engine.signature(sigDialog.kind);
+            if (s) sigDialog.then?.(s);
+          }}
+        />
+      )}
       {confirmUrl && (
         <Dialog
           title="Ouvrir ce lien ?"

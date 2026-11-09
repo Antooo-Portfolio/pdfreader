@@ -64,7 +64,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     const annot = await runAnnotations(actions, reopened, path, await engine.e2ePause());
     steps.annotations = annot.report;
     steps.m2 = await runM2(engine, actions, annot.doc ?? reopened, path);
-    steps.ok = m1 && (steps.m2 as { ok: boolean }).ok && (annot.report.ok as boolean);
+    steps.fill = await runFill(actions, path.replace(/[^\\/]+$/, "08-formulaire-acroform.pdf"), await engine.e2ePause());
+    steps.ok = m1 && (steps.m2 as { ok: boolean }).ok && (annot.report.ok as boolean) && (steps.fill as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -269,4 +270,106 @@ async function runAnnotations(actions: AppActions, doc: DocInfo, path: string, p
   r.checks = checks;
   r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 10;
   return { report: r, doc: reopened };
+}
+
+function setNativeValue(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, value: string) {
+  const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, value);
+  el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
+}
+
+async function until<T>(f: () => Promise<T | null | undefined | false>, ms = 6000): Promise<T | null> {
+  const t0 = performance.now();
+  while (performance.now() - t0 < ms) {
+    const v = await f();
+    if (v) return v;
+    await sleep(100);
+  }
+  return null;
+}
+
+/** M2, lot « formulaires et signature » : champs AcroForm remplis par les vrais contrôles de la
+ *  page, texte libre, coche, signature mémorisée puis posée ; enregistrement et relecture. */
+async function runFill(actions: AppActions, formPath: string, pauseMs = 0) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  try {
+    const doc = await actions.openPath(formPath);
+    if (!doc) throw new Error("formulaire introuvable : " + formPath);
+    const a = await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    checks.banner = !!(await waitFor(() => (document.body.textContent?.includes("contient un formulaire") ? true : null), 4000).catch(() => null));
+    const fields = await a.fields(0);
+    r.fields = fields.map((f) => `${f.name}:${f.kind}`);
+    checks.fieldsRead = fields.length >= 6;
+
+    // Saisie par les contrôles HTML, comme au clavier et à la souris.
+    const nom = await waitFor(() => document.querySelector<HTMLInputElement>('input[aria-label="Nom"]'));
+    nom.focus();
+    setNativeValue(nom, "Élodie Martin");
+    nom.blur();
+    const accept = await waitFor(() => document.querySelector<HTMLInputElement>('input[type="checkbox"][aria-label="J\'accepte"]'));
+    accept.click();
+    const radio = await waitFor(() => document.querySelector<HTMLInputElement>('input[type="radio"][aria-label="Formule : annuelle"]'));
+    radio.click();
+    const pays = await waitFor(() => document.querySelector<HTMLSelectElement>('select[aria-label="Pays"]'));
+    setNativeValue(pays, "2");
+    const filled = await until(async () => {
+      const f = await a.fields(0);
+      const by = (n: string) => f.filter((x) => x.name === n);
+      const ok = by("nom")[0]?.value === "Élodie Martin" && by("accepte")[0]?.checked && by("formule")[1]?.checked && by("pays")[0]?.value === "Suisse";
+      return ok ? f : null;
+    });
+    checks.formFilled = !!filled;
+    if (!filled) r.fieldsNow = (await a.fields(0)).map((f) => `${f.name}=${f.value}/${f.checked}`);
+
+    // Formulaire plat : texte, coche, signature mémorisée puis posée.
+    const textId = await a.addText(0, 300, 560, "Fait à Lyon, le 9 novembre");
+    const markId = await a.addMark(0, 300, 600);
+    const c = document.createElement("canvas");
+    c.width = 300;
+    c.height = 90;
+    const ctx = c.getContext("2d")!;
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "#16181c";
+    ctx.beginPath();
+    ctx.moveTo(20, 60);
+    ctx.bezierCurveTo(80, 0, 140, 90, 280, 30);
+    ctx.stroke();
+    await a.saveSignature("signature", c.toDataURL("image/png"));
+    const sigId = await a.placeSignature(0, 420, 650, "signature");
+    const annots = await a.annots(0);
+    r.stamps = annots.map((x) => `${x.kind}:${x.contents}`);
+    checks.stamps = !!textId && !!markId && !!sigId && annots.some((x) => x.kind === "text") && annots.some((x) => x.kind === "mark") && annots.some((x) => x.kind === "signature");
+
+    // Enregistrement, réouverture.
+    checks.saved = await actions.save(doc.id);
+    await actions.closeDoc(doc.id);
+    await sleep(200);
+    const again = await actions.openPath(formPath);
+    if (!again) throw new Error("réouverture impossible");
+    const b = await waitFor(() => (actions.activeId() === again.id ? actions.doc() : null));
+    const f2 = await b.fields(0);
+    const by = (n: string) => f2.filter((x) => x.name === n);
+    const a2 = await b.annots(0);
+    checks.persisted =
+      by("nom")[0]?.value === "Élodie Martin" && !!by("accepte")[0]?.checked && !!by("formule")[1]?.checked && by("pays")[0]?.value === "Suisse" && a2.filter((x) => ["text", "mark", "signature"].includes(x.kind)).length === 3;
+    r.after = { fields: f2.map((x) => `${x.name}=${x.value}/${x.checked}`), stamps: a2.map((x) => x.kind) };
+    if (pauseMs) {
+      // Captures : formulaire rempli, puis outil Signer et boîte de création de la signature.
+      await sleep(pauseMs);
+      key("s");
+      await sleep(pauseMs);
+      const edit = await waitFor(() => Array.from(document.querySelectorAll("button")).find((x) => x.textContent === "Modifier"), 3000).catch(() => null);
+      edit?.click();
+      await sleep(pauseMs);
+      key("Escape");
+      key("v");
+    }
+  } catch (e) {
+    r.error = String(e);
+    checks.error = false;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 6;
+  return r;
 }

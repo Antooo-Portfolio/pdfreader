@@ -94,6 +94,8 @@ pub struct Annot {
     /// Réponse à un autre commentaire (/IRT).
     pub reply_to: Option<String>,
     pub locked: bool,
+    /// Taille du texte d'un tampon « texte » (pour le recréer à l'identique).
+    pub font_size: Option<f32>,
 }
 
 struct Raw<'a> {
@@ -254,10 +256,17 @@ fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
         }
     };
     let id = raw.string("NM").filter(|s| !s.is_empty()).unwrap_or_else(|| format!("#{index}"));
+    // Nos tampons « Remplir et signer » portent leur nature dans une clé privée.
+    let kind = match (subtype, raw.string(crate::fill::KIND_KEY).as_deref()) {
+        (STAMP, Some("text")) => "text",
+        (STAMP, Some("check" | "cross")) => "mark",
+        (STAMP, Some("signature" | "initials")) => "signature",
+        _ => kind_name(subtype),
+    };
     Some(Annot {
         id,
         page: page_index,
-        kind: kind_name(subtype),
+        kind,
         rect: [l, page_h - t, rt - l, t - b],
         boxes,
         strokes,
@@ -271,6 +280,7 @@ fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
         reply_to,
         // Verrouillé (/F bit 8) ou en lecture seule (bit 7).
         locked: flags & (128 | 64) != 0,
+        font_size: raw.string("PDFReaderSize").and_then(|s| s.parse().ok()),
     })
 }
 
@@ -450,6 +460,11 @@ pub fn update(page: &mut PdfPage, id: &str, patch: &AnnotPatch) -> Result<()> {
             bail!("ce n'est pas un commentaire");
         }
         if patch.color.is_some() || patch.opacity.is_some() || patch.width.is_some() {
+            // L'apparence d'un tampon (texte, coche, signature, tampon d'un autre logiciel) ne
+            // se régénère pas : la retirer l'effacerait.
+            if raw.subtype() == STAMP {
+                bail!("l'aspect de ce commentaire ne peut pas être modifié");
+            }
             // Lire l'état actuel AVANT de retirer l'apparence (la couleur peut venir d'elle).
             let rgb = patch.color.or_else(|| raw.color()).unwrap_or([255, 225, 77]);
             let opacity = patch.opacity.unwrap_or_else(|| raw.opacity());

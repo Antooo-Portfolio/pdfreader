@@ -100,6 +100,9 @@ export type AnnotKind =
   | "polygon"
   | "polyline"
   | "stamp"
+  | "text"
+  | "mark"
+  | "signature"
   | "other";
 
 export type Rgb = [number, number, number];
@@ -125,6 +128,48 @@ export interface Annot {
   created: string | null;
   replyTo: string | null;
   locked: boolean;
+  /** Taille du texte d'un tampon « texte ». */
+  fontSize: number | null;
+}
+
+export type FieldKind = "text" | "checkbox" | "radio" | "combo" | "list" | "button" | "signature" | "unknown";
+
+/** Champ de formulaire (un widget). Coordonnées en points depuis le haut à gauche. */
+export interface Field {
+  /** Rang de l'annotation sur la page : identifiant pour la saisie. */
+  index: number;
+  page: number;
+  name: string;
+  /** Nom lisible (infobulle du champ), sinon le nom technique. */
+  label: string;
+  kind: FieldKind;
+  rect: Box;
+  value: string;
+  checked: boolean;
+  exportValue: string;
+  options: { label: string; selected: boolean }[];
+  readOnly: boolean;
+  required: boolean;
+  multiline: boolean;
+  password: boolean;
+  editableCombo: boolean;
+  multiSelect: boolean;
+  comb: boolean;
+  /** 0 : taille automatique. */
+  fontSize: number;
+}
+
+export type FieldInput = { kind: "text"; value: string } | { kind: "checked"; checked: boolean } | { kind: "choice"; index: number };
+
+export type SignatureKind = "signature" | "initials";
+
+export interface SavedSignature {
+  kind: SignatureKind;
+  method: "typed" | "drawn" | "image";
+  /** Image PNG (data URL). */
+  data: string;
+  font: string | null;
+  updatedAt: number;
 }
 
 export interface AnnotResult {
@@ -186,6 +231,17 @@ export interface EngineClient {
   addNote(doc: number, page: number, x: number, y: number, contents: string, color: Rgb): Promise<AnnotResult>;
   addInk(doc: number, page: number, strokes: [number, number][][], color: Rgb, opacity: number, width: number): Promise<AnnotResult>;
   updateAnnot(doc: number, page: number, id: string, patch: AnnotPatch): Promise<AnnotResult>;
+  fields(doc: number, page: number): Promise<Field[]>;
+  /** Saisie dans un champ ; renvoie les champs à jour de la page. */
+  setField(doc: number, page: number, index: number, input: FieldInput): Promise<Field[]>;
+  /** Texte posé sur la page (formulaire plat), coin haut gauche en (x, y). */
+  addText(doc: number, page: number, x: number, y: number, text: string, size: number, color: Rgb): Promise<AnnotResult>;
+  addMark(doc: number, page: number, x: number, y: number, size: number, cross: boolean, color: Rgb): Promise<AnnotResult>;
+  /** Pose la signature mémorisée dans le rectangle [x, y, largeur, hauteur]. */
+  addSignature(doc: number, page: number, rect: Box, kind: SignatureKind): Promise<AnnotResult>;
+  signature(kind: SignatureKind): Promise<SavedSignature | null>;
+  setSignature(kind: SignatureKind, method: SavedSignature["method"], data: string, font: string | null): Promise<void>;
+  deleteSignature(kind: SignatureKind): Promise<void>;
   deleteAnnot(doc: number, page: number, id: string): Promise<AnnotResult>;
   countHighlights(doc: number, page: number): Promise<number>;
   links(doc: number, page: number): Promise<PageLink[]>;

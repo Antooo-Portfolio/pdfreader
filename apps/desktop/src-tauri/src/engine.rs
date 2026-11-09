@@ -64,6 +64,9 @@ pub enum AnnotOp {
     Note { x: f32, y: f32, contents: String, color: [u8; 3], author: String },
     Ink { strokes: Vec<Vec<[f32; 2]>>, color: [u8; 3], opacity: f32, width: f32, author: String },
     Update { id: String, patch: eng::annotations::AnnotPatch },
+    Text { x: f32, y: f32, text: String, size: f32, color: [u8; 3], author: String },
+    Mark { x: f32, y: f32, size: f32, cross: bool, color: [u8; 3], author: String },
+    Image { rect: [f32; 4], png: Vec<u8>, kind: String, author: String },
     Delete { id: String },
 }
 
@@ -80,6 +83,8 @@ pub enum Cmd {
     Annot { doc: u32, page: i32, op: AnnotOp, reply: Reply<AnnotResult> },
     Save { doc: u32, path: Option<PathBuf>, reply: Reply<SaveResult> },
     CountHighlights { doc: u32, page: i32, reply: Reply<usize> },
+    Fields { doc: u32, page: i32, reply: Reply<Vec<eng::fill::Field>> },
+    SetField { doc: u32, page: i32, index: i32, input: eng::fill::FieldInput, reply: Reply<Vec<eng::fill::Field>> },
     Links { doc: u32, page: i32, reply: Reply<Vec<eng::PageLink>> },
     Bookmarks { doc: u32, reply: Reply<Vec<eng::Bookmark>> },
     Search { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool, reply: Reply<eng::SearchBatch> },
@@ -196,6 +201,9 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                         AnnotOp::Markup { kind, rects, color, opacity, author } => Some(an::add_markup(&mut p, &kind, &rects, color, opacity, &author)),
                         AnnotOp::Note { x, y, contents, color, author } => Some(an::add_note(&mut p, x, y, &contents, color, &author)),
                         AnnotOp::Ink { strokes, color, opacity, width, author } => Some(an::add_ink(&mut p, &strokes, color, opacity, width, &author)),
+                        AnnotOp::Text { x, y, text, size, color, author } => Some(eng::fill::add_text(&e.doc, &mut p, x, y, &text, size, color, &author)),
+                        AnnotOp::Mark { x, y, size, cross, color, author } => Some(eng::fill::add_mark(&mut p, x, y, size, cross, color, &author)),
+                        AnnotOp::Image { rect, png, kind, author } => Some(eng::fill::add_image(&e.doc, &mut p, rect, &png, &kind, &author)),
                         AnnotOp::Update { id, patch } => {
                             an::update(&mut p, &id, &patch).map_err(|e| e.to_string())?;
                             None
@@ -221,6 +229,21 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                 let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
                     let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
                     Ok(eng::page_links(&e.doc, &p))
+                });
+                let _ = reply.send(r);
+            }
+            Cmd::Fields { doc, page, reply } => {
+                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
+                    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
+                    Ok(eng::fill::fields(&e.doc, &p, page))
+                });
+                let _ = reply.send(r);
+            }
+            Cmd::SetField { doc, page, index, input, reply } => {
+                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
+                    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
+                    eng::fill::set_field(&e.doc, &p, index, &input).map_err(|e| e.to_string())?;
+                    Ok(eng::fill::fields(&e.doc, &p, page))
                 });
                 let _ = reply.send(r);
             }
@@ -311,6 +334,9 @@ fn fail(cmd: Cmd, msg: &str) {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Bookmarks { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::Fields { reply, .. } | Cmd::SetField { reply, .. } => {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Search { reply, .. } => {

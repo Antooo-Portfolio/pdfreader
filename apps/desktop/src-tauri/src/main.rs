@@ -133,6 +133,91 @@ async fn annot_delete(doc: u32, page: i32, id: String, engine: State<'_, EngineH
 }
 
 #[tauri::command]
+async fn doc_fields(doc: u32, page: i32, engine: State<'_, EngineHandle>) -> Result<Vec<pdfreader_engine::fill::Field>, String> {
+    ask(&engine, |reply| Cmd::Fields { doc, page, reply }).await
+}
+
+#[tauri::command]
+async fn field_set(doc: u32, page: i32, index: i32, input: pdfreader_engine::fill::FieldInput, engine: State<'_, EngineHandle>) -> Result<Vec<pdfreader_engine::fill::Field>, String> {
+    ask(&engine, |reply| Cmd::SetField { doc, page, index, input, reply }).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn fill_add_text(
+    doc: u32,
+    page: i32,
+    x: f32,
+    y: f32,
+    text: String,
+    size: f32,
+    color: [u8; 3],
+    engine: State<'_, EngineHandle>,
+    db: State<'_, db::Db>,
+) -> Result<AnnotResult, String> {
+    let author = comment_author(&db);
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Text { x, y, text, size, color, author }, reply }).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn fill_add_mark(
+    doc: u32,
+    page: i32,
+    x: f32,
+    y: f32,
+    size: f32,
+    cross: bool,
+    color: [u8; 3],
+    engine: State<'_, EngineHandle>,
+    db: State<'_, db::Db>,
+) -> Result<AnnotResult, String> {
+    let author = comment_author(&db);
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Mark { x, y, size, cross, color, author }, reply }).await
+}
+
+/// Pose la signature (ou les initiales) mémorisée dans le rectangle donné.
+#[tauri::command]
+async fn fill_add_signature(doc: u32, page: i32, rect: [f32; 4], kind: String, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<AnnotResult, String> {
+    let sig = db.signature(&kind).map_err(|e| e.to_string())?.ok_or("aucune signature enregistrée")?;
+    let png = decode_png_data_url(&sig.data)?;
+    let author = comment_author(&db);
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Image { rect, png, kind, author }, reply }).await
+}
+
+fn decode_png_data_url(data: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    let b64 = data.strip_prefix("data:image/png;base64,").ok_or("format de signature inattendu")?;
+    base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn signature_get(kind: String, db: State<'_, db::Db>) -> Result<Option<db::Signature>, String> {
+    db.signature(&kind).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn signature_set(kind: String, method: String, data: String, font: Option<String>, db: State<'_, db::Db>) -> Result<(), String> {
+    if !matches!(kind.as_str(), "signature" | "initials") || !matches!(method.as_str(), "typed" | "drawn" | "image") {
+        return Err("valeur refusée".into());
+    }
+    // Vérifie que c'est bien un PNG lisible et de taille raisonnable avant de l'enregistrer.
+    if data.len() > 4_000_000 {
+        return Err("image trop lourde".into());
+    }
+    let png = decode_png_data_url(&data)?;
+    if !png.starts_with(b"\x89PNG") {
+        return Err("ce n'est pas une image PNG".into());
+    }
+    db.set_signature(&kind, &method, &data, font.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn signature_delete(kind: String, db: State<'_, db::Db>) -> Result<(), String> {
+    db.delete_signature(&kind).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn recent_star(id: String, starred: bool, db: State<'_, db::Db>) -> Result<(), String> {
     db.set_starred(&id, starred).map_err(|e| e.to_string())
 }
@@ -379,6 +464,14 @@ fn main() {
             annot_update,
             annot_delete,
             recent_star,
+            doc_fields,
+            field_set,
+            fill_add_text,
+            fill_add_mark,
+            fill_add_signature,
+            signature_get,
+            signature_set,
+            signature_delete,
             doc_count_highlights,
             doc_save,
             doc_links,

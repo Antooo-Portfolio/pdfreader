@@ -10,6 +10,17 @@ use serde::Serialize;
 
 pub struct Db(pub Mutex<Connection>);
 
+/// Signature ou initiales mémorisées (S12). Image PNG en data URL ; ne quitte jamais l'appareil.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Signature {
+    pub kind: String,
+    pub method: String,
+    pub data: String,
+    pub font: Option<String>,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecentFile {
@@ -181,6 +192,31 @@ impl Db {
              on conflict(key) do update set value = excluded.value, updated_at = excluded.updated_at",
             params![key, value.to_string(), now_ms()],
         )?;
+        Ok(())
+    }
+
+    pub fn signature(&self, kind: &str) -> rusqlite::Result<Option<Signature>> {
+        self.0
+            .lock()
+            .unwrap()
+            .query_row("select kind, method, data, font, updated_at from saved_signatures where kind = ?1", [kind], |r| {
+                Ok(Signature { kind: r.get(0)?, method: r.get(1)?, data: r.get(2)?, font: r.get(3)?, updated_at: r.get(4)? })
+            })
+            .optional()
+    }
+
+    pub fn set_signature(&self, kind: &str, method: &str, data: &str, font: Option<&str>) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute(
+            "insert into saved_signatures (kind, method, mime, data, font, updated_at) values (?1, ?2, 'image/png', ?3, ?4, ?5)
+             on conflict(kind) do update set method = excluded.method, mime = excluded.mime, data = excluded.data,
+               font = excluded.font, updated_at = excluded.updated_at",
+            params![kind, method, data, font, now_ms()],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_signature(&self, kind: &str) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute("delete from saved_signatures where kind = ?1", [kind])?;
         Ok(())
     }
 

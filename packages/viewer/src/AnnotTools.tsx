@@ -18,7 +18,8 @@ interface LayerProps {
   style: ToolStyle;
   annots: Annot[];
   selectedId: string | null;
-  onCreateNote: (x: number, y: number) => void;
+  /** Clic avec un outil qui pose quelque chose (note, texte, coche, signature). */
+  onPlace: (tool: Tool, x: number, y: number) => void;
   onCreateInk: (strokes: [number, number][][]) => void;
   onErase: (id: string) => void;
 }
@@ -56,7 +57,8 @@ export function AnnotLayer(p: LayerProps) {
     }
   };
 
-  const active = p.tool === "note" || p.tool === "ink" || p.tool === "eraser";
+  const placing = p.tool === "note" || p.tool === "text" || p.tool === "check" || p.tool === "sign";
+  const active = placing || p.tool === "ink" || p.tool === "eraser";
   const cssW = pw * p.k;
   const cssH = ph * p.k;
   const transform = p.rotation ? rotationCss(p.rotation, cssW, cssH) : undefined;
@@ -84,7 +86,7 @@ export function AnnotLayer(p: LayerProps) {
       {active && (
         <div
           className="absolute inset-0 touch-none"
-          style={{ cursor: p.tool === "note" ? "copy" : p.tool === "ink" ? "crosshair" : "cell" }}
+          style={{ cursor: p.tool === "text" ? "text" : placing ? "copy" : p.tool === "ink" ? "crosshair" : "cell" }}
           onPointerDown={(e) => {
             if (e.button !== 0) return;
             e.preventDefault();
@@ -122,10 +124,7 @@ export function AnnotLayer(p: LayerProps) {
             down.current = null;
             if (!start) return;
             const [x, y] = toPt(e);
-            if (p.tool === "note" && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6) {
-              // L'icône (20 pt) est centrée sur le clic.
-              p.onCreateNote(Math.max(0, x - 10), Math.max(0, y - 10));
-            }
+            if (placing && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6) p.onPlace(p.tool, x, y);
             const done = strokeRef.current;
             strokeRef.current = null;
             if (p.tool === "ink" && done && done[0]) {
@@ -253,28 +252,40 @@ export function PropertyBar({
   style,
   showWidth,
   showOpacity,
+  showColor = true,
+  widthLabel = "Épaisseur",
+  widthRange = [0.5, 12, 0.5],
+  extra,
   onChange,
   onDelete,
 }: {
-  /** « Surlignage : style de l'outil » ou « Commentaire sélectionné : Souligné ». */
+  /** Nom de l'outil, ou « Sélection : … » pour un commentaire sélectionné. */
   title: string;
   style: ToolStyle;
   showWidth: boolean;
   showOpacity: boolean;
+  showColor?: boolean;
+  widthLabel?: string;
+  /** min, max, pas. */
+  widthRange?: [number, number, number];
+  /** Réglages propres à l'outil (coche ou croix, signature ou initiales…). */
+  extra?: React.ReactNode;
   onChange: (s: Partial<ToolStyle>) => void;
   onDelete?: () => void;
 }) {
   return (
     <Toolbar aria-label={title} className="flex h-(--layout-propbar) shrink-0 items-center gap-3 border-b border-border bg-surface px-3">
       <span className="shrink-0 text-sm font-medium whitespace-nowrap text-muted">{title}</span>
-      <ColorSwatches
-        aria-label="Couleur"
-        value={toHex(style.color)}
-        onChange={(c) => {
-          const rgb = fromHex(c.toString("hex"));
-          if (rgb) onChange({ color: rgb });
-        }}
-      />
+      {showColor && (
+        <ColorSwatches
+          aria-label="Couleur"
+          value={toHex(style.color)}
+          onChange={(c) => {
+            const rgb = fromHex(c.toString("hex"));
+            if (rgb) onChange({ color: rgb });
+          }}
+        />
+      )}
       {showOpacity && (
         <>
           <ToolbarSeparator />
@@ -294,17 +305,18 @@ export function PropertyBar({
         <>
           <ToolbarSeparator />
           <Slider
-            label="Épaisseur"
+            label={widthLabel}
             unit=" pt"
-            minValue={0.5}
-            maxValue={12}
-            step={0.5}
+            minValue={widthRange[0]}
+            maxValue={widthRange[1]}
+            step={widthRange[2]}
             value={style.width}
             onChange={(v) => onChange({ width: v as number })}
             className="w-36! shrink-0"
           />
         </>
       )}
+      {extra}
       {onDelete && (
         <Button size="sm" variant="ghost" icon={<Trash2 size={16} />} onPress={onDelete} className="ml-auto">
           Supprimer

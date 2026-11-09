@@ -1,4 +1,5 @@
 import "@fontsource-variable/inter";
+import "@fontsource-variable/caveat";
 import "./app.css";
 import { ToastProvider } from "@pdfreader/ui";
 import { App } from "@pdfreader/viewer";

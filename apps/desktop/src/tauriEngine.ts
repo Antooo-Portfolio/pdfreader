@@ -1,4 +1,4 @@
-import type { AnnotResult, Bookmark, DocInfo, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
+import type { AnnotResult, Field, SavedSignature, Bookmark, DocInfo, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -18,6 +18,14 @@ export const tauriEngine: EngineClient = {
   addInk: (doc, page, strokes, color, opacity, width) => invoke<AnnotResult>("annot_add_ink", { doc, page, strokes, color, opacity, width }),
   updateAnnot: (doc, page, id, patch) => invoke<AnnotResult>("annot_update", { doc, page, id, patch }),
   deleteAnnot: (doc, page, id) => invoke<AnnotResult>("annot_delete", { doc, page, id }),
+  fields: (doc, page) => invoke<Field[]>("doc_fields", { doc, page }),
+  setField: (doc, page, index, input) => invoke<Field[]>("field_set", { doc, page, index, input }),
+  addText: (doc, page, x, y, text, size, color) => invoke<AnnotResult>("fill_add_text", { doc, page, x, y, text, size, color }),
+  addMark: (doc, page, x, y, size, cross, color) => invoke<AnnotResult>("fill_add_mark", { doc, page, x, y, size, cross, color }),
+  addSignature: (doc, page, rect, kind) => invoke<AnnotResult>("fill_add_signature", { doc, page, rect, kind }),
+  signature: (kind) => invoke<SavedSignature | null>("signature_get", { kind }),
+  setSignature: (kind, method, data, font) => invoke("signature_set", { kind, method, data, font }),
+  deleteSignature: (kind) => invoke("signature_delete", { kind }),
   countHighlights: (doc, page) => invoke<number>("doc_count_highlights", { doc, page }),
   links: (doc, page) => invoke<PageLink[]>("doc_links", { doc, page }),
   bookmarks: (doc) => invoke<Bookmark[]>("doc_bookmarks", { doc }),

@@ -2,7 +2,7 @@
  *  détection du commentaire sous le pointeur). */
 import type { Annot, AnnotKind, MarkupKind, Rgb } from "./engine";
 
-export type Tool = "select" | MarkupKind | "note" | "ink" | "eraser";
+export type Tool = "select" | MarkupKind | "note" | "ink" | "eraser" | "text" | "check" | "sign";
 export const MARKUP_TOOLS: MarkupKind[] = ["highlight", "underline", "strikeout"];
 export const isMarkupTool = (t: Tool): t is MarkupKind => (MARKUP_TOOLS as string[]).includes(t);
 
@@ -13,7 +13,7 @@ export interface ToolStyle {
   width: number;
 }
 
-export type ToolStyles = Record<MarkupKind | "note" | "ink", ToolStyle>;
+export type ToolStyles = Record<MarkupKind | "note" | "ink" | "text" | "check", ToolStyle>;
 
 export const DEFAULT_STYLES: ToolStyles = {
   highlight: { color: [255, 225, 77], opacity: 1, width: 1 },
@@ -21,6 +21,9 @@ export const DEFAULT_STYLES: ToolStyles = {
   strikeout: { color: [229, 72, 77], opacity: 1, width: 1 },
   note: { color: [255, 225, 77], opacity: 1, width: 1 },
   ink: { color: [22, 24, 28], opacity: 1, width: 2 },
+  // Texte et coche : « width » est la taille en points.
+  text: { color: [22, 24, 28], opacity: 1, width: 12 },
+  check: { color: [22, 24, 28], opacity: 1, width: 14 },
 };
 
 export const KIND_LABELS: Record<AnnotKind, string> = {
@@ -37,6 +40,9 @@ export const KIND_LABELS: Record<AnnotKind, string> = {
   polygon: "Polygone",
   polyline: "Ligne brisée",
   stamp: "Tampon",
+  text: "Texte",
+  mark: "Coche",
+  signature: "Signature",
   other: "Annotation",
 };
 

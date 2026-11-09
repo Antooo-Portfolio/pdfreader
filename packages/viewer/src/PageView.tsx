@@ -2,7 +2,8 @@ import { clsx } from "clsx";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Tool, ToolStyle } from "./annot";
 import { AnnotLayer, NoteEditor } from "./AnnotTools";
-import { type Annot, type Box, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextWord, thumbScale } from "./engine";
+import { FormLayer, TextDraft } from "./FillTools";
+import { type Annot, type Box, type Field, type FieldInput, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextWord, thumbScale } from "./engine";
 import { type PageBox, rotationTransform } from "./layout";
 
 const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
@@ -35,7 +36,17 @@ interface Props {
   editing: { id: string; isNew: boolean } | null;
   tool: Tool;
   toolStyle: ToolStyle;
-  onCreateNote: (page: number, x: number, y: number) => void;
+  onPlace: (page: number, tool: Tool, x: number, y: number) => void;
+  /** Champs de formulaire de la page. */
+  fields: Field[] | null;
+  canFill: boolean;
+  highlightFields: boolean;
+  onSetField: (page: number, index: number, input: FieldInput) => void;
+  onSignField: (f: Field) => void;
+  /** Texte libre en cours de saisie sur cette page. */
+  textDraft: { x: number; y: number; size: number; color: string } | null;
+  onCommitText: (page: number, x: number, y: number, text: string) => void;
+  onCancelText: () => void;
   onCreateInk: (page: number, strokes: [number, number][][]) => void;
   onDeleteAnnot: (page: number, id: string) => void;
   onSaveNote: (page: number, id: string, text: string) => void;
@@ -164,6 +175,16 @@ export const PageView = memo(function PageView(p: Props) {
         {p.hits && <Hits hits={p.hits} current={p.currentHit} k={k} />}
         {active && lines && <TextLayer lines={lines} k={k} />}
         {active && links && links.length > 0 && <Links links={links} k={k} onLink={p.onLink} />}
+        {active && p.fields && p.fields.length > 0 && (
+          <FormLayer
+            fields={p.fields}
+            k={k}
+            canFill={p.canFill}
+            highlight={p.highlightFields}
+            onSet={(i, input) => p.onSetField(index, i, input)}
+            onSign={p.onSignField}
+          />
+        )}
       </div>
       {active && textError && <span className="sr-only">Le texte de cette page n'a pas pu être lu.</span>}
       {active && p.annots && (
@@ -176,9 +197,21 @@ export const PageView = memo(function PageView(p: Props) {
           style={p.toolStyle}
           annots={p.annots}
           selectedId={p.selectedId}
-          onCreateNote={(x, y) => p.onCreateNote(index, x, y)}
+          onPlace={(t, x, y) => p.onPlace(index, t, x, y)}
           onCreateInk={(s) => p.onCreateInk(index, s)}
           onErase={(id) => p.onDeleteAnnot(index, id)}
+        />
+      )}
+      {active && p.textDraft && (
+        <TextDraft
+          at={p.textDraft}
+          size={p.textDraft.size}
+          color={p.textDraft.color}
+          k={k}
+          rotation={rotation}
+          pageSize={size}
+          onCommit={(t) => p.textDraft && p.onCommitText(index, p.textDraft.x, p.textDraft.y, t)}
+          onCancel={p.onCancelText}
         />
       )}
       {active &&

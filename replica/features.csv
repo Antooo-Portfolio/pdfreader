@@ -31,7 +31,7 @@ Accueil avec récents et favoris,accueil,must,yes,yes,"M2 : onglets Récents / F
 Restaurer la dernière page et le zoom à la réouverture,accueil,should,yes,no,
 Surligner / souligner / barrer du texte,annotation,must,yes,yes,"M2 : trois outils, appliqués à la sélection (ou au texte déjà sélectionné quand on choisit l'outil), couleur et opacité par outil, mémorisées"
 Note (commentaire épinglé),annotation,must,yes,yes,"M2 : clic sur la page, éditeur qui s'ouvre à la création, modification et suppression ; icône générée par PDFium"
-Zone de texte et légende,annotation,must,yes,no,"reporté : PDFium ne génère pas l'apparence des zones de texte, il faudra l'écrire nous-mêmes"
+Zone de texte et légende,annotation,must,yes,partial,"M2 : texte libre posé sur la page (outil Texte, tampon) ; pas encore de vraie zone de texte /FreeText avec cadre ni de légende fléchée"
 Formes (rectangle / ellipse / ligne / flèche / polygone / nuage),annotation,should,yes,no,
 Dessin à main levée et gomme,annotation,must,yes,yes,"M2 : tracé à la souris ou au stylet (couleur, opacité, épaisseur), gomme qui efface les tracés touchés"
 Tampons prédéfinis,annotation,should,yes,no,
@@ -42,11 +42,11 @@ Panneau Commentaires (liste / filtre / tri),annotation,must,yes,yes,"M2 : S08 : 
 Répondre à un commentaire / statut (résolu / coché),annotation,should,yes,no,IRT et State de la norme
 Réactions et non lu sur les commentaires,annotation,could,yes,no,hors norme : données de l'app
 Nom d'auteur des commentaires,annotation,must,yes,yes,"M2 : nom de session Windows par défaut, modifiable dans le panneau Commentaires (préférence « author ») ; reportera dans S14"
-Remplir un formulaire AcroForm,formulaires,must,yes,no,F04 S11
+Remplir un formulaire AcroForm,formulaires,must,yes,yes,"M2 : S11 : texte (une ou plusieurs lignes, mot de passe), case, bouton radio, liste déroulante et liste, par de vrais contrôles HTML ; saisie confiée au moteur interactif de PDFium (valeur et apparence) ; lecture seule et droits respectés ; bandeau et surlignage des champs. Listes à choix multiples et calculs JavaScript : non"
 Calculs et validation JavaScript des champs,formulaires,should,yes,no,sous-ensemble sûr de l'API JS en bac à sable
-Remplir un formulaire plat (texte libre / coche / date),formulaires,must,yes,no,S11
-Créer sa signature (taper / dessiner / image),signature,must,yes,no,S12
-Signature et initiales mémorisées,signature,must,yes,no,
+Remplir un formulaire plat (texte libre / coche / date),formulaires,must,yes,yes,"M2 : outils Texte (taille, couleur, plusieurs lignes) et Coche ou croix ; la date se tape avec l'outil Texte ; posés comme tampons modifiables depuis le panneau Commentaires"
+Créer sa signature (taper / dessiner / image),signature,must,yes,yes,"M2 : S12 : taper (police manuscrite Caveat, OFL), dessiner, image PNG ou JPEG avec fond blanc rendu transparent ; posée par un clic ou dans un champ de signature"
+Signature et initiales mémorisées,signature,must,yes,yes,"M2 : signature et initiales gardées dans la base locale (table saved_signatures), modifier ou oublier depuis la barre de l'outil Signer"
 Enregistrer (incrémental) / Enregistrer sous,fichier,must,yes,yes,"M1 : Ctrl+S incrémental atomique, Ctrl+Maj+S, détection de modification externe et de verrou"
 Alerte de modifications non enregistrées,fichier,must,yes,yes,M1 : à la fermeture d'un onglet et de la fenêtre
 Imprimer (plage / échelle / recto-verso / commentaires),impression,must,yes,no,S13 F06

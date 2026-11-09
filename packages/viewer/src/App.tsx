@@ -311,7 +311,7 @@ export function App({ engine }: { engine: EngineClient }) {
       } else if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey) {
         // Raccourcis à une touche (désactivables dans les Préférences en M2).
         const k = e.key.toLowerCase();
-        const byKey: Record<string, Tool> = { v: "select", u: "highlight", n: "note", d: "ink", e: "eraser" };
+        const byKey: Record<string, Tool> = { v: "select", u: "highlight", n: "note", d: "ink", e: "eraser", t: "text", s: "sign" };
         if (byKey[k]) setTool(byKey[k]);
       }
     };

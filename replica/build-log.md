@@ -117,3 +117,40 @@ et barre de propriétés vérifiés sur des images prises pendant le scénario (
   n'apparaissait pas, trouvé par le scénario).
 - Le scénario écrit dans la base locale réelle (nom d'auteur, récents) ; remis en état à la main
   après les essais. À isoler (dossier de données dédié aux tests) avant la CI.
+
+## M2 — lot « formulaires et signature » (2026-11-09)
+
+Validé dans l'application compilée en release par le scénario automatique (partie `fill` de
+`packages/viewer/src/e2e.ts`) et par deux tests du moteur (`cargo test -p pdfreader-engine
+--test fill`).
+
+Scénario, sur le formulaire du corpus : bandeau « formulaire » affiché ; six champs lus ; « Nom »
+tapé dans le champ HTML puis validé en quittant le champ, case « J'accepte » cochée d'un clic,
+bouton radio « annuelle » choisi, pays changé dans la liste déroulante : les quatre valeurs sont
+passées par le moteur de formulaires de PDFium ; texte libre, coche et signature mémorisée posés ;
+enregistrement, fermeture, réouverture : valeurs et trois tampons toujours là. Tests du moteur :
+même saisie sur tous les types de champ puis relecture du fichier ; texte, coche et signature
+avec transparence vérifiés au pixel, puis relecture. Captures : formulaire rempli et tampons (S11),
+outil Signer et boîte de création de la signature (S12).
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| S11 Remplir et signer | 2026-11-09 | partiel | listes à choix multiples, calculs et validations JavaScript (M3, QuickJS), formats de date et de nombre des champs, zone de texte /FreeText avec cadre | — |
+| S12 Signature | 2026-11-09 | fait | signature numérique à certificat (hors phase 1) | les tampons ne s'affichaient pas : PDFium fixe la boîte de l'apparence au premier objet ajouté, il faut donc poser le rectangle de l'annotation AVANT d'y ajouter le texte, le tracé ou l'image |
+
+### Notes techniques
+
+- Champs : de vrais contrôles HTML (`input`, `textarea`, `select`) posés sur chaque widget, avec
+  un fond opaque qui masque l'apparence rendue dessous ; à la validation, la valeur passe par
+  `FORM_SetFocusedAnnot` / `FORM_ReplaceSelection` / `FORM_SetIndexSelected` ou un clic simulé
+  (cases et boutons radio), puis la perte du focus : PDFium met à jour /V et toutes les apparences.
+- Texte libre, coche, signature : annotations Tampon (/Stamp) dont l'apparence contient nos objets
+  (`FPDFAnnot_AppendObject`, seul type avec l'encre à l'accepter). PDFium ne génère pas
+  l'apparence d'une zone de texte /FreeText. Une clé privée `PDFReaderKind` les distingue ; leur
+  aspect ne se modifie pas (l'apparence ne se régénère pas), le texte se change en recréant le
+  tampon depuis le panneau Commentaires.
+- Signature : image PNG avec transparence (texte tapé rendu dans un canevas avec Caveat, OFL ;
+  dessin ; image avec le fond blanc retiré), gardée en data URL dans `saved_signatures`, jamais
+  envoyée nulle part ; posée en image bitmap BGRA (PDFium crée le masque de transparence).
+- Le scénario écrit encore dans la base locale réelle (auteur, signature de test) : remis en état
+  à la main. Toujours à isoler avant la CI.
