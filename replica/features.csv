@@ -27,21 +27,21 @@ Articles (fils de lecture),navigation,could,yes,no,
 Liens internes et externes cliquables,lecture,must,yes,yes,"M2 : liens internes (page et position), adresses web et mailto après confirmation ; autres actions ignorées. Clic dans l'interface non automatisé (extraction testée dans le moteur)"
 Barre d'actions rapides personnalisable,interface,should,yes,no,S03 QuickActionToolbar
 Raccourcis clavier (navigation / outils),interface,must,yes,partial,"M2 : + Ctrl+F, F3, Ctrl+0/1/2, Ctrl+Maj+flèches, Début / Fin, flèches ; pas encore désactivables (S14)"
-Accueil avec récents et favoris,accueil,must,yes,partial,"M1 : récents avec vignette, fichier introuvable, retirer ; favoris non"
+Accueil avec récents et favoris,accueil,must,yes,yes,"M2 : onglets Récents / Favoris, étoile, recherche par nom ou dossier, liste ou vignettes (mémorisé), fichier introuvable, retirer"
 Restaurer la dernière page et le zoom à la réouverture,accueil,should,yes,no,
-Surligner / souligner / barrer du texte,annotation,must,yes,partial,"M1 : surlignage jaune seulement (multi-lignes, multi-pages)"
-Note (commentaire épinglé),annotation,must,yes,no,
-Zone de texte et légende,annotation,must,yes,no,
+Surligner / souligner / barrer du texte,annotation,must,yes,yes,"M2 : trois outils, appliqués à la sélection (ou au texte déjà sélectionné quand on choisit l'outil), couleur et opacité par outil, mémorisées"
+Note (commentaire épinglé),annotation,must,yes,yes,"M2 : clic sur la page, éditeur qui s'ouvre à la création, modification et suppression ; icône générée par PDFium"
+Zone de texte et légende,annotation,must,yes,no,"reporté : PDFium ne génère pas l'apparence des zones de texte, il faudra l'écrire nous-mêmes"
 Formes (rectangle / ellipse / ligne / flèche / polygone / nuage),annotation,should,yes,no,
-Dessin à main levée et gomme,annotation,must,yes,no,
+Dessin à main levée et gomme,annotation,must,yes,yes,"M2 : tracé à la souris ou au stylet (couleur, opacité, épaisseur), gomme qui efface les tracés touchés"
 Tampons prédéfinis,annotation,should,yes,no,
 Tampons personnalisés et dynamiques (date / nom),annotation,could,yes,no,
 Pièce jointe en commentaire,annotation,could,yes,no,
-Propriétés d'annotation (couleur / opacité / épaisseur),annotation,must,yes,no,
-Panneau Commentaires (liste / filtre / tri),annotation,must,yes,no,S08
+Propriétés d'annotation (couleur / opacité / épaisseur),annotation,must,yes,yes,M2 : barre de propriétés pour l'outil actif et pour le commentaire sélectionné (apparence régénérée par PDFium) ; touche Suppr
+Panneau Commentaires (liste / filtre / tri),annotation,must,yes,yes,"M2 : S08 : tous les commentaires, filtre par type et auteur, recherche, tri page / date / auteur, modifier le texte, supprimer, aller au commentaire ; vide et « aucun ne correspond »"
 Répondre à un commentaire / statut (résolu / coché),annotation,should,yes,no,IRT et State de la norme
 Réactions et non lu sur les commentaires,annotation,could,yes,no,hors norme : données de l'app
-Nom d'auteur des commentaires,annotation,must,yes,no,S14
+Nom d'auteur des commentaires,annotation,must,yes,yes,"M2 : nom de session Windows par défaut, modifiable dans le panneau Commentaires (préférence « author ») ; reportera dans S14"
 Remplir un formulaire AcroForm,formulaires,must,yes,no,F04 S11
 Calculs et validation JavaScript des champs,formulaires,should,yes,no,sous-ensemble sûr de l'API JS en bac à sable
 Remplir un formulaire plat (texte libre / coche / date),formulaires,must,yes,no,S11

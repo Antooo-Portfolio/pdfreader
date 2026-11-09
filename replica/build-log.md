@@ -78,3 +78,42 @@ page à la fois (fenêtre de 1100 px), dialogue de mot de passe (S04).
 - Les signets d'un PDF piégé sont bornés (20 000 entrées, profondeur 48).
 - Non fait dans ce lot : table de correspondance des polices CJK (`FPDF_SetSystemFontInfo`),
   sélection du texte au clavier, Lingui (FR / EN).
+
+## M2 — lots « accueil » et « annotations » (2026-11-09)
+
+Validé dans l'application compilée en release par le scénario automatique (partie `annotations`
+de `packages/viewer/src/e2e.ts`, 11 contrôles) et par un test du moteur
+(`cargo test -p pdfreader-engine --test annotations`).
+
+Scénario : nom d'auteur changé puis utilisé ; souligné d'un mot sélectionné ; note (son éditeur
+s'ouvre) ; dessin ; souligné passé du rouge au bleu ; dessin effacé ; gestes simulés à la souris
+(outil Dessin au clavier « D », tracé sur la page, barre de style de l'outil, sélection du tracé
+par un clic, barre « Sélection : Dessin », suppression par la touche Suppr) ; panneau Commentaires
+avec les trois commentaires de la page ; enregistrement, fermeture, réouverture : souligné bleu et
+note (texte et auteur) toujours là. Test du moteur : création des quatre types, lecture (couleur,
+opacité, auteur, dates, zones, tracés), rendu vérifié au pixel (surlignage, tracé, icône de note),
+changement de couleur visible au rendu, suppression, enregistrement incrémental et relecture.
+Captures : accueil en vignettes avec favoris (S01), panneau Commentaires (S08) ; éditeur de note
+et barre de propriétés vérifiés sur des images prises pendant le scénario (variable
+`PDFREADER_E2E_PAUSE`).
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| S01 Accueil | 2026-11-09 | fait (local) | onglets Fichiers / Accords (services en ligne : sans objet), panneau « Détails rapides » | — |
+| S03 Vue document (annotations) | 2026-11-09 | partiel | zone de texte et légende, formes, tampons, déplacer ou redimensionner un commentaire, annuler / rétablir | PDFium refuse de lire ou de changer la couleur d'une annotation qui a déjà une apparence : la couleur est lue sur les tracés de l'apparence, et une modification retire d'abord l'apparence (et l'indicateur privé de PDFium, qui sinon bloque la régénération) |
+| S08 Commentaires | 2026-11-09 | partiel | réponses et statuts (should, M3), filtre par couleur, non lus | — |
+
+### Notes techniques
+
+- Module `crates/engine/src/annotations.rs` : tout en API brute `FPDFAnnot_*`. Identifiant d'un
+  commentaire : son /NM (posé à la création), sinon son rang sur la page ; l'interface relit la
+  liste de la page après chaque modification.
+- Opacité : l'alpha de `FPDFAnnot_SetColor` devient /CA ; lecture par `FPDFAnnot_GetNumberValue`.
+- Le tracé en cours de dessin est gardé dans une référence et non dans l'état React : avec des
+  mouvements rapides, des points se perdaient (trouvé par le scénario).
+- Après une modification, la page garde ses anciennes tuiles jusqu'à ce que les nouvelles soient
+  chargées (plus de page floue qui clignote, vu sur les captures).
+- Choisir un outil de création désélectionne le commentaire courant (sinon la barre de l'outil
+  n'apparaissait pas, trouvé par le scénario).
+- Le scénario écrit dans la base locale réelle (nom d'auteur, récents) ; remis en état à la main
+  après les essais. À isoler (dossier de données dédié aux tests) avant la CI.

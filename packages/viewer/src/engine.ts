@@ -45,7 +45,7 @@ export interface Permissions {
 export type ZoomMode = "fit-page" | "fit-width" | "custom";
 export type Layout = "continuous" | "single" | "double" | "continuous-double";
 export type Rotation = 0 | 90 | 180 | 270;
-export type PanelId = "thumbnails" | "bookmarks";
+export type PanelId = "thumbnails" | "bookmarks" | "comments";
 
 export interface ViewState {
   page: number;
@@ -86,6 +86,63 @@ export interface SearchBatch {
 
 export type Theme = "system" | "light" | "dark" | "contrast";
 
+export type AnnotKind =
+  | "highlight"
+  | "underline"
+  | "strikeout"
+  | "squiggly"
+  | "note"
+  | "ink"
+  | "freetext"
+  | "line"
+  | "square"
+  | "circle"
+  | "polygon"
+  | "polyline"
+  | "stamp"
+  | "other";
+
+export type Rgb = [number, number, number];
+
+/** Commentaire d'une page. Coordonnées en points depuis le haut à gauche de la page. */
+export interface Annot {
+  /** /NM du commentaire, ou « #rang » s'il n'en a pas (valable jusqu'à la prochaine modification). */
+  id: string;
+  page: number;
+  kind: AnnotKind;
+  rect: Box;
+  /** Zones d'un surlignage, souligné ou barré (une par ligne). */
+  boxes: Box[];
+  /** Tracés d'un dessin. */
+  strokes: [number, number][][];
+  color: Rgb | null;
+  opacity: number;
+  width: number;
+  contents: string;
+  author: string;
+  /** Dates PDF brutes (« D:20261109183000+01'00' »). */
+  modified: string | null;
+  created: string | null;
+  replyTo: string | null;
+  locked: boolean;
+}
+
+export interface AnnotResult {
+  /** Commentaire créé, le cas échéant. */
+  id: string | null;
+  /** Liste à jour des commentaires de la page. */
+  annots: Annot[];
+}
+
+export interface AnnotPatch {
+  color?: Rgb;
+  opacity?: number;
+  width?: number;
+  contents?: string;
+}
+
+export type MarkupKind = "highlight" | "underline" | "strikeout";
+
 /** Mot de la couche de texte, en points PDF, origine en haut à gauche. */
 export interface TextWord {
   t: string;
@@ -122,7 +179,14 @@ export interface EngineClient {
   /** Rejette avec un OpenError typé. */
   open(path: string, password?: string): Promise<DocInfo>;
   textLayer(doc: number, page: number): Promise<TextWord[][]>;
-  addHighlight(doc: number, page: number, rects: PdfRect[], color: [number, number, number]): Promise<number>;
+  annotations(doc: number, page: number): Promise<AnnotResult>;
+  /** Rectangles en points PDF (origine en bas à gauche), un par ligne. */
+  addMarkup(doc: number, page: number, kind: MarkupKind, rects: PdfRect[], color: Rgb, opacity: number): Promise<AnnotResult>;
+  /** Note dont le coin haut gauche est en (x, y), points depuis le haut. */
+  addNote(doc: number, page: number, x: number, y: number, contents: string, color: Rgb): Promise<AnnotResult>;
+  addInk(doc: number, page: number, strokes: [number, number][][], color: Rgb, opacity: number, width: number): Promise<AnnotResult>;
+  updateAnnot(doc: number, page: number, id: string, patch: AnnotPatch): Promise<AnnotResult>;
+  deleteAnnot(doc: number, page: number, id: string): Promise<AnnotResult>;
   countHighlights(doc: number, page: number): Promise<number>;
   links(doc: number, page: number): Promise<PageLink[]>;
   bookmarks(doc: number): Promise<Bookmark[]>;
@@ -140,6 +204,7 @@ export interface EngineClient {
   close(doc: number): void;
   recents(): Promise<RecentFile[]>;
   removeRecent(id: string): Promise<void>;
+  starRecent(id: string, starred: boolean): Promise<void>;
   author(): Promise<string>;
   tileUrl(doc: number, generation: number, version: number, page: number, scale: number, x: number, y: number): string;
   thumbUrl(id: string, bust: number): string;
@@ -153,6 +218,8 @@ export interface EngineClient {
   setTitle(title: string): Promise<void>;
   e2eEnabled(): Promise<boolean>;
   e2eReport(report: unknown): Promise<void>;
+  /** Pause (ms) demandée par l'outil de capture pendant le scénario (0 : aucune). */
+  e2ePause(): Promise<number>;
 }
 
 /** 100 % = taille réelle : 1 point PDF = 96/72 pixels CSS. */

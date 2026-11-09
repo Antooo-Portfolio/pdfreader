@@ -212,6 +212,7 @@ pub fn process_memory() -> u64 {
 
 pub mod reading;
 pub use reading::*;
+pub mod annotations;
 
 #[cfg(windows)]
 pub mod print_win;

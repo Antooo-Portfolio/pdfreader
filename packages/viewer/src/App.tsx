@@ -1,14 +1,13 @@
 import { Button, Dialog, DocumentTabs, IconButton, Menu, MenuItem, MenuSection, MenuTrigger, Spinner, TextField, useToast } from "@pdfreader/ui";
 import { Home, Palette } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { DocumentView } from "./DocumentView";
+import { DEFAULT_STYLES, type Tool, type ToolStyle, type ToolStyles } from "./annot";
+import { type DocActions, DocumentView } from "./DocumentView";
 import { runE2E } from "./e2e";
 import { type DocInfo, type EngineClient, isOpenError, type Theme } from "./engine";
 import { HomeView } from "./HomeView";
-import { selectionToPageRects } from "./selection";
 import { reducer } from "./state";
 
-const HIGHLIGHT_YELLOW: [number, number, number] = [255, 225, 77];
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: "system", label: "Comme Windows" },
@@ -29,6 +28,9 @@ function applyTheme(engine: EngineClient, theme: Theme) {
 export interface AppActions {
   openPath(path: string, password?: string): Promise<DocInfo | null>;
   highlightSelection(): Promise<number>;
+  /** Actions du document actif (commentaires). */
+  doc(): DocActions | null;
+  setAuthor(name: string): Promise<void>;
   save(id: number): Promise<boolean>;
   closeDoc(id: number): Promise<void>;
   activeId(): number | null;
@@ -38,13 +40,15 @@ export function App({ engine }: { engine: EngineClient }) {
   const toast = useToast();
   const [docs, dispatch] = useReducer(reducer, []);
   const [active, setActive] = useState<string>("home");
-  const [tool, setTool] = useState<"select" | "highlight">("select");
+  const [tool, setTool] = useState<Tool>("select");
+  const [styles, setStyles] = useState<ToolStyles>(DEFAULT_STYLES);
+  const [author, setAuthor] = useState("");
+  const docActions = useRef(new Map<number, DocActions>());
   const [opening, setOpening] = useState<string | null>(null);
   const [password, setPassword] = useState<{ path: string; wrong: boolean; value: string } | null>(null);
   const [confirmClose, setConfirmClose] = useState<{ ids: number[]; quit: boolean } | null>(null);
   const [homeRefresh, setHomeRefresh] = useState(0);
   const [theme, setTheme] = useState<Theme>("system");
-  const pagesEls = useRef(new Map<number, HTMLDivElement>());
   const docsRef = useRef(docs);
   docsRef.current = docs;
   const activeRef = useRef(active);
@@ -63,10 +67,49 @@ export function App({ engine }: { engine: EngineClient }) {
       .then((p) => {
         const t = p.theme;
         if (t === "light" || t === "dark" || t === "contrast" || t === "system") setTheme(t);
+        // Styles des outils mémorisés : on ne garde que les entrées valides.
+        const saved = p.toolStyles as Partial<Record<keyof ToolStyles, Partial<ToolStyle>>> | undefined;
+        if (saved && typeof saved === "object") {
+          setStyles((cur) => {
+            const next = { ...cur };
+            for (const k of Object.keys(cur) as (keyof ToolStyles)[]) {
+              const v = saved[k];
+              if (!v) continue;
+              const color = Array.isArray(v.color) && v.color.length === 3 && v.color.every((c) => Number.isInteger(c) && c >= 0 && c <= 255) ? v.color : cur[k].color;
+              const opacity = typeof v.opacity === "number" && v.opacity >= 0.1 && v.opacity <= 1 ? v.opacity : cur[k].opacity;
+              const width = typeof v.width === "number" && v.width >= 0.25 && v.width <= 48 ? v.width : cur[k].width;
+              next[k] = { color, opacity, width };
+            }
+            return next;
+          });
+        }
       })
       .catch(() => undefined);
   }, [engine]);
   useEffect(() => applyTheme(engine, theme), [engine, theme]);
+  useEffect(() => {
+    engine
+      .author()
+      .then(setAuthor)
+      .catch(() => undefined);
+  }, [engine]);
+  const changeStyle = useCallback(
+    (kind: keyof ToolStyles, patch: Partial<ToolStyle>) => {
+      setStyles((cur) => {
+        const next = { ...cur, [kind]: { ...cur[kind], ...patch } };
+        void engine.setPreference("toolStyles", next).catch(() => undefined);
+        return next;
+      });
+    },
+    [engine],
+  );
+  const changeAuthor = useCallback(
+    async (name: string) => {
+      setAuthor(name);
+      await engine.setPreference("author", name).catch(() => undefined);
+    },
+    [engine],
+  );
   const chooseTheme = (t: Theme) => {
     setTheme(t);
     void engine.setPreference("theme", t).catch(() => undefined);
@@ -110,29 +153,32 @@ export function App({ engine }: { engine: EngineClient }) {
     for (const p of await engine.pickFiles()) await openPath(p);
   }, [engine, openPath]);
 
-  // ------------------------------------------------------------ surlignage
+  // ------------------------------------------------------------ commentaires
   const highlightSelection = useCallback(async (): Promise<number> => {
+    const a = docActions.current.get(Number(activeRef.current));
+    if (!a) return 0;
+    const n = await a.markupSelection("highlight");
+    if (n === 0) toast({ tone: "info", message: "Sélectionnez d'abord du texte à surligner." });
+    return engine.countHighlights(Number(activeRef.current), 0);
+  }, [engine, toast]);
+
+  const onAnnotated = useCallback((page: number) => {
     const id = Number(activeRef.current);
-    const root = pagesEls.current.get(id);
-    if (!root) return 0;
-    if (docsRef.current.find((d) => d.info.id === id)?.info.permissions.annotate === false) return 0;
-    const byPage = selectionToPageRects(root);
-    if (byPage.size === 0) {
-      if (tool === "select") toast({ tone: "info", message: "Sélectionnez d'abord du texte à surligner." });
-      return 0;
+    if (id) dispatch({ type: "annotated", id, page });
+  }, []);
+  // Une fonction d'enregistrement stable par document.
+  const registrars = useRef(new Map<number, (a: DocActions | null) => void>());
+  const registerFor = (id: number) => {
+    let f = registrars.current.get(id);
+    if (!f) {
+      f = (a) => {
+        if (a) docActions.current.set(id, a);
+        else docActions.current.delete(id);
+      };
+      registrars.current.set(id, f);
     }
-    let total = 0;
-    try {
-      for (const [page, rects] of byPage) {
-        total = await engine.addHighlight(id, page, rects, HIGHLIGHT_YELLOW);
-        dispatch({ type: "annotated", id, page });
-      }
-      window.getSelection()?.removeAllRanges();
-    } catch (e) {
-      toast({ tone: "error", message: `Le surlignage a échoué : ${String(e)}` });
-    }
-    return total;
-  }, [engine, toast, tool]);
+    return f;
+  };
 
   // ------------------------------------------------------------ enregistrement
   const save = useCallback(
@@ -175,7 +221,7 @@ export function App({ engine }: { engine: EngineClient }) {
   const reallyClose = useCallback(
     (id: number) => {
       engine.close(id);
-      pagesEls.current.delete(id);
+      docActions.current.delete(id);
       dispatch({ type: "closed", id });
       setActive((a) => (a === String(id) ? "home" : a));
     },
@@ -218,7 +264,15 @@ export function App({ engine }: { engine: EngineClient }) {
         first ??= info;
       }
       if (e2e && !cancelled) {
-        const actions: AppActions = { openPath, highlightSelection, save, closeDoc: async (id) => reallyClose(id), activeId: () => Number(activeRef.current) || null };
+        const actions: AppActions = {
+          openPath,
+          highlightSelection,
+          doc: () => docActions.current.get(Number(activeRef.current)) ?? null,
+          setAuthor: changeAuthor,
+          save,
+          closeDoc: async (id) => reallyClose(id),
+          activeId: () => Number(activeRef.current) || null,
+        };
         const report = await runE2E(engine, actions, first, launch[0] ?? null);
         await engine.e2eReport(report);
       }
@@ -256,8 +310,9 @@ export function App({ engine }: { engine: EngineClient }) {
         setActive(order[(i + (e.shiftKey ? -1 : 1) + order.length) % order.length] ?? "home");
       } else if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey) {
         // Raccourcis à une touche (désactivables dans les Préférences en M2).
-        if (e.key === "v" || e.key === "V") setTool("select");
-        if (e.key === "u" || e.key === "U") setTool("highlight");
+        const k = e.key.toLowerCase();
+        const byKey: Record<string, Tool> = { v: "select", u: "highlight", n: "note", d: "ink", e: "eraser" };
+        if (byKey[k]) setTool(byKey[k]);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -315,12 +370,14 @@ export function App({ engine }: { engine: EngineClient }) {
           isActive={active === String(d.info.id)}
           tool={tool}
           onToolChange={setTool}
-          onHighlightSelection={() => void highlightSelection()}
+          styles={styles}
+          onStyleChange={changeStyle}
+          author={author}
+          onAuthorChange={(n) => void changeAuthor(n)}
+          onAnnotated={onAnnotated}
           onSave={() => void save(d.info.id)}
           onOpen={() => void pick()}
-          pagesRef={(el) => {
-            if (el) pagesEls.current.set(d.info.id, el);
-          }}
+          register={registerFor(d.info.id)}
         />
       ))}
 

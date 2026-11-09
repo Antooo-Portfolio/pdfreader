@@ -1,5 +1,5 @@
 import type { AppActions } from "./App";
-import { type DocInfo, type EngineClient, isOpenError } from "./engine";
+import { type Annot, type DocInfo, type EngineClient, isOpenError } from "./engine";
 import { selectionToPageRects } from "./selection";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -61,8 +61,10 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.highlightsAfterReopen = await engine.countHighlights(reopened.id, 0);
     const m1 = steps.highlightsAfterReopen === count && count > 0 && steps.saved === true;
     steps.m1 = m1;
-    steps.m2 = await runM2(engine, actions, reopened, path);
-    steps.ok = m1 && (steps.m2 as { ok: boolean }).ok;
+    const annot = await runAnnotations(actions, reopened, path, await engine.e2ePause());
+    steps.annotations = annot.report;
+    steps.m2 = await runM2(engine, actions, annot.doc ?? reopened, path);
+    steps.ok = m1 && (steps.m2 as { ok: boolean }).ok && (annot.report.ok as boolean);
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -164,4 +166,107 @@ async function runM2(engine: EngineClient, actions: AppActions, doc: DocInfo, pa
   r.ok = checks.every(Boolean);
   r.checks = checks;
   return r;
+}
+
+/** M2, lot « annotations » : nom d'auteur, souligné, note, dessin, changement de couleur, gomme,
+ *  panneau Commentaires, puis enregistrement et relecture. */
+async function runAnnotations(actions: AppActions, doc: DocInfo, path: string, pauseMs = 0): Promise<{ report: Record<string, unknown>; doc: DocInfo | null }> {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  let reopened: DocInfo | null = null;
+  try {
+    await actions.setAuthor("Testeur E2E");
+    const a = await waitFor(() => actions.doc());
+    const before = (await a.annots(0)).length;
+    r.before = before;
+
+    // Souligné d'un mot sélectionné.
+    const root = await waitFor(() => document.querySelector<HTMLElement>('[role="document"]'));
+    const page0 = await waitFor(() => root.querySelector<HTMLElement>('[data-page-index="0"]'));
+    await waitFor(() => page0.querySelector(".pdf-text-layer"));
+    if (!selectWord(page0, /\w{6,}/)) throw new Error("aucun mot à souligner");
+    checks.underline = (await a.markupSelection("underline")) === 1;
+    let list = await a.annots(0);
+    const ul = list.find((x) => x.kind === "underline");
+    checks.author = ul?.author === "Testeur E2E";
+
+    // Note et dessin.
+    const noteId = await a.createNote(0, 420, 120, "Note du scénario");
+    const inkId = await a.createInk(0, [[[100, 520], [180, 560], [260, 520], [340, 560]]]);
+    list = await a.annots(0);
+    checks.note = !!list.find((x) => x.id === noteId && x.kind === "note" && x.contents === "Note du scénario");
+    checks.ink = !!list.find((x) => x.id === inkId && x.kind === "ink" && x.strokes[0]?.length === 4);
+    // L'éditeur de la note s'ouvre à sa création.
+    checks.noteEditor = !!(await waitFor(() => document.querySelector('[role="dialog"][aria-label^="Note de"]'), 3000).catch(() => null));
+    // Pause facultative pour une capture d'écran (variable PDFREADER_E2E_PAUSE côté outil).
+    if (pauseMs) await sleep(pauseMs);
+    (document.activeElement as HTMLElement | null)?.blur();
+
+    // Changement de couleur du souligné, puis gomme sur le dessin.
+    if (ul) checks.recolor = (await a.updateAnnot(0, ul.id, { color: [0, 120, 255] })) && (await a.annots(0)).find((x) => x.id === ul.id)?.color?.[2] === 255;
+    if (inkId) checks.erase = (await a.deleteAnnot(0, inkId)) && !(await a.annots(0)).some((x) => x.id === inkId);
+
+    // Gestes à la souris (événements synthétiques) : dessin, clic de sélection, Suppr.
+    const gestures: Record<string, unknown> = {};
+    key("d");
+    const layer = await waitFor(() => page0.querySelector<HTMLElement>(".touch-none"));
+    gestures.toolBar = !!document.querySelector('[role="toolbar"][aria-label="Dessin"]');
+    const lr = layer.getBoundingClientRect();
+    const at = (fx: number, fy: number) => ({ clientX: lr.left + lr.width * fx, clientY: lr.top + lr.height * fy, pointerId: 7, button: 0, bubbles: true, cancelable: true });
+    const n0 = (await a.annots(0)).length;
+    layer.dispatchEvent(new PointerEvent("pointerdown", at(0.2, 0.85)));
+    for (let i = 1; i <= 10; i++) layer.dispatchEvent(new PointerEvent("pointermove", at(0.2 + i * 0.03, 0.85)));
+    layer.dispatchEvent(new PointerEvent("pointerup", at(0.5, 0.85)));
+    await waitFor(() => (actions.doc() && document.querySelectorAll("[data-page-index='0']").length ? true : null));
+    let drawn: Annot | undefined;
+    for (let i = 0; i < 40 && !drawn; i++) {
+      await sleep(100);
+      drawn = (await a.annots(0)).find((x) => x.kind === "ink" && x.id !== inkId);
+    }
+    gestures.drawn = !!drawn && (await a.annots(0)).length === n0 + 1;
+    key("v");
+    await sleep(100);
+    const pr = page0.getBoundingClientRect();
+    page0.querySelector(".pdf-text-layer")?.dispatchEvent(new MouseEvent("click", { clientX: pr.left + pr.width * 0.35, clientY: pr.top + pr.height * 0.85, bubbles: true }));
+    gestures.selected = !!(await waitFor(() => document.querySelector("[data-selected-annot]"), 3000).catch(() => null));
+    gestures.selectedBar = !!document.querySelector('[role="toolbar"][aria-label="Sélection : Dessin"]');
+    if (pauseMs) await sleep(pauseMs);
+    key("Delete");
+    let gone = false;
+    for (let i = 0; i < 30 && !gone; i++) {
+      await sleep(100);
+      gone = (await a.annots(0)).length === n0;
+    }
+    gestures.deletedWithKey = gone;
+    r.gestures = gestures;
+    checks.gestures = Object.values(gestures).every(Boolean);
+
+    // Panneau Commentaires : les commentaires de la page y figurent.
+    a.openPanel("comments");
+    await waitFor(() => (document.querySelectorAll("[data-comment]").length >= before + 2 ? true : null), 8000);
+    r.panelItems = document.querySelectorAll("[data-comment]").length;
+    checks.panel = true;
+    a.openPanel(null);
+
+    // Enregistrement, fermeture, réouverture.
+    const id = doc.id;
+    checks.saved = await actions.save(id);
+    await actions.closeDoc(id);
+    await sleep(200);
+    reopened = await actions.openPath(path);
+    if (!reopened) throw new Error("réouverture impossible");
+    const b = await waitFor(() => (actions.activeId() === reopened?.id ? actions.doc() : null));
+    const after = await b.annots(0);
+    r.after = after.map((x) => `${x.kind}:${x.author}:${x.contents}`);
+    checks.persisted =
+      after.length === before + 2 &&
+      after.some((x) => x.kind === "note" && x.contents === "Note du scénario" && x.author === "Testeur E2E") &&
+      after.some((x) => x.kind === "underline" && x.color?.[2] === 255);
+  } catch (e) {
+    r.error = String(e);
+    checks.error = false;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 10;
+  return { report: r, doc: reopened };
 }

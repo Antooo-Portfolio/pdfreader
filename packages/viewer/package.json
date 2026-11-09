@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "clsx": "*",
+    "react-aria-components": "*",
     "lucide-react": "*"
   }
 }

@@ -1,6 +1,8 @@
 import { clsx } from "clsx";
-import { memo, useEffect, useMemo, useState } from "react";
-import { type Box, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextWord, thumbScale } from "./engine";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import type { Tool, ToolStyle } from "./annot";
+import { AnnotLayer, NoteEditor } from "./AnnotTools";
+import { type Annot, type Box, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextWord, thumbScale } from "./engine";
 import { type PageBox, rotationTransform } from "./layout";
 
 const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
@@ -26,6 +28,18 @@ interface Props {
   hits?: Box[][];
   currentHit: number;
   onLink: (action: LinkAction) => void;
+  /** Commentaires de la page (null : pas encore lus). */
+  annots: Annot[] | null;
+  selectedId: string | null;
+  /** Note en cours d'édition sur cette page. */
+  editing: { id: string; isNew: boolean } | null;
+  tool: Tool;
+  toolStyle: ToolStyle;
+  onCreateNote: (page: number, x: number, y: number) => void;
+  onCreateInk: (page: number, strokes: [number, number][][]) => void;
+  onDeleteAnnot: (page: number, id: string) => void;
+  onSaveNote: (page: number, id: string, text: string) => void;
+  onCloseEditor: () => void;
 }
 
 /** Une page : aperçu basse résolution, tuiles WebP rendues par le moteur, résultats de
@@ -86,6 +100,35 @@ export const PageView = memo(function PageView(p: Props) {
     return t;
   }, [active, devW, devH]);
 
+  // Après une modification (nouvelle version de la page), les anciennes tuiles restent affichées
+  // jusqu'à ce que toutes les nouvelles soient chargées : pas de page floue qui clignote.
+  const [shownVersion, setShownVersion] = useState(version);
+  const waiting = useRef(0);
+  useEffect(() => {
+    if (version === shownVersion) return;
+    waiting.current = tiles.length;
+    if (tiles.length === 0) setShownVersion(version);
+  }, [version, shownVersion, tiles.length]);
+  const onNewTile = () => {
+    waiting.current -= 1;
+    if (waiting.current <= 0) setShownVersion(version);
+  };
+  const tileLayer = (ver: number, hidden: boolean) =>
+    tiles.map((t) => (
+      <img
+        key={`${ver}-${t.x}-${t.y}-${scale}`}
+        alt=""
+        aria-hidden
+        draggable={false}
+        decoding="async"
+        src={engine.tileUrl(docId, generation, ver, index, scale, t.x, t.y)}
+        onLoad={hidden ? onNewTile : undefined}
+        onError={hidden ? onNewTile : undefined}
+        className="pointer-events-none absolute max-w-none"
+        style={{ left: t.x / dpr, top: t.y / dpr, width: t.w / dpr, height: t.h / dpr, opacity: hidden ? 0 : 1 }}
+      />
+    ));
+
   const k = PT_TO_CSS * zoom;
   const preview = thumbScale(pw, ph, dpr);
 
@@ -112,27 +155,49 @@ export const PageView = memo(function PageView(p: Props) {
             alt=""
             aria-hidden
             draggable={false}
-            src={engine.tileUrl(docId, generation, version, index, preview, 0, 0)}
+            src={engine.tileUrl(docId, generation, shownVersion, index, preview, 0, 0)}
             className="pointer-events-none absolute inset-0 size-full max-w-none"
           />
         )}
-        {tiles.map((t) => (
-          <img
-            key={`${t.x}-${t.y}-${scale}`}
-            alt=""
-            aria-hidden
-            draggable={false}
-            decoding="async"
-            src={engine.tileUrl(docId, generation, version, index, scale, t.x, t.y)}
-            className="pointer-events-none absolute max-w-none"
-            style={{ left: t.x / dpr, top: t.y / dpr, width: t.w / dpr, height: t.h / dpr }}
-          />
-        ))}
+        {tileLayer(shownVersion, false)}
+        {shownVersion !== version && tileLayer(version, true)}
         {p.hits && <Hits hits={p.hits} current={p.currentHit} k={k} />}
         {active && lines && <TextLayer lines={lines} k={k} />}
         {active && links && links.length > 0 && <Links links={links} k={k} onLink={p.onLink} />}
       </div>
       {active && textError && <span className="sr-only">Le texte de cette page n'a pas pu être lu.</span>}
+      {active && p.annots && (
+        <AnnotLayer
+          size={size}
+          k={k}
+          rotation={rotation}
+          box={box}
+          tool={p.tool}
+          style={p.toolStyle}
+          annots={p.annots}
+          selectedId={p.selectedId}
+          onCreateNote={(x, y) => p.onCreateNote(index, x, y)}
+          onCreateInk={(s) => p.onCreateInk(index, s)}
+          onErase={(id) => p.onDeleteAnnot(index, id)}
+        />
+      )}
+      {active &&
+        p.editing &&
+        p.annots?.map((a) =>
+          a.id === p.editing?.id ? (
+            <NoteEditor
+              key={a.id}
+              annot={a}
+              size={size}
+              k={k}
+              rotation={rotation}
+              isNew={p.editing.isNew}
+              onSave={(text) => p.onSaveNote(index, a.id, text)}
+              onDelete={() => p.onDeleteAnnot(index, a.id)}
+              onClose={p.onCloseEditor}
+            />
+          ) : null,
+        )}
     </div>
   );
 });

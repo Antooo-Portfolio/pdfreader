@@ -18,26 +18,62 @@ import {
   ZoomControl,
 } from "@pdfreader/ui";
 import { clsx } from "clsx";
-import { BookOpen, Bookmark as BookmarkIcon, FolderOpen, GalleryVertical, Highlighter, MousePointer2, RotateCcw, RotateCw, Save, Search } from "lucide-react";
+import {
+  BookOpen,
+  Bookmark as BookmarkIcon,
+  Eraser,
+  FolderOpen,
+  GalleryVertical,
+  Highlighter,
+  MessageSquare,
+  MousePointer2,
+  PenLine,
+  RotateCcw,
+  RotateCw,
+  Save,
+  Search,
+  StickyNote,
+  Strikethrough,
+  Underline,
+} from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Bookmark, Box, EngineClient, Layout, LinkAction, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
+import { DEFAULT_STYLES, hitTest, isMarkupTool, KIND_LABELS, type Tool, type ToolStyle, type ToolStyles } from "./annot";
+import { PropertyBar } from "./AnnotTools";
+import { CommentsPanel } from "./CommentsPanel";
+import type { Annot, AnnotPatch, AnnotResult, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
 import { PT_TO_CSS } from "./engine";
-import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt } from "./layout";
+import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
 import { PageView } from "./PageView";
 import { BookmarksPanel, ThumbnailsPanel } from "./Panels";
+import { selectionToPageRects } from "./selection";
 import type { OpenDoc } from "./state";
 
 interface Props {
   engine: EngineClient;
   doc: OpenDoc;
   isActive: boolean;
-  tool: "select" | "highlight";
-  onToolChange: (t: "select" | "highlight") => void;
-  onHighlightSelection: () => void;
+  tool: Tool;
+  onToolChange: (t: Tool) => void;
+  styles: ToolStyles;
+  onStyleChange: (kind: keyof ToolStyles, patch: Partial<ToolStyle>) => void;
+  author: string;
+  onAuthorChange: (name: string) => void;
+  /** Une page a été modifiée (document à enregistrer, tuiles à recharger). */
+  onAnnotated: (page: number) => void;
   onSave: () => void;
   onOpen: () => void;
-  /** Conteneur des pages (pour convertir la sélection en coordonnées PDF). */
-  pagesRef: (el: HTMLDivElement | null) => void;
+  /** Actions exposées au scénario de bout en bout. */
+  register?: (actions: DocActions | null) => void;
+}
+
+export interface DocActions {
+  markupSelection: (kind: MarkupKind) => Promise<number>;
+  createNote: (page: number, x: number, y: number, text: string) => Promise<string | null>;
+  createInk: (page: number, strokes: [number, number][][]) => Promise<string | null>;
+  updateAnnot: (page: number, id: string, patch: AnnotPatch) => Promise<boolean>;
+  deleteAnnot: (page: number, id: string) => Promise<boolean>;
+  annots: (page: number) => Promise<Annot[]>;
+  openPanel: (p: PanelId | null) => void;
 }
 
 /** Point d'ancrage : garde la même portion du document sous les yeux quand le zoom, la rotation
@@ -68,7 +104,15 @@ const LAYOUT_LABELS: Record<Layout, string> = {
   "continuous-double": "Deux pages en continu",
 };
 
-export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHighlightSelection, onSave, onOpen, pagesRef }: Props) {
+const TOOL_LABELS: Record<Exclude<Tool, "select" | "eraser">, string> = {
+  highlight: "Surligner",
+  underline: "Souligner",
+  strikeout: "Barrer",
+  note: "Note",
+  ink: "Dessin",
+};
+
+export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles, onStyleChange, author, onAuthorChange, onAnnotated, onSave, onOpen, register }: Props) {
   const toast = useToast();
   const { info } = doc;
   const saved = info.viewState;
@@ -432,9 +476,259 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHigh
     [goTo],
   );
 
+  // ------------------------------------------------------------ commentaires
+  const perms = info.permissions;
+  const canAnnotate = perms.annotate;
+  const [annots, setAnnots] = useState<Map<number, Annot[]>>(() => new Map());
+  const annotsRef = useRef(annots);
+  annotsRef.current = annots;
+  const loadingAnnots = useRef(new Map<number, Promise<Annot[]>>());
+  const [selected, setSelected] = useState<{ page: number; id: string } | null>(null);
+  const [editing, setEditing] = useState<{ page: number; id: string; isNew: boolean } | null>(null);
+  const [pagesLoaded, setPagesLoaded] = useState(0);
+  const stylesRef = useRef(styles);
+  stylesRef.current = styles;
+
+  // Après un enregistrement, le document est relu : les rangs « #n » peuvent changer.
+  const firstGen = useRef(true);
+  useEffect(() => {
+    if (firstGen.current) {
+      firstGen.current = false;
+      return;
+    }
+    loadingAnnots.current.clear();
+    setAnnots(new Map());
+    setSelected(null);
+    setEditing(null);
+    setPagesLoaded(0);
+  }, [info.generation]);
+
+  const loadAnnots = useCallback(
+    (p: number): Promise<Annot[]> => {
+      const have = annotsRef.current.get(p);
+      if (have) return Promise.resolve(have);
+      const inflight = loadingAnnots.current.get(p);
+      if (inflight) return inflight;
+      const job = engine
+        .annotations(info.id, p)
+        .then((r) => r.annots)
+        .catch(() => [] as Annot[])
+        .then((list) => {
+          loadingAnnots.current.delete(p);
+          setAnnots((m) => (m.has(p) ? m : new Map(m).set(p, list)));
+          return list;
+        });
+      loadingAnnots.current.set(p, job);
+      return job;
+    },
+    [engine, info.id],
+  );
+
+  // Panneau Commentaires : lecture de toutes les pages, par lots, sans bloquer le rendu.
+  useEffect(() => {
+    if (panel !== "comments") return;
+    let cancelled = false;
+    (async () => {
+      for (let p = 0; p < info.pageCount; p++) {
+        if (cancelled) return;
+        if (!annotsRef.current.has(p)) await loadAnnots(p);
+        if (p % 20 === 19 || p === info.pageCount - 1) setPagesLoaded(p + 1);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [panel, info.pageCount, info.generation, loadAnnots]);
+
+  const apply = useCallback(
+    (p: number, r: AnnotResult) => {
+      annotsRef.current = new Map(annotsRef.current).set(p, r.annots);
+      setAnnots(annotsRef.current);
+      onAnnotated(p);
+    },
+    [onAnnotated],
+  );
+
+  const attempt = useCallback(
+    async <T,>(f: () => Promise<T>, what: string): Promise<T | null> => {
+      try {
+        return await f();
+      } catch (e) {
+        toast({ tone: "error", message: `${what} (${String(e)})` });
+        return null;
+      }
+    },
+    [toast],
+  );
+
+  const markupSelection = useCallback(
+    async (kind: MarkupKind): Promise<number> => {
+      if (!canAnnotate || !scroller.current) return 0;
+      const byPage = selectionToPageRects(scroller.current);
+      if (byPage.size === 0) return 0;
+      const st = stylesRef.current[kind];
+      let n = 0;
+      for (const [p, rects] of byPage) {
+        const r = await attempt(() => engine.addMarkup(info.id, p, kind, rects, st.color, st.opacity), "Le commentaire n'a pas pu être ajouté");
+        if (r) {
+          apply(p, r);
+          n++;
+        }
+      }
+      window.getSelection()?.removeAllRanges();
+      return n;
+    },
+    [canAnnotate, attempt, engine, info.id, apply],
+  );
+
+  const createNote = useCallback(
+    async (p: number, x: number, y: number, text = ""): Promise<string | null> => {
+      const r = await attempt(() => engine.addNote(info.id, p, x, y, text, stylesRef.current.note.color), "La note n'a pas pu être ajoutée");
+      if (!r?.id) return null;
+      apply(p, r);
+      setSelected({ page: p, id: r.id });
+      setEditing({ page: p, id: r.id, isNew: true });
+      onToolChange("select");
+      return r.id;
+    },
+    [attempt, engine, info.id, apply, onToolChange],
+  );
+
+  const createInk = useCallback(
+    async (p: number, strokes: [number, number][][]): Promise<string | null> => {
+      const st = stylesRef.current.ink;
+      const r = await attempt(() => engine.addInk(info.id, p, strokes, st.color, st.opacity, st.width), "Le dessin n'a pas pu être ajouté");
+      if (!r) return null;
+      apply(p, r);
+      return r.id;
+    },
+    [attempt, engine, info.id, apply],
+  );
+
+  const updateAnnot = useCallback(
+    async (p: number, id: string, patch: AnnotPatch): Promise<boolean> => {
+      const r = await attempt(() => engine.updateAnnot(info.id, p, id, patch), "La modification a échoué");
+      if (r) apply(p, r);
+      return !!r;
+    },
+    [attempt, engine, info.id, apply],
+  );
+
+  const deleteAnnot = useCallback(
+    async (p: number, id: string): Promise<boolean> => {
+      const r = await attempt(() => engine.deleteAnnot(info.id, p, id), "La suppression a échoué");
+      if (!r) return false;
+      apply(p, r);
+      setSelected((s) => (s && s.page === p && s.id === id ? null : s));
+      setEditing((s) => (s && s.page === p && s.id === id ? null : s));
+      return true;
+    },
+    [attempt, engine, info.id, apply],
+  );
+
+  const saveNote = useCallback(
+    async (p: number, id: string, text: string) => {
+      if (await updateAnnot(p, id, { contents: text })) setEditing(null);
+    },
+    [updateAnnot],
+  );
+
+  // Réglages du commentaire sélectionné : appliqués après une courte pause (curseurs).
+  const pendingPatch = useRef<{ page: number; id: string; patch: AnnotPatch; timer: number } | null>(null);
+  const patchSelected = useCallback(
+    (patch: Partial<ToolStyle>) => {
+      if (!selected) return;
+      const prev = pendingPatch.current && pendingPatch.current.id === selected.id ? pendingPatch.current : null;
+      if (prev) window.clearTimeout(prev.timer);
+      const merged: AnnotPatch = { ...(prev?.patch ?? {}), ...patch };
+      const job = { page: selected.page, id: selected.id, patch: merged, timer: 0 };
+      job.timer = window.setTimeout(() => {
+        pendingPatch.current = null;
+        void updateAnnot(job.page, job.id, job.patch);
+      }, 220);
+      pendingPatch.current = job;
+      // Aperçu immédiat dans la barre de propriétés.
+      setAnnots((m) => {
+        const list = m.get(selected.page);
+        if (!list) return m;
+        return new Map(m).set(
+          selected.page,
+          list.map((a) => (a.id === selected.id ? { ...a, ...(patch.color ? { color: patch.color } : {}), ...(patch.opacity !== undefined ? { opacity: patch.opacity } : {}), ...(patch.width !== undefined ? { width: patch.width } : {}) } : a)),
+        );
+      });
+    },
+    [selected, updateAnnot],
+  );
+
+  const selectAnnot = useCallback(
+    (a: Annot) => {
+      setSelected({ page: a.page, id: a.id });
+      setEditing(null);
+      goTo(a.page + 1, Math.max(0, a.rect[1] - 48));
+    },
+    [goTo],
+  );
+
+  // Choisir un outil de création désélectionne le commentaire courant ; un outil de marquage
+  // s'applique tout de suite au texte déjà sélectionné.
+  useEffect(() => {
+    if (tool !== "select") {
+      setSelected(null);
+      setEditing(null);
+    }
+    if (!isActive || !isMarkupTool(tool)) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.anchorNode && scroller.current?.contains(sel.anchorNode)) void markupSelection(tool);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool]);
+
+  /** Clic sur la page avec l'outil de sélection : sélectionne le commentaire sous le pointeur. */
+  const onDocClick = (e: React.MouseEvent) => {
+    if (tool !== "select" && !isMarkupTool(tool)) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    const pageEl = (e.target as Element).closest<HTMLElement>("[data-page-index]");
+    if (!pageEl) {
+      setSelected(null);
+      setEditing(null);
+      return;
+    }
+    const p = Number(pageEl.dataset.pageIndex);
+    const [pw, ph] = info.pages[p] ?? [612, 792];
+    const r = pageEl.getBoundingClientRect();
+    const sideways = rotation === 90 || rotation === 270;
+    const W = sideways ? r.height : r.width;
+    const H = sideways ? r.width : r.height;
+    const [u, v] = unrotatePoint(e.clientX - r.left, e.clientY - r.top, W, H, rotation);
+    const hit = hitTest(annotsRef.current.get(p) ?? [], (u / W) * pw, (v / H) * ph, 3 / (PT_TO_CSS * zoom));
+    if (hit) {
+      setSelected({ page: p, id: hit.id });
+      setEditing(hit.kind === "note" ? { page: p, id: hit.id, isNew: false } : null);
+    } else {
+      setSelected(null);
+      setEditing(null);
+    }
+  };
+
+  useEffect(() => {
+    register?.({
+      markupSelection,
+      createNote,
+      createInk,
+      updateAnnot,
+      deleteAnnot,
+      annots: (p) => {
+        const known = annotsRef.current.get(p);
+        return known ? Promise.resolve(known) : loadAnnots(p);
+      },
+      openPanel: setPanel,
+    });
+  }, [register, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots]);
+  useEffect(() => () => register?.(null), [register]);
+
   // ------------------------------------------------------------ clavier
-  const ctx = useRef({ zoom, zoomTo, fit, rotate, goTo, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind });
-  ctx.current = { zoom, zoomTo, fit, rotate, goTo, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind };
+  const ctx = useRef({ zoom, zoomTo, fit, rotate, goTo, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange });
+  ctx.current = { zoom, zoomTo, fit, rotate, goTo, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange };
   useEffect(() => {
     if (!isActive) return;
     const onKey = (e: KeyboardEvent) => {
@@ -472,7 +766,18 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHigh
         c.closeFind();
         return;
       }
-      if (typing || !inDoc || e.altKey || e.metaKey) return;
+      if (typing || e.altKey || e.metaKey) return;
+      if ((key === "Delete" || key === "Backspace") && c.selected) {
+        e.preventDefault();
+        void c.deleteAnnot(c.selected.page, c.selected.id);
+        return;
+      }
+      if (key === "Escape") {
+        if (c.selected) setSelected(null);
+        else if (c.tool !== "select") c.onToolChange("select");
+        return;
+      }
+      if (!inDoc) return;
       const el = scroller.current;
       if (!el) return;
       const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
@@ -527,14 +832,19 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHigh
   }, []);
 
   // ------------------------------------------------------------ rendu
-  const perms = info.permissions;
-  const canAnnotate = perms.annotate;
   const restricted = !perms.copy || !perms.annotate || !perms.print;
   const restrictions = [!perms.copy && "copie du texte", !perms.annotate && "commentaires", !perms.print && "impression"].filter(Boolean).join(", ");
   const currentHit = search.flat[search.current];
   const shownRows = continuous ? rows : [currentRow, currentRow];
   const visiblePages: number[] = [];
   for (let r = shownRows[0] ?? 0; r <= (shownRows[1] ?? -1); r++) for (const p of L.rows[r]?.pages ?? []) visiblePages.push(p);
+  const visibleKey = visiblePages.join(",");
+  useEffect(() => {
+    if (!isActive) return;
+    for (const p of visibleKey.split(",")) if (p !== "") void loadAnnots(Number(p));
+  }, [visibleKey, isActive, loadAnnots, annots]);
+  const selectedAnnot = selected ? annots.get(selected.page)?.find((a) => a.id === selected.id) : undefined;
+  const styleTool = tool === "select" || tool === "eraser" ? null : tool;
   const notice = !search.searching && search.flat.length === 0 && search.pagesWithText === 0 ? "Aucun texte dans ce document (numérisé ?)" : null;
 
   return (
@@ -550,15 +860,17 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHigh
           selectedKeys={new Set([canAnnotate ? tool : "select"])}
           onSelectionChange={(keys) => {
             const k = [...keys][0];
-            if (k === "select" || k === "highlight") onToolChange(k);
+            if (typeof k === "string") onToolChange(k as Tool);
           }}
         >
-          <ToolButton id="select" label="Sélectionner du texte" shortcut="V" icon={<MousePointer2 size={18} />} />
-          <ToolButton id="highlight" label={canAnnotate ? "Surligner (sélectionnez du texte)" : "Surligner : désactivé par l'auteur"} shortcut="U" icon={<Highlighter size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="select" label="Sélectionner (texte et commentaires)" shortcut="V" icon={<MousePointer2 size={18} />} />
+          <ToolButton id="highlight" label={canAnnotate ? "Surligner du texte" : "Commentaires désactivés par l'auteur"} shortcut="U" icon={<Highlighter size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="underline" label="Souligner du texte" icon={<Underline size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="strikeout" label="Barrer du texte" icon={<Strikethrough size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="note" label="Ajouter une note (cliquez sur la page)" shortcut="N" icon={<StickyNote size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="ink" label="Dessiner à main levée" shortcut="D" icon={<PenLine size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="eraser" label="Gomme (efface les dessins)" shortcut="E" icon={<Eraser size={18} />} isDisabled={!canAnnotate} />
         </ToolGroup>
-        <Button size="sm" variant="ghost" icon={<Highlighter size={16} />} onPress={onHighlightSelection} className="ml-1 max-lg:hidden" isDisabled={!canAnnotate}>
-          Surligner la sélection
-        </Button>
         <div className="ml-auto flex items-center gap-1">
           <IconButton label="Rechercher" shortcut="Ctrl+F" icon={<Search size={18} />} onPress={openFind} />
           <ToolbarSeparator />
@@ -609,6 +921,27 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHigh
         </div>
       </Toolbar>
 
+      {canAnnotate && selectedAnnot && !selectedAnnot.locked ? (
+        <PropertyBar
+          title={`Sélection : ${KIND_LABELS[selectedAnnot.kind]}`}
+          style={{ color: selectedAnnot.color ?? DEFAULT_STYLES.highlight.color, opacity: selectedAnnot.opacity, width: selectedAnnot.width }}
+          showOpacity={selectedAnnot.kind !== "note"}
+          showWidth={selectedAnnot.kind === "ink"}
+          onChange={patchSelected}
+          onDelete={() => void deleteAnnot(selectedAnnot.page, selectedAnnot.id)}
+        />
+      ) : (
+        canAnnotate &&
+        styleTool && (
+          <PropertyBar
+            title={TOOL_LABELS[styleTool]}
+            style={styles[styleTool]}
+            showOpacity={styleTool !== "note"}
+            showWidth={styleTool === "ink"}
+            onChange={(patch) => onStyleChange(styleTool, patch)}
+          />
+        )
+      )}
       {info.isXfa && (
         <Banner tone="warning">Ce document utilise des formulaires XFA, qui ne sont pas pris en charge : certaines pages peuvent s'afficher incomplètes.</Banner>
       )}
@@ -641,10 +974,7 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHigh
             </div>
           )}
           <div
-            ref={(el) => {
-              scroller.current = el;
-              pagesRef(el);
-            }}
+            ref={scroller}
             onScroll={onScroll}
             onWheel={onWheel}
             onCopy={(e) => {
@@ -656,10 +986,11 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHigh
             tabIndex={0}
             role="document"
             aria-label={`${info.name}, page ${page} sur ${info.pageCount}`}
-            className={clsx("focus-ring-inset min-h-0 flex-1 overflow-auto bg-canvas [scrollbar-gutter:stable]", tool === "highlight" && canAnnotate && "cursor-text")}
+            className={clsx("focus-ring-inset min-h-0 flex-1 overflow-auto bg-canvas [scrollbar-gutter:stable]", isMarkupTool(tool) && canAnnotate && "cursor-text")}
             onMouseUp={() => {
-              if (tool === "highlight" && canAnnotate) onHighlightSelection();
+              if (isMarkupTool(tool) && canAnnotate) void markupSelection(tool);
             }}
+            onClick={onDocClick}
           >
             <div className="relative" style={{ width: L.width, height: L.height }}>
               {viewport.w > 0 &&
@@ -685,6 +1016,16 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHigh
                       hits={search.perPage.get(i)}
                       currentHit={currentHit && currentHit[0] === i ? currentHit[1] : -1}
                       onLink={onLink}
+                      annots={annots.get(i) ?? null}
+                      selectedId={selected?.page === i ? selected.id : null}
+                      editing={editing?.page === i ? editing : null}
+                      tool={canAnnotate ? tool : "select"}
+                      toolStyle={styles.ink}
+                      onCreateNote={createNote}
+                      onCreateInk={createInk}
+                      onDeleteAnnot={deleteAnnot}
+                      onSaveNote={saveNote}
+                      onCloseEditor={() => setEditing(null)}
                     />
                   );
                 })}
@@ -696,8 +1037,22 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHigh
           <aside className="flex w-(--layout-sidepanel) shrink-0 flex-col border-l border-border bg-surface">
             {panel === "thumbnails" ? (
               <ThumbnailsPanel engine={engine} doc={doc} rotation={rotation} page={page} dpr={dpr} onGoTo={(p) => goTo(p)} onClose={() => setPanel(null)} />
-            ) : (
+            ) : panel === "bookmarks" ? (
               <BookmarksPanel engine={engine} docId={info.id} cache={bookmarkCache} onLink={onLink} onClose={() => setPanel(null)} />
+            ) : (
+              <CommentsPanel
+                annots={annots}
+                pageCount={info.pageCount}
+                pagesLoaded={pagesLoaded}
+                selected={selected}
+                author={author}
+                canEdit={canAnnotate}
+                onAuthorChange={onAuthorChange}
+                onSelect={selectAnnot}
+                onSave={(a, t) => void updateAnnot(a.page, a.id, { contents: t })}
+                onDelete={(a) => void deleteAnnot(a.page, a.id)}
+                onClose={() => setPanel(null)}
+              />
             )}
           </aside>
         )}
@@ -709,6 +1064,7 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, onHigh
             onChange={(on) => setPanel(on ? "thumbnails" : null)}
           />
           <ToolButton label="Signets" icon={<BookmarkIcon size={18} />} isSelected={panel === "bookmarks"} onChange={(on) => setPanel(on ? "bookmarks" : null)} />
+          <ToolButton label="Commentaires" icon={<MessageSquare size={18} />} isSelected={panel === "comments"} onChange={(on) => setPanel(on ? "comments" : null)} />
         </Toolbar>
       </div>
 

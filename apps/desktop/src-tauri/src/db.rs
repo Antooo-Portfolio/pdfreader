@@ -82,6 +82,11 @@ impl Db {
         rows.collect()
     }
 
+    pub fn set_starred(&self, id: &str, starred: bool) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute("update recent_files set starred = ?2, updated_at = ?3 where id = ?1", params![id, starred as i64, now_ms()])?;
+        Ok(())
+    }
+
     pub fn remove(&self, id: &str) -> rusqlite::Result<()> {
         self.0.lock().unwrap().execute("delete from recent_files where id = ?1", [id])?;
         Ok(())

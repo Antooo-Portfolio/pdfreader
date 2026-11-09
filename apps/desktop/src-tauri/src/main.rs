@@ -6,7 +6,7 @@ mod engine;
 
 use std::path::{Path, PathBuf};
 
-use engine::{Cmd, DocInfo, EngineHandle, SaveResult};
+use engine::{AnnotOp, AnnotResult, Cmd, DocInfo, EngineHandle, SaveResult};
 use pdfreader_engine::{Bookmark, OpenError, PageLink, SearchBatch, TextWord};
 use tauri::http::Response;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -59,9 +59,82 @@ async fn doc_text_layer(doc: u32, page: i32, engine: State<'_, EngineHandle>) ->
     ask(&engine, |reply| Cmd::TextLayer { doc, page, reply }).await
 }
 
+/// Nom d'auteur des commentaires : préférence « author », sinon le nom de session Windows.
+fn comment_author(db: &db::Db) -> String {
+    db.preferences()
+        .ok()
+        .and_then(|p| p.get("author").and_then(|v| v.as_str()).map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(100).collect())
+        .unwrap_or_else(author_name)
+}
+
 #[tauri::command]
-async fn annot_add_highlight(doc: u32, page: i32, rects: Vec<[f32; 4]>, color: [u8; 3], engine: State<'_, EngineHandle>) -> Result<usize, String> {
-    ask(&engine, |reply| Cmd::Highlight { doc, page, rects, color, author: author_name(), reply }).await
+async fn doc_annotations(doc: u32, page: i32, engine: State<'_, EngineHandle>) -> Result<AnnotResult, String> {
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::List, reply }).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn annot_add_markup(
+    doc: u32,
+    page: i32,
+    kind: String,
+    rects: Vec<[f32; 4]>,
+    color: [u8; 3],
+    opacity: f32,
+    engine: State<'_, EngineHandle>,
+    db: State<'_, db::Db>,
+) -> Result<AnnotResult, String> {
+    let author = comment_author(&db);
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Markup { kind, rects, color, opacity, author }, reply }).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn annot_add_note(
+    doc: u32,
+    page: i32,
+    x: f32,
+    y: f32,
+    contents: String,
+    color: [u8; 3],
+    engine: State<'_, EngineHandle>,
+    db: State<'_, db::Db>,
+) -> Result<AnnotResult, String> {
+    let author = comment_author(&db);
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Note { x, y, contents, color, author }, reply }).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn annot_add_ink(
+    doc: u32,
+    page: i32,
+    strokes: Vec<Vec<[f32; 2]>>,
+    color: [u8; 3],
+    opacity: f32,
+    width: f32,
+    engine: State<'_, EngineHandle>,
+    db: State<'_, db::Db>,
+) -> Result<AnnotResult, String> {
+    let author = comment_author(&db);
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Ink { strokes, color, opacity, width, author }, reply }).await
+}
+
+#[tauri::command]
+async fn annot_update(doc: u32, page: i32, id: String, patch: pdfreader_engine::annotations::AnnotPatch, engine: State<'_, EngineHandle>) -> Result<AnnotResult, String> {
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Update { id, patch }, reply }).await
+}
+
+#[tauri::command]
+async fn annot_delete(doc: u32, page: i32, id: String, engine: State<'_, EngineHandle>) -> Result<AnnotResult, String> {
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Delete { id }, reply }).await
+}
+
+#[tauri::command]
+fn recent_star(id: String, starred: bool, db: State<'_, db::Db>) -> Result<(), String> {
+    db.set_starred(&id, starred).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -196,14 +269,22 @@ fn recent_remove(id: String, db: State<'_, db::Db>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn author() -> String {
-    author_name()
+fn author(db: State<'_, db::Db>) -> String {
+    comment_author(&db)
 }
 
 /// Tests de bout en bout : actifs seulement avec la variable PDFREADER_E2E (jamais en usage normal).
 #[tauri::command]
 fn e2e_enabled() -> bool {
     std::env::var("PDFREADER_E2E").is_ok()
+}
+
+#[tauri::command]
+fn e2e_pause() -> u32 {
+    if std::env::var("PDFREADER_E2E").is_err() {
+        return 0;
+    }
+    std::env::var("PDFREADER_E2E_PAUSE").ok().and_then(|v| v.parse().ok()).unwrap_or(0).min(10_000)
 }
 
 #[tauri::command]
@@ -291,7 +372,13 @@ fn main() {
             get_launch_files,
             doc_open,
             doc_text_layer,
-            annot_add_highlight,
+            doc_annotations,
+            annot_add_markup,
+            annot_add_note,
+            annot_add_ink,
+            annot_update,
+            annot_delete,
+            recent_star,
             doc_count_highlights,
             doc_save,
             doc_links,
@@ -306,6 +393,7 @@ fn main() {
             recent_remove,
             author,
             e2e_enabled,
+            e2e_pause,
             e2e_report
         ])
         .run(tauri::generate_context!())

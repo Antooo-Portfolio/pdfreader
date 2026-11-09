@@ -57,10 +57,27 @@ pub struct SaveResult {
     pub old_fingerprint: String,
 }
 
+/// Opération sur les commentaires d'une page.
+pub enum AnnotOp {
+    List,
+    Markup { kind: String, rects: Vec<[f32; 4]>, color: [u8; 3], opacity: f32, author: String },
+    Note { x: f32, y: f32, contents: String, color: [u8; 3], author: String },
+    Ink { strokes: Vec<Vec<[f32; 2]>>, color: [u8; 3], opacity: f32, width: f32, author: String },
+    Update { id: String, patch: eng::annotations::AnnotPatch },
+    Delete { id: String },
+}
+
+/// Commentaire créé (s'il y en a un) et liste à jour des commentaires de la page.
+#[derive(Debug, Serialize)]
+pub struct AnnotResult {
+    pub id: Option<String>,
+    pub annots: Vec<eng::annotations::Annot>,
+}
+
 pub enum Cmd {
     Open { path: PathBuf, password: Option<String>, reply: oneshot::Sender<Result<OpenResult, eng::OpenError>> },
     TextLayer { doc: u32, page: i32, reply: Reply<Vec<Vec<eng::TextWord>>> },
-    Highlight { doc: u32, page: i32, rects: Vec<[f32; 4]>, color: [u8; 3], author: String, reply: Reply<usize> },
+    Annot { doc: u32, page: i32, op: AnnotOp, reply: Reply<AnnotResult> },
     Save { doc: u32, path: Option<PathBuf>, reply: Reply<SaveResult> },
     CountHighlights { doc: u32, page: i32, reply: Reply<usize> },
     Links { doc: u32, page: i32, reply: Reply<Vec<eng::PageLink>> },
@@ -170,11 +187,26 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                 });
                 let _ = reply.send(r);
             }
-            Cmd::Highlight { doc, page, rects, color, author, reply } => {
+            Cmd::Annot { doc, page, op, reply } => {
+                use eng::annotations as an;
                 let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
                     let mut p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
-                    eng::add_highlight(&mut p, &rects, (color[0], color[1], color[2]), &author).map_err(|e| e.to_string())?;
-                    Ok(eng::count_annotations(&p, PdfPageAnnotationType::Highlight))
+                    let id = match op {
+                        AnnotOp::List => None,
+                        AnnotOp::Markup { kind, rects, color, opacity, author } => Some(an::add_markup(&mut p, &kind, &rects, color, opacity, &author)),
+                        AnnotOp::Note { x, y, contents, color, author } => Some(an::add_note(&mut p, x, y, &contents, color, &author)),
+                        AnnotOp::Ink { strokes, color, opacity, width, author } => Some(an::add_ink(&mut p, &strokes, color, opacity, width, &author)),
+                        AnnotOp::Update { id, patch } => {
+                            an::update(&mut p, &id, &patch).map_err(|e| e.to_string())?;
+                            None
+                        }
+                        AnnotOp::Delete { id } => {
+                            an::delete(&mut p, &id).map_err(|e| e.to_string())?;
+                            None
+                        }
+                    };
+                    let id = id.transpose().map_err(|e| e.to_string())?;
+                    Ok(AnnotResult { id, annots: an::list(&p, page) })
                 });
                 let _ = reply.send(r);
             }
@@ -269,7 +301,10 @@ fn fail(cmd: Cmd, msg: &str) {
         Cmd::TextLayer { reply, .. } => {
             let _ = reply.send(Err(msg.into()));
         }
-        Cmd::Highlight { reply, .. } | Cmd::CountHighlights { reply, .. } => {
+        Cmd::Annot { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::CountHighlights { reply, .. } => {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Links { reply, .. } => {
