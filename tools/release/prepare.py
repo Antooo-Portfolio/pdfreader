@@ -9,7 +9,7 @@
 
 À lancer après `npx tauri build` avec TAURI_SIGNING_PRIVATE_KEY_PATH (clé privée gardée hors du
 dépôt, %USERPROFILE%\\.tauri\\pdfreader-updater.key). La publication (Release GitHub du dépôt public
-pdfreader-releases, GitHub Pages pour site/) reste une étape manuelle.
+Antooo-Portfolio/pdfreader-releases, GitHub Pages pour site/) se fait ensuite avec gh.
 
     python tools/release/prepare.py [--notes "texte"] [--base-url URL]
 """

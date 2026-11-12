@@ -632,6 +632,13 @@ export async function runStage(stage: string, engine: EngineClient, actions: App
       r.saved = id ? await actions.save(id) : false;
       r.leftAfterSave = (await engine.recoveryList()).length;
       r.ok = !!r.offered && (r.restoredMarks as number) >= 1 && dirty && r.saved === true && r.leftAfterSave === 0;
+    } else if (stage === "update") {
+      // Interroge le vrai flux de mises à jour (latest.json publié) : une erreur réseau ou un
+      // fichier illisible lève une exception ; sinon, version proposée ou rien si déjà à jour.
+      const found = await engine.updateCheck();
+      r.app = (await engine.appInfo()).version;
+      r.offered = found?.version ?? null;
+      r.ok = true;
     } else {
       throw new Error("étape inconnue : " + stage);
     }

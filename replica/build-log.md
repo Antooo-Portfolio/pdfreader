@@ -227,9 +227,9 @@ désinstallation et réinstallation, dossier de données sauvegardé avant) :
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | S35 À propos | 2026-11-12 | fait | — | la version de PDFium venait d'un fichier absent de l'installation : inscrite à la compilation (build.rs) |
-| Mises à jour | 2026-11-12 | fait, sauf essai réel | essai contre le vrai serveur (dépôt public `pdfreader-releases` à créer) | l'essai de bout en bout avec un serveur local exige une version de test qui accepte le HTTP non chiffré : construction refusée par le contrôle de sécurité de l'environnement, essai abandonné ; la chaîne de signature est vérifiée par un test Rust (même vérificateur que l'updater : setup construit accepté, setup modifié d'un octet refusé) |
-| Site | 2026-11-12 | écrit, pas publié | dépôt public + GitHub Pages | — |
-| CI | 2026-11-12 | écrit, pas exécuté | dépôt GitHub du code | — |
+| Mises à jour | 2026-11-12 | fait | installation d'une vraie mise à jour (attend une 0.2.1) | l'essai de bout en bout avec un serveur local exige une version de test qui accepte le HTTP non chiffré : construction refusée par le contrôle de sécurité de l'environnement, essai abandonné ; la chaîne de signature est vérifiée par un test Rust (même vérificateur que l'updater : setup construit accepté, setup modifié d'un octet refusé) |
+| Site | 2026-11-12 | publié | — | GitHub Pages sert le site par le domaine personnalisé de l'organisation (portfolio.antonyrodrigues.fr) |
+| CI | 2026-11-12 | fait | — | l'action cargo-deny est un conteneur Linux, refusé sur Windows : outil installé à la place |
 | Polices CJK | 2026-11-12 | fait | — | le correspondant de Windows rend toujours « une » police (latine) : il faut vérifier le nom de la police obtenue avant de l'accepter |
 | Sélection au clavier | 2026-11-12 | fait | — | `Selection.modify` se perd dans la couche de texte (mots en position absolue) : navigation écrite à la main sur la liste des mots |
 | Zone de texte, légende | 2026-11-12 | fait | — | — |
@@ -238,13 +238,9 @@ désinstallation et réinstallation, dossier de données sauvegardé avant) :
 ### Ce qui reste à faire par l'utilisateur
 
 - **Clé de signature des mises à jour** : `%USERPROFILE%\.tauri\pdfreader-updater.key` (sans mot
-  de passe). À sauvegarder hors de l'ordinateur : sans elle, plus aucune mise à jour ne pourra
-  être publiée pour les versions déjà installées. À mettre dans les secrets du dépôt
-  (TAURI_SIGNING_PRIVATE_KEY) pour la CI.
-- Créer le dépôt public `pdfreader-releases` (Release v0.2.0 avec les fichiers de
-  `target/release-upload/`, GitHub Pages avec `site/`) ; l'adresse de l'updater et du site
-  suppose l'organisation GitHub `Antooo-Portfolio`.
-- Pousser le code sur un dépôt privé pour que la CI tourne.
+  de passe), copiée sur le second disque et dans les secrets du dépôt de code. Une copie hors de
+  l'ordinateur reste à faire : sans elle, plus aucune mise à jour ne pourra être publiée pour les
+  versions déjà installées.
 - Tester avec NVDA, et avec le mode contraste élevé de Windows activé.
 - Une impression papier, recto verso compris, sur l'imprimante réelle.
 
@@ -276,3 +272,21 @@ désinstallation et réinstallation, dossier de données sauvegardé avant) :
   `PDFREADER_TEST_PRINTER="<nom de l'imprimante>" cargo test -p pdfreader-engine --test print real_printer -- --ignored`.
 - **Clé de signature** copiée sur un second disque, hors du dépôt ; une copie hors de
   l'ordinateur reste à faire.
+
+### Publication (2026-11-12)
+
+- Code : dépôt privé `Antooo-Portfolio/pdfreader` ; secret `TAURI_SIGNING_PRIVATE_KEY` défini,
+  la CI construit donc un setup signé et les fichiers de version (artefact « setup »).
+- Versions et site : dépôt public `Antooo-Portfolio/pdfreader-releases` ; Release v0.2.0 (setup,
+  `.sig`, `latest.json`) ; GitHub Pages sur `main` à la racine, servi à
+  https://portfolio.antonyrodrigues.fr/pdfreader-releases/ (domaine de l'organisation).
+- Vérifié : `latest.json` et le setup téléchargés depuis la Release sont identiques aux fichiers
+  construits ; signature acceptée par le test Rust ; adresse du flux présente dans l'exécutable.
+- Étape e2e `PDFREADER_E2E_STAGE=update` : l'application réelle interroge le flux publié. Construite
+  en 0.2.0 : « à jour » (aucune proposition, aucune erreur) ; construite en 0.1.9 : 0.2.0 proposée.
+- Le setup publié est installé sur ce poste (l'ancienne installation pointait vers l'ancienne
+  adresse).
+- Publier une version : monter la version dans `tauri.conf.json`, construire avec la clé (ou
+  prendre l'artefact « setup » de la CI), `python tools/release/prepare.py --notes "…"`, puis
+  `gh release create vX.Y.Z -R Antooo-Portfolio/pdfreader-releases` avec les trois fichiers de
+  `target/release-upload/`, et copier `site/` dans le dépôt public si le site a changé.
