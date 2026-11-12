@@ -16,7 +16,19 @@ fn main() -> Result<()> {
     let _ = std::fs::remove_file(&out);
     let (doc, _) = open_document(&pdfium, &src, None)?;
     let t = std::time::Instant::now();
-    print_win::print_pages(&doc, "Microsoft Print to PDF", &[0, 1], Some(out.to_str().unwrap()), "Spike M0")?;
+    let opts = print_win::PrintOptions {
+        printer: "Microsoft Print to PDF".into(),
+        pages: vec![0, 1],
+        scale: print_win::Scale::Fit,
+        custom_scale: 100.0,
+        orientation: print_win::Orientation::Auto,
+        duplex: print_win::Duplex::None,
+        copies: 1,
+        comments: true,
+        output_file: Some(out.to_str().unwrap().into()),
+        title: "Spike M0".into(),
+    };
+    print_win::print(&doc, &opts, true)?;
     // Le spouleur écrit le fichier de façon asynchrone.
     for _ in 0..100 {
         if out.exists() && std::fs::metadata(&out)?.len() > 0 {

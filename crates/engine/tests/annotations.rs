@@ -1,14 +1,12 @@
 //! Tests du lot « annotations » (M2) : création, lecture, modification de l'apparence,
 //! suppression, puis enregistrement incrémental et relecture.
 
-use std::path::Path;
 
 use pdfreader_engine as eng;
 use pdfreader_engine::annotations as an;
 
-fn pdfium() -> pdfium_render::prelude::Pdfium {
-    eng::load_pdfium(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/pdfium-win-x64/bin")).expect("pdfium.dll")
-}
+mod common;
+use common::pdfium;
 
 fn blank_pdf() -> Vec<u8> {
     let objects = [

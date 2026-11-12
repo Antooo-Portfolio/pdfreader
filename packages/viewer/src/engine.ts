@@ -86,6 +86,42 @@ export interface SearchBatch {
 
 export type Theme = "system" | "light" | "dark" | "contrast";
 
+export interface PrinterInfo {
+  name: string;
+  isDefault: boolean;
+  /** Sait imprimer en recto verso. */
+  duplex: boolean;
+}
+
+export type PrintScale = "fit" | "actual" | "shrink" | "custom";
+export type PrintOrientation = "auto" | "portrait" | "landscape";
+export type PrintDuplex = "none" | "long" | "short";
+
+export interface PrintOptions {
+  printer: string;
+  /** Pages à imprimer, dans l'ordre (index 0). */
+  pages: number[];
+  scale: PrintScale;
+  /** Pourcentage, pour l'échelle « custom ». */
+  customScale: number;
+  orientation: PrintOrientation;
+  duplex: PrintDuplex;
+  copies: number;
+  /** Imprimer les commentaires ; les champs et « Remplir et signer » sont toujours imprimés. */
+  comments: boolean;
+  /** Fichier de sortie (tests seulement ; ignoré en usage normal). */
+  outputFile?: string | null;
+  title?: string;
+}
+
+/** Copie de récupération laissée par une fermeture inattendue. */
+export interface RecoveryItem {
+  id: string;
+  originalPath: string;
+  name: string;
+  createdAt: number;
+}
+
 export type AnnotKind =
   | "highlight"
   | "underline"
@@ -276,6 +312,33 @@ export interface EngineClient {
   e2eReport(report: unknown): Promise<void>;
   /** Pause (ms) demandée par l'outil de capture pendant le scénario (0 : aucune). */
   e2ePause(): Promise<number>;
+  /** Étape du scénario demandée par l'outil de test (« crash », « recover »), sinon "". */
+  e2eStage(): Promise<string>;
+
+  printers(): Promise<PrinterInfo[]>;
+  /** Taille de la feuille par défaut de l'imprimante (points, en portrait), pour l'aperçu. */
+  printerSheet(name: string): Promise<[number, number] | null>;
+  /** Imprime ; renvoie le nombre de pages envoyées. Rejette avec « print_cancelled »,
+   *  « print_forbidden » ou « print_busy » dans ces cas. */
+  print(doc: number, options: PrintOptions): Promise<number>;
+  cancelPrint(): Promise<void>;
+  onPrintProgress(cb: (done: number, total: number) => void): Promise<() => void>;
+
+  /** Le fichier a-t-il été modifié ou supprimé par un autre programme depuis l'ouverture ? */
+  changedOnDisk(doc: number): Promise<boolean>;
+  /** Relit le fichier depuis le disque (les modifications en mémoire sont abandonnées). */
+  reload(doc: number): Promise<DocInfo>;
+
+  recoverySnapshot(doc: number, path: string, fingerprint: string): Promise<void>;
+  recoveryClear(path: string): Promise<void>;
+  recoveryList(): Promise<RecoveryItem[]>;
+  /** Rouvre la copie à la place du document d'origine (rejette avec un OpenError typé). */
+  recoveryRestore(id: string, password?: string): Promise<DocInfo>;
+  recoveryDiscard(id: string): Promise<void>;
+
+  resetPreferences(): Promise<void>;
+  /** Ouvre une page des Paramètres de Windows. */
+  openSettings(page: "defaultapps" | "printers"): Promise<void>;
 }
 
 /** 100 % = taille réelle : 1 point PDF = 96/72 pixels CSS. */

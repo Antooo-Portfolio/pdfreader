@@ -220,6 +220,51 @@ impl Db {
         Ok(())
     }
 
+    pub fn reset_preferences(&self) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute("delete from preferences", [])?;
+        Ok(())
+    }
+
+    /// Enregistre une copie de récupération ; renvoie les fichiers des copies précédentes du même
+    /// document, à supprimer.
+    pub fn add_snapshot(&self, fingerprint: &str, original: &str, snapshot: &str) -> rusqlite::Result<Vec<String>> {
+        let mut c = self.0.lock().unwrap();
+        let tx = c.transaction()?;
+        let old = {
+            let mut st = tx.prepare("select snapshot_path from recovery_snapshots where original_path = ?1")?;
+            let rows = st.query_map([original], |r| r.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        tx.execute("delete from recovery_snapshots where original_path = ?1", [original])?;
+        tx.execute(
+            "insert into recovery_snapshots (id, fingerprint, original_path, snapshot_path, created_at) values (?1, ?2, ?3, ?4, ?5)",
+            params![uuid::Uuid::new_v4().to_string(), fingerprint, original, snapshot, now_ms()],
+        )?;
+        tx.commit()?;
+        Ok(old)
+    }
+
+    /// (id, chemin d'origine, fichier de la copie, date)
+    pub fn snapshots(&self) -> rusqlite::Result<Vec<(String, String, String, i64)>> {
+        let c = self.0.lock().unwrap();
+        let mut st = c.prepare("select id, coalesce(original_path, ''), snapshot_path, created_at from recovery_snapshots order by created_at desc")?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+        rows.collect()
+    }
+
+    /// Oublie les copies d'un document (par identifiant ou par chemin d'origine) ; renvoie leurs
+    /// fichiers, à supprimer.
+    pub fn remove_snapshots(&self, id: Option<&str>, original: Option<&str>) -> rusqlite::Result<Vec<String>> {
+        let c = self.0.lock().unwrap();
+        let files = {
+            let mut st = c.prepare("select snapshot_path from recovery_snapshots where id = ?1 or original_path = ?2")?;
+            let rows = st.query_map(params![id, original], |r| r.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        c.execute("delete from recovery_snapshots where id = ?1 or original_path = ?2", params![id, original])?;
+        Ok(files)
+    }
+
     pub fn thumbnail(&self, id: &str) -> Option<Vec<u8>> {
         self.0
             .lock()

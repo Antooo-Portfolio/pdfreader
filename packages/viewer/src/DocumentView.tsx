@@ -3,6 +3,7 @@ import {
   Button,
   Dialog,
   FindBar,
+  isModalOpen,
   IconButton,
   Menu,
   MenuItem,
@@ -26,6 +27,7 @@ import {
   FolderOpen,
   GalleryVertical,
   Highlighter,
+  Printer,
   MessageSquare,
   MousePointer2,
   PenLine,
@@ -67,11 +69,20 @@ interface Props {
   onAnnotated: (page: number) => void;
   onSave: () => void;
   onOpen: () => void;
+  onPrint: () => void;
   /** Actions exposées au scénario de bout en bout. */
   register?: (actions: DocActions | null) => void;
+  /** Vue à l'ouverture (préférences), et faut-il reprendre la dernière vue du document. */
+  defaults: { zoom: "fit-width" | "fit-page" | "actual"; layout: Layout; restoreView: boolean };
+  /** Le fichier a été modifié par un autre programme. */
+  externalChange: boolean;
+  onReload: () => void;
+  onSaveAs: () => void;
 }
 
 export interface DocActions {
+  /** Page courante, à partir de 1. */
+  currentPage: () => number;
   markupSelection: (kind: MarkupKind) => Promise<number>;
   fields: (page: number) => Promise<Field[]>;
   setField: (page: number, index: number, input: FieldInput) => Promise<Field[] | null>;
@@ -127,10 +138,30 @@ const TOOL_LABELS: Record<Exclude<Tool, "select" | "eraser">, string> = {
 };
 const STAMP_KINDS = new Set(["text", "mark", "signature", "stamp"]);
 
-export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles, onStyleChange, author, onAuthorChange, onAnnotated, onSave, onOpen, register }: Props) {
+export function DocumentView({
+  engine,
+  doc,
+  isActive,
+  tool,
+  onToolChange,
+  styles,
+  onStyleChange,
+  author,
+  onAuthorChange,
+  onAnnotated,
+  onSave,
+  onOpen,
+  onPrint,
+  register,
+  defaults,
+  externalChange,
+  onReload,
+  onSaveAs,
+}: Props) {
   const toast = useToast();
   const { info } = doc;
-  const saved = info.viewState;
+  // Dernière vue du document, sauf si l'utilisateur préfère toujours la vue par défaut.
+  const saved = defaults.restoreView ? info.viewState : null;
   const scroller = useRef<HTMLDivElement>(null);
   const findInput = useRef<HTMLInputElement>(null);
   const textCache = useRef(new Map<string, TextWord[][]>()).current;
@@ -138,9 +169,9 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
   const bookmarkCache = useRef<Bookmark[] | null>(null);
 
   // ------------------------------------------------------------ état de la vue
-  const [zoomMode, setZoomMode] = useState<ZoomMode>(saved?.zoomMode ?? "fit-width");
+  const [zoomMode, setZoomMode] = useState<ZoomMode>(saved?.zoomMode ?? (defaults.zoom === "actual" ? "custom" : defaults.zoom));
   const [customZoom, setCustomZoom] = useState(saved?.zoom ?? 1);
-  const [layoutMode, setLayoutMode] = useState<Layout>(saved?.layout ?? "continuous");
+  const [layoutMode, setLayoutMode] = useState<Layout>(saved?.layout ?? defaults.layout);
   const [cover, setCover] = useState(saved?.cover ?? false);
   const [rotation, setRotation] = useState<Rotation>(saved?.rotation ?? 0);
   const [panel, setPanel] = useState<PanelId | null>(saved?.panel ?? null);
@@ -900,6 +931,7 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
 
   useEffect(() => {
     register?.({
+      currentPage: () => pageRef.current,
       fields: loadFields,
       setField,
       addText,
@@ -926,6 +958,7 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
   useEffect(() => {
     if (!isActive) return;
     const onKey = (e: KeyboardEvent) => {
+      if (isModalOpen()) return;
       const c = ctx.current;
       const t = e.target instanceof HTMLElement ? e.target : null;
       const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
@@ -1073,6 +1106,7 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
           <ToolButton id="sign" label="Signer (cliquez sur la page)" shortcut="S" icon={<SignatureIcon size={18} />} isDisabled={!canAnnotate} />
         </ToolGroup>
         <div className="ml-auto flex items-center gap-1">
+          <IconButton label="Imprimer" shortcut="Ctrl+P" icon={<Printer size={18} />} onPress={onPrint} />
           <IconButton label="Rechercher" shortcut="Ctrl+F" icon={<Search size={18} />} onPress={openFind} />
           <ToolbarSeparator />
           <PageNavigator page={page} total={info.pageCount} onChange={(p) => goTo(p)} />
@@ -1207,6 +1241,25 @@ export function DocumentView({ engine, doc, isActive, tool, onToolChange, styles
             }
           />
         ))
+      )}
+      {externalChange && (
+        <Banner
+          tone="warning"
+          actions={
+            <>
+              {doc.dirty && (
+                <Button size="sm" onPress={onSaveAs}>
+                  Enregistrer mes modifications sous…
+                </Button>
+              )}
+              <Button size="sm" variant={doc.dirty ? "ghost" : "primary"} onPress={onReload}>
+                {doc.dirty ? "Recharger (perdre mes modifications)" : "Recharger"}
+              </Button>
+            </>
+          }
+        >
+          Ce fichier a été modifié par un autre programme depuis son ouverture.
+        </Banner>
       )}
       {info.isXfa && (
         <Banner tone="warning">Ce document utilise des formulaires XFA, qui ne sont pas pris en charge : certaines pages peuvent s'afficher incomplètes.</Banner>

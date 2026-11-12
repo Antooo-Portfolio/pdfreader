@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::SystemTime;
 
@@ -78,11 +80,21 @@ pub struct AnnotResult {
 }
 
 pub enum Cmd {
-    Open { path: PathBuf, password: Option<String>, reply: oneshot::Sender<Result<OpenResult, eng::OpenError>> },
+    /// `shown_as` : le fichier lu est une copie de récupération, présentée (et enregistrée) sous
+    /// le chemin du document d'origine.
+    Open { path: PathBuf, shown_as: Option<PathBuf>, password: Option<String>, reply: oneshot::Sender<Result<OpenResult, eng::OpenError>> },
     TextLayer { doc: u32, page: i32, reply: Reply<Vec<Vec<eng::TextWord>>> },
     Annot { doc: u32, page: i32, op: AnnotOp, reply: Reply<AnnotResult> },
     Save { doc: u32, path: Option<PathBuf>, reply: Reply<SaveResult> },
     CountHighlights { doc: u32, page: i32, reply: Reply<usize> },
+    /// Impression : avance d'une page chaque fois que le moteur n'a rien d'autre à faire.
+    Print { doc: u32, opts: eng::print_win::PrintOptions, cancel: Arc<AtomicBool>, progress: Box<dyn Fn(usize, usize) + Send>, reply: Reply<usize> },
+    /// Copie de récupération : enregistre l'état actuel ailleurs, sans toucher au document ouvert.
+    Snapshot { doc: u32, target: PathBuf, reply: Reply<u64> },
+    /// Le fichier a-t-il été modifié (ou supprimé) par un autre programme depuis l'ouverture ?
+    ChangedOnDisk { doc: u32, reply: Reply<bool> },
+    /// Relit le fichier depuis le disque (abandonne les modifications en mémoire).
+    Reload { doc: u32, reply: Reply<DocInfo> },
     Fields { doc: u32, page: i32, reply: Reply<Vec<eng::fill::Field>> },
     SetField { doc: u32, page: i32, index: i32, input: eng::fill::FieldInput, reply: Reply<Vec<eng::fill::Field>> },
     Links { doc: u32, page: i32, reply: Reply<Vec<eng::PageLink>> },
@@ -90,6 +102,18 @@ pub enum Cmd {
     Search { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool, reply: Reply<eng::SearchBatch> },
     Close { doc: u32 },
     Tile { doc: u32, page: i32, scale: f32, x: i32, y: i32, size: i32, responder: UriSchemeResponder },
+}
+
+/// Impression en cours (une seule à la fois).
+struct ActivePrint {
+    doc: u32,
+    job: eng::print_win::PrintJob,
+    pages: Vec<i32>,
+    next: usize,
+    vector: bool,
+    cancel: Arc<AtomicBool>,
+    progress: Box<dyn Fn(usize, usize) + Send>,
+    reply: Reply<usize>,
 }
 
 struct Entry {
@@ -167,16 +191,114 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
     };
     let mut docs: HashMap<u32, Entry> = HashMap::new();
     let mut next_id: u32 = 1;
+    let mut printing: Option<ActivePrint> = None;
 
-    for cmd in rx {
+    loop {
+        // Les commandes passent toujours avant l'impression : l'affichage reste fluide.
+        let cmd = if printing.is_some() {
+            match rx.try_recv() {
+                Ok(c) => Some(c),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => break,
+            }
+        } else {
+            match rx.recv() {
+                Ok(c) => Some(c),
+                Err(_) => break,
+            }
+        };
+        let Some(cmd) = cmd else {
+            // Rien en attente : une page de plus pour l'impression en cours.
+            let Some(mut p) = printing.take() else { continue };
+            if p.cancel.load(Ordering::Relaxed) {
+                let _ = p.reply.send(Err("print_cancelled".into()));
+                continue; // la tâche abandonnée annule le document côté spouleur
+            }
+            let Some(e) = docs.get(&p.doc) else {
+                let _ = p.reply.send(Err("document fermé".into()));
+                continue;
+            };
+            let Some(&page) = p.pages.get(p.next) else {
+                let n = p.pages.len();
+                let _ = p.reply.send(p.job.finish().map(|_| n).map_err(|e| e.to_string()));
+                continue;
+            };
+            match p.job.page(&e.doc, page, p.vector) {
+                Ok(()) => {
+                    p.next += 1;
+                    (p.progress)(p.next, p.pages.len());
+                    printing = Some(p);
+                }
+                Err(err) => {
+                    let _ = p.reply.send(Err(err.to_string()));
+                }
+            }
+            continue;
+        };
         match cmd {
-            Cmd::Open { path, password, reply } => {
+            Cmd::Print { doc, opts, cancel, progress, reply } => {
+                if printing.is_some() {
+                    let _ = reply.send(Err("print_busy".into()));
+                    continue;
+                }
+                let started = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
+                    let perms = eng::permissions(&e.doc);
+                    if !perms.print {
+                        return Err("print_forbidden".to_string());
+                    }
+                    let count = e.doc.pages().len();
+                    let pages: Vec<i32> = opts.pages.iter().copied().filter(|p| (0..count).contains(p)).collect();
+                    if pages.is_empty() {
+                        return Err("aucune page à imprimer".to_string());
+                    }
+                    let mut opts = opts;
+                    opts.pages = pages.clone();
+                    if opts.title.is_empty() {
+                        opts.title = e.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    }
+                    let job = eng::print_win::PrintJob::start(&opts).map_err(|e| e.to_string())?;
+                    Ok((job, pages, perms.print_high_quality))
+                });
+                match started {
+                    Ok((job, pages, vector)) => printing = Some(ActivePrint { doc, job, pages, next: 0, vector, cancel, progress, reply }),
+                    Err(e) => {
+                        let _ = reply.send(Err(e));
+                    }
+                }
+            }
+            Cmd::Snapshot { doc, target, reply } => {
+                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
+                    eng::save(&e.doc, &target, true).map_err(|e| e.to_string())?;
+                    Ok(std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0))
+                });
+                let _ = reply.send(r);
+            }
+            Cmd::ChangedOnDisk { doc, reply } => {
+                let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::file_mtime(&e.path) != e.mtime);
+                let _ = reply.send(r);
+            }
+            Cmd::Reload { doc, reply } => {
+                let r = (|| {
+                    let e = docs.get(&doc).ok_or("document fermé".to_string())?;
+                    let (path, password, generation) = (e.path.clone(), e.password.clone(), e.generation + 1);
+                    let fresh = eng::open_typed(pdfium, &path, password.as_deref()).map_err(|e| e.to_string())?;
+                    let fingerprint = eng::fingerprint(&path).map_err(|e| e.to_string())?;
+                    let entry = Entry { doc: fresh, mtime: eng::file_mtime(&path), path, password, generation, fingerprint };
+                    let info = info_of(doc, &entry);
+                    docs.insert(doc, entry);
+                    Ok(info)
+                })();
+                let _ = reply.send(r);
+            }
+            Cmd::Open { path, shown_as, password, reply } => {
                 let result = (|| {
                     let doc = eng::open_typed(pdfium, &path, password.as_deref())?;
                     let thumbnail = eng::thumbnail_png(&doc, 160).unwrap_or_default();
-                    let fingerprint = eng::fingerprint(&path).map_err(|e| eng::OpenError::Other(e.to_string()))?;
+                    let shown = shown_as.unwrap_or_else(|| path.clone());
+                    // Copie de récupération : empreinte du fichier d'origine s'il existe encore.
+                    let fingerprint = eng::fingerprint(&shown).or_else(|_| eng::fingerprint(&path)).map_err(|e| eng::OpenError::Other(e.to_string()))?;
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    let entry = Entry { doc, path: path.clone(), password: password.clone(), mtime: eng::file_mtime(&path), generation: 1, fingerprint };
+                    let entry = Entry { doc, mtime: eng::file_mtime(&shown), path: shown, password: password.clone(), generation: 1, fingerprint };
                     let id = next_id;
                     next_id += 1;
                     let info = info_of(id, &entry);
@@ -337,6 +459,18 @@ fn fail(cmd: Cmd, msg: &str) {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Fields { reply, .. } | Cmd::SetField { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::Print { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::Snapshot { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::ChangedOnDisk { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::Reload { reply, .. } => {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Search { reply, .. } => {

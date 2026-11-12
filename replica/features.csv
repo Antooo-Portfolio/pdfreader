@@ -13,7 +13,7 @@ Plein écran et mode lecture,lecture,should,yes,no,S10
 Défilement automatique,lecture,could,yes,no,
 Thème clair / sombre,lecture,must,yes,yes,"M2 : menu Apparence (Comme Windows / Clair / Sombre / Contraste élevé), mémorisé, barre de titre comprise"
 Ouvrir un PDF protégé par mot de passe,lecture,must,yes,yes,"M2 : testé de bout en bout (AES-256 : mot de passe demandé, mauvais mot de passe refusé, ouverture)"
-Respect des permissions (impression / copie interdites),lecture,must,yes,partial,"M2 : droits lus par l'API brute (AES-256 compris), copie bloquée, outils de commentaire désactivés, bandeau ; l'interdiction d'imprimer sera appliquée avec l'impression (S13)"
+Respect des permissions (impression / copie interdites),lecture,must,yes,yes,"M2 : copie bloquée, commentaires désactivés, impression refusée si interdite, impression en image à 150 ppp si seule la basse qualité est permise"
 Rechercher dans le document (Ctrl+F),recherche,must,yes,yes,"M2 : S05 : Ctrl+F, Entrée / Maj+Entrée / F3, casse, mot entier, résultats surlignés, recherche par lots de 10 pages (1000 pages sans bloquer le rendu), message pour un document sans texte"
 Recherche avancée (casse / mot entier / commentaires / signets),recherche,should,yes,no,
 Recherche dans plusieurs PDF d'un dossier,recherche,could,yes,no,
@@ -26,9 +26,9 @@ Panneau Calques (afficher / masquer),navigation,could,yes,no,S09
 Articles (fils de lecture),navigation,could,yes,no,
 Liens internes et externes cliquables,lecture,must,yes,yes,"M2 : liens internes (page et position), adresses web et mailto après confirmation ; autres actions ignorées. Clic dans l'interface non automatisé (extraction testée dans le moteur)"
 Barre d'actions rapides personnalisable,interface,should,yes,no,S03 QuickActionToolbar
-Raccourcis clavier (navigation / outils),interface,must,yes,partial,"M2 : + Ctrl+F, F3, Ctrl+0/1/2, Ctrl+Maj+flèches, Début / Fin, flèches ; pas encore désactivables (S14)"
+Raccourcis clavier (navigation / outils),interface,must,yes,yes,"M2 : Ctrl+O/S/Maj+S/W/Tab/P/K/F, F3, Ctrl+0/1/2, Ctrl+=/-, Ctrl+Maj+flèches, Début / Fin, flèches, Suppr ; raccourcis à une touche désactivables ; aucun raccourci global quand une boîte de dialogue est ouverte"
 Accueil avec récents et favoris,accueil,must,yes,yes,"M2 : onglets Récents / Favoris, étoile, recherche par nom ou dossier, liste ou vignettes (mémorisé), fichier introuvable, retirer"
-Restaurer la dernière page et le zoom à la réouverture,accueil,should,yes,no,
+Restaurer la dernière page et le zoom à la réouverture,accueil,should,yes,yes,"M2 : page, zoom, mode, rotation et panneau mémorisés par document (conservés après enregistrement) ; désactivable dans les Préférences"
 Surligner / souligner / barrer du texte,annotation,must,yes,yes,"M2 : trois outils, appliqués à la sélection (ou au texte déjà sélectionné quand on choisit l'outil), couleur et opacité par outil, mémorisées"
 Note (commentaire épinglé),annotation,must,yes,yes,"M2 : clic sur la page, éditeur qui s'ouvre à la création, modification et suppression ; icône générée par PDFium"
 Zone de texte et légende,annotation,must,yes,partial,"M2 : texte libre posé sur la page (outil Texte, tampon) ; pas encore de vraie zone de texte /FreeText avec cadre ni de légende fléchée"
@@ -48,12 +48,12 @@ Remplir un formulaire plat (texte libre / coche / date),formulaires,must,yes,yes
 Créer sa signature (taper / dessiner / image),signature,must,yes,yes,"M2 : S12 : taper (police manuscrite Caveat, OFL), dessiner, image PNG ou JPEG avec fond blanc rendu transparent ; posée par un clic ou dans un champ de signature"
 Signature et initiales mémorisées,signature,must,yes,yes,"M2 : signature et initiales gardées dans la base locale (table saved_signatures), modifier ou oublier depuis la barre de l'outil Signer"
 Enregistrer (incrémental) / Enregistrer sous,fichier,must,yes,yes,"M1 : Ctrl+S incrémental atomique, Ctrl+Maj+S, détection de modification externe et de verrou"
-Alerte de modifications non enregistrées,fichier,must,yes,yes,M1 : à la fermeture d'un onglet et de la fenêtre
-Imprimer (plage / échelle / recto-verso / commentaires),impression,must,yes,no,S13 F06
+Alerte de modifications non enregistrées,fichier,must,yes,yes,"M1-M2 : à la fermeture d'un onglet et de la fenêtre ; copies de récupération toutes les 1 à 10 min, proposées au démarrage après un plantage ; fichier modifié par un autre programme signalé (recharger ou enregistrer sous)"
+Imprimer (plage / échelle / recto-verso / commentaires),impression,must,yes,yes,"M2 : S13 : imprimantes installées, toutes / page courante / plage (« 1-3, 5, 8- ») / paires ou impaires, copies, ajuster / taille réelle / réduire / échelle, orientation par page, recto verso si l'imprimante sait le faire, commentaires ou non, aperçu ; impression vectorielle native page par page (l'affichage reste fluide), progression et annulation ; formulaires remplis imprimés"
 Impression livret / plusieurs pages par feuille / affiche,impression,could,yes,no,
 Propriétés du document (lecture),fichier,should,yes,no,S15
 Modifier les métadonnées,fichier,could,yes,no,payant chez Adobe
-Préférences,interface,must,yes,no,S14
+Préférences,interface,must,yes,yes,"M2 : S14 : Général (thème, lecteur par défaut), Affichage (zoom et mode à l'ouverture, reprise de la dernière vue), Commentaires (auteur), Documents (copies de récupération), Accessibilité (taille de l'interface, raccourcis à une touche) ; rétablir les réglages par défaut ; Ctrl+K"
 Vue protégée / bac à sable pour PDF non fiables,sécurité,should,yes,no,bandeau + JS désactivé par défaut
 Mises à jour automatiques (desktop),distribution,must,yes,no,S35 ; tauri-plugin-updater ; vérification sur consentement uniquement
 Interface en français et anglais,interface,must,yes,partial,M1 : français seulement (Lingui en M2)

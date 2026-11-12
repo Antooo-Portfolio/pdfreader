@@ -1,5 +1,6 @@
 import type { AppActions } from "./App";
 import { type Annot, type DocInfo, type EngineClient, isOpenError } from "./engine";
+import { parseRange, subset } from "./prefs";
 import { selectionToPageRects } from "./selection";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -65,7 +66,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.annotations = annot.report;
     steps.m2 = await runM2(engine, actions, annot.doc ?? reopened, path);
     steps.fill = await runFill(actions, path.replace(/[^\\/]+$/, "08-formulaire-acroform.pdf"), await engine.e2ePause());
-    steps.ok = m1 && (steps.m2 as { ok: boolean }).ok && (annot.report.ok as boolean) && (steps.fill as { ok: boolean }).ok;
+    steps.settings = await runSettings(engine, actions, path, await engine.e2ePause());
+    steps.ok = m1 && (steps.m2 as { ok: boolean }).ok && (annot.report.ok as boolean) && (steps.fill as { ok: boolean }).ok && (steps.settings as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -306,6 +308,9 @@ async function runFill(actions: AppActions, formPath: string, pauseMs = 0) {
     const nom = await waitFor(() => document.querySelector<HTMLInputElement>('input[aria-label="Nom"]'));
     nom.focus();
     setNativeValue(nom, "Élodie Martin");
+    // Entrée valide le champ (la perte du focus aussi, mais elle n'arrive pas si la fenêtre de
+    // test n'a pas le focus de Windows).
+    nom.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     nom.blur();
     const accept = await waitFor(() => document.querySelector<HTMLInputElement>('input[type="checkbox"][aria-label="J\'accepte"]'));
     accept.click();
@@ -362,7 +367,9 @@ async function runFill(actions: AppActions, formPath: string, pauseMs = 0) {
       const edit = await waitFor(() => Array.from(document.querySelectorAll("button")).find((x) => x.textContent === "Modifier"), 3000).catch(() => null);
       edit?.click();
       await sleep(pauseMs);
-      key("Escape");
+      const sigDlg = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((d) => d.textContent?.includes("Créer votre signature")), 3000).catch(() => null);
+      Array.from(sigDlg?.querySelectorAll("button") ?? []).find((x) => x.textContent === "Annuler")?.click();
+      await sleep(200);
       key("v");
     }
   } catch (e) {
@@ -371,5 +378,194 @@ async function runFill(actions: AppActions, formPath: string, pauseMs = 0) {
   }
   r.checks = checks;
   r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 6;
+  return r;
+}
+
+const dirOf = (path: string) => path.replace(/[^\\/]+$/, "");
+
+/** M2, lots « impression », « préférences » et « fichier » : plages de pages, boîte Imprimer,
+ *  impression réelle vers « Microsoft Print to PDF », taille de l'interface, raccourcis à une
+ *  touche, fichier modifié par un autre programme, copies de récupération. */
+async function runSettings(engine: EngineClient, actions: AppActions, path: string, pauseMs = 0) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  try {
+    // Plages de pages.
+    const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+    checks.ranges =
+      eq(parseRange("1-3, 5, 8-", 10), [0, 1, 2, 4, 7, 8, 9]) &&
+      eq(parseRange("3-1", 10), [2, 1, 0]) &&
+      eq(parseRange(" 2 ; 2 ; -2", 10), [1, 0]) &&
+      typeof parseRange("0", 10) === "string" &&
+      typeof parseRange("12", 10) === "string" &&
+      typeof parseRange("a", 10) === "string" &&
+      typeof parseRange("", 10) === "string" &&
+      eq(subset([0, 1, 2, 3, 4], "odd"), [0, 2, 4]) &&
+      eq(subset([0, 1, 2, 3, 4], "even"), [1, 3]);
+
+    // Boîte Imprimer (Ctrl+P) : imprimantes listées, aperçu, fermeture par Échap.
+    const doc = await actions.openPath(dir + "01-texte-10p.pdf");
+    if (!doc) throw new Error("document de test introuvable");
+    await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    key("p", { ctrlKey: true });
+    const dlg = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((d) => d.textContent?.includes("Imprimante")), 6000);
+    await waitFor(() => (dlg.textContent?.includes("Aperçu : page 1") ? true : null), 6000);
+    const printers = await engine.printers();
+    r.printers = printers.map((x) => x.name);
+    checks.printDialog = printers.length > 0 && !!dlg.textContent?.includes(printers[0]?.name ?? "§");
+    if (pauseMs) await sleep(pauseMs);
+    // Ctrl+K ne doit rien ouvrir par-dessus une boîte déjà ouverte.
+    key("k", { ctrlKey: true });
+    await sleep(200);
+    checks.noStackedDialogs = !Array.from(document.querySelectorAll('[role="dialog"]')).some((d) => d.textContent?.includes("Affichage des pages"));
+    Array.from(dlg.querySelectorAll("button")).find((x) => x.textContent === "Annuler")?.click();
+    await sleep(300);
+    checks.printDialogClosed = !Array.from(document.querySelectorAll('[role="dialog"]')).some((d) => d.textContent?.includes("Imprimante"));
+
+    // Impression réelle (pages 1 et 3), relue pour compter les pages.
+    const pdfPrinter = printers.find((x) => x.name === "Microsoft Print to PDF");
+    if (pdfPrinter) {
+      const out = dir + "impression-e2e.pdf";
+      let events = 0;
+      const off = await engine.onPrintProgress(() => events++);
+      const sent = await engine.print(doc.id, {
+        printer: pdfPrinter.name,
+        pages: [0, 2],
+        scale: "fit",
+        customScale: 100,
+        orientation: "auto",
+        duplex: "none",
+        copies: 1,
+        comments: true,
+        outputFile: out,
+      });
+      off();
+      let printedPages = 0;
+      const t0 = performance.now();
+      while (performance.now() - t0 < 20000 && !printedPages) {
+        await sleep(400);
+        try {
+          const d = await engine.open(out);
+          printedPages = d.pageCount;
+          engine.close(d.id);
+        } catch {
+          // le spouleur n'a pas encore fini d'écrire le fichier
+        }
+      }
+      r.print = { sent, events, printedPages };
+      checks.print = sent === 2 && events === 2 && printedPages === 2;
+    } else {
+      r.print = "imprimante « Microsoft Print to PDF » absente : vérification sautée";
+    }
+
+    // Préférences (Ctrl+K) : catégories, taille de l'interface, raccourcis à une touche.
+    key("k", { ctrlKey: true });
+    const pd = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((d) => d.textContent?.includes("Affichage des pages")), 4000);
+    const tab = Array.from(pd.querySelectorAll('[role="tab"]')).find((t) => t.textContent === "Accessibilité") as HTMLElement | undefined;
+    tab?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
+    tab?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "mouse", button: 0 }));
+    tab?.click();
+    checks.prefsDialog = !!(await waitFor(() => (pd.textContent?.includes("Taille de l'interface") ? true : null), 3000).catch(() => null));
+    if (pauseMs) await sleep(pauseMs);
+    Array.from(pd.querySelectorAll("button")).find((x) => x.textContent === "Fermer")?.click();
+    await sleep(200);
+    actions.setPref("uiScale", 125);
+    await sleep(100);
+    const scaled = document.documentElement.style.fontSize;
+    actions.setPref("uiScale", 100);
+    checks.uiScale = scaled === "125%";
+    actions.setPref("singleKeys", false);
+    await sleep(50);
+    key("d");
+    await sleep(150);
+    const inkBarOff = !!document.querySelector('[role="toolbar"][aria-label="Dessin"]');
+    actions.setPref("singleKeys", true);
+    await sleep(50);
+    key("d");
+    await sleep(150);
+    const inkBarOn = !!document.querySelector('[role="toolbar"][aria-label="Dessin"]');
+    key("v");
+    r.singleKeys = { whenOff: inkBarOff, whenOn: inkBarOn };
+    checks.singleKeys = !inkBarOff && inkBarOn;
+
+    // Fichier modifié par un autre programme : A est remplacé sur le disque par une copie de B.
+    const aPath = dir + "ext-a.pdf";
+    const a = await actions.openPath(aPath);
+    const b = await actions.openPath(dir + "ext-b.pdf");
+    if (!a || !b) throw new Error("fichiers ext-a / ext-b absents");
+    await sleep(300);
+    const replaced = await actions.save(b.id, aPath);
+    await actions.closeDoc(b.id);
+    await actions.openPath(aPath);
+    await actions.checkExternal();
+    const banner = await waitFor(() => (document.body.textContent?.includes("modifié par un autre programme") ? true : null), 6000).catch(() => null);
+    const reloaded = await actions.reload(a.id);
+    // Le document relu (le formulaire de B) remplace l'affichage : on attend ses champs.
+    const fields = (await until(async () => {
+      const f = await actions.doc()?.fields(0);
+      return f && f.length ? f : null;
+    })) ?? [];
+    await sleep(300);
+    const bannerGone = !document.body.textContent?.includes("modifié par un autre programme");
+    r.external = { replaced, banner: !!banner, reloaded, fieldsAfterReload: fields.length, bannerGone };
+    checks.external = replaced && !!banner && reloaded && fields.length >= 6 && bannerGone;
+
+    // Copie de récupération d'un document modifié, effacée à l'enregistrement.
+    await actions.openPath(aPath);
+    const cur = await waitFor(() => actions.doc());
+    await cur.addMark(0, 300, 300);
+    // L'état « modifié » arrive au rendu suivant.
+    const made = (await until(async () => (await actions.snapshotNow()) || null)) ?? 0;
+    const listed = (await engine.recoveryList()).some((x) => x.name === "ext-a.pdf");
+    await actions.save(a.id);
+    const cleared = !(await engine.recoveryList()).some((x) => x.name === "ext-a.pdf");
+    r.recovery = { made, listed, cleared };
+    checks.recovery = made >= 1 && listed && cleared;
+  } catch (e) {
+    r.error = String(e);
+    checks.error = false;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 8;
+  return r;
+}
+
+/** Scénarios en deux lancements : « crash » modifie un document, fait sa copie de récupération et
+ *  quitte sans rien nettoyer ; « recover » vérifie qu'au lancement suivant la copie est proposée,
+ *  rouverte avec la modification, puis effacée à l'enregistrement. */
+export async function runStage(stage: string, engine: EngineClient, actions: AppActions, first: DocInfo | null) {
+  const r: Record<string, unknown> = { stage };
+  try {
+    if (stage === "crash") {
+      if (!first) throw new Error("aucun fichier passé en argument");
+      const a = await waitFor(() => actions.doc());
+      r.mark = await a.addMark(0, 300, 300);
+      r.snapshots = (await until(async () => (await actions.snapshotNow()) || null)) ?? 0;
+      r.listed = (await engine.recoveryList()).map((x) => x.name);
+      r.ok = r.snapshots === 1 && (r.listed as string[]).includes(first.name);
+    } else if (stage === "recover") {
+      const item = await waitFor(() => document.querySelector<HTMLElement>("[data-recovery]"), 8000);
+      r.offered = item.dataset.recovery;
+      const pause = await engine.e2ePause();
+      if (pause) await sleep(pause);
+      const btn = Array.from(item.querySelectorAll("button")).find((x) => x.textContent === "Récupérer");
+      btn?.click();
+      const a = await waitFor(() => actions.doc(), 8000);
+      const id = actions.activeId();
+      const annots = await a.annots(0);
+      r.restoredMarks = annots.filter((x) => x.kind === "mark").length;
+      r.title = document.title;
+      const dirty = !!document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.includes("•") || annots.length > 0;
+      r.saved = id ? await actions.save(id) : false;
+      r.leftAfterSave = (await engine.recoveryList()).length;
+      r.ok = !!r.offered && (r.restoredMarks as number) >= 1 && dirty && r.saved === true && r.leftAfterSave === 0;
+    } else {
+      throw new Error("étape inconnue : " + stage);
+    }
+  } catch (e) {
+    r.error = String(e);
+    r.ok = false;
+  }
   return r;
 }

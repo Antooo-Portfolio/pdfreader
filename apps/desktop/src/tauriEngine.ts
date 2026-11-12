@@ -1,4 +1,4 @@
-import type { AnnotResult, Field, SavedSignature, Bookmark, DocInfo, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
+import type { AnnotResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Bookmark, DocInfo, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -67,5 +67,20 @@ export const tauriEngine: EngineClient = {
   setTitle: (title) => getCurrentWindow().setTitle(title),
   e2eEnabled: () => invoke<boolean>("e2e_enabled"),
   e2ePause: () => invoke<number>("e2e_pause"),
+  e2eStage: () => invoke<string>("e2e_stage"),
+  printers: () => invoke<PrinterInfo[]>("printers"),
+  printerSheet: (name) => invoke<[number, number] | null>("printer_sheet", { name }),
+  print: (doc, options) => invoke<number>("doc_print", { doc, options: { ...options, outputFile: options.outputFile ?? null, title: options.title ?? "" } }),
+  cancelPrint: () => invoke("print_cancel"),
+  onPrintProgress: (cb) => listen<{ done: number; total: number }>("print-progress", (e) => cb(e.payload.done, e.payload.total)),
+  changedOnDisk: (doc) => invoke<boolean>("doc_changed_on_disk", { doc }),
+  reload: (doc) => invoke<DocInfo>("doc_reload", { doc }),
+  recoverySnapshot: (doc, path, fingerprint) => invoke("recovery_snapshot", { doc, path, fingerprint }),
+  recoveryClear: (path) => invoke("recovery_clear", { path }),
+  recoveryList: () => invoke<RecoveryItem[]>("recovery_list"),
+  recoveryRestore: (id, password) => invoke<DocInfo>("recovery_restore", { id, password: password ?? null }),
+  recoveryDiscard: (id) => invoke("recovery_discard", { id }),
+  resetPreferences: () => invoke("pref_reset"),
+  openSettings: (page) => invoke("open_settings", { page }),
   e2eReport: (report) => invoke("e2e_report", { report: JSON.stringify(report, null, 2) }),
 };

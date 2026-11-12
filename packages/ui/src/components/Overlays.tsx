@@ -93,6 +93,12 @@ export function MenuSection<T extends object>({ title, className, children, ...p
   );
 }
 
+/** Une boîte de dialogue modale est-elle ouverte ? Les raccourcis globaux de l'application ne
+ *  doivent alors rien faire (React Aria ne pose pas aria-modal). */
+export function isModalOpen(): boolean {
+  return typeof document !== "undefined" && document.querySelector("[data-modal-open]") !== null;
+}
+
 export function MenuSeparator() {
   return <Separator className="mx-1 my-1 h-px bg-border" />;
 }
@@ -125,6 +131,8 @@ export function Dialog({ title, children, footer, size = "md", role = "dialog", 
         <RACDialog role={role} className="flex max-h-[calc(100vh-2rem)] flex-col outline-none">
           {({ close }) => (
             <>
+              {/* Marqueur : une boîte modale est ouverte (voir isModalOpen). */}
+              <span data-modal-open hidden />
               <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3">
                 <Heading slot="title" className="text-xl">
                   {title}

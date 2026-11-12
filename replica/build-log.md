@@ -154,3 +154,50 @@ outil Signer et boîte de création de la signature (S12).
   envoyée nulle part ; posée en image bitmap BGRA (PDFium crée le masque de transparence).
 - Le scénario écrit encore dans la base locale réelle (auteur, signature de test) : remis en état
   à la main. Toujours à isoler avant la CI.
+
+## M2 — lots « impression », « préférences » et « fichier » (2026-11-12)
+
+Validé dans l'application compilée en release par le scénario automatique (partie `settings` de
+`packages/viewer/src/e2e.ts`), par deux lancements qui simulent un plantage (étapes `crash` puis
+`recover`) et par les tests du moteur (`cargo test -p pdfreader-engine --test print`).
+
+**Les tests de bout en bout n'écrivent plus dans la base de l'utilisateur** : avec PDFREADER_E2E,
+l'application prend un dossier de données à part, à côté du rapport (`e2e-data`). Vérifié :
+l'empreinte de la vraie base est identique avant et après toutes les exécutions.
+PDFREADER_DATA_DIR permet aussi de choisir ce dossier (captures, version portable).
+
+Scénario : plages de pages (« 1-3, 5, 8- », plages à l'envers, doublons, erreurs) ; Ctrl+P ouvre
+la boîte Imprimer avec les imprimantes et l'aperçu ; Ctrl+K ne l'empile pas par-dessus ;
+impression réelle des pages 1 et 3 vers « Microsoft Print to PDF » : deux pages envoyées, deux
+événements de progression, deux pages dans le fichier produit ; Préférences (Ctrl+K), taille de
+l'interface à 125 %, raccourcis à une touche désactivés puis réactivés ; un fichier ouvert
+remplacé sur le disque : bandeau, rechargement, contenu nouveau, bandeau parti ; copie de
+récupération faite puis effacée à l'enregistrement. Plantage simulé : modification, copie,
+sortie sans nettoyage, fichier d'origine intact ; au lancement suivant la récupération est
+proposée, le document rouvert contient la modification, l'enregistrement l'écrit dans le
+fichier d'origine et efface la copie. Tests du moteur : formulaire rempli imprimé même sans les
+commentaires, dessin imprimé seulement avec les commentaires, croix « Remplir et signer » toujours
+imprimée, deux pages dans l'ordre demandé (3 puis 1), impression en image (basse qualité),
+orientation automatique portrait / paysage / portrait.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| S13 Imprimer | 2026-11-12 | fait | plusieurs pages par feuille, livret, affiche (M3, « could ») ; choix du bac et du format de papier (réglages du pilote) | les champs de formulaire remplis ne s'imprimaient pas en vectoriel : chaque page est copiée dans un document temporaire et aplatie pour l'impression (`FPDFPage_Flatten`), le document ouvert n'est jamais touché ; l'impression en image sortait écrasée (format 24 bits déclaré en 32 bits) |
+| S14 Préférences | 2026-11-12 | fait | langue anglaise (Lingui), export / import des préférences (M3), réglages de sécurité (vue protégée, M3) | Ctrl+K ouvrait les Préférences par-dessus la boîte Imprimer : aucun raccourci global ne réagit plus quand une boîte modale est ouverte (Suppr aurait pu effacer un commentaire derrière) |
+| Fichier (S03) | 2026-11-12 | fait | — | — |
+
+### Notes techniques
+
+- Impression : `crates/engine/src/print_win.rs`, réglages du pilote (DEVMODE : recto verso, copies,
+  orientation) validés par `DocumentPropertiesW`, orientation changée page par page avec
+  `ResetDCW`, centrage sur la feuille physique. Le thread moteur imprime une page chaque fois qu'il
+  n'a aucune autre commande : l'affichage reste fluide pendant une longue impression, et
+  l'annulation est prise en compte entre deux pages (`AbortDoc`).
+- Copies de récupération : enregistrement incrémental du document en mémoire dans
+  `%APPDATA%\…ecovery\`, une seule par document (la précédente est supprimée), table
+  `recovery_snapshots`. Effacées à l'enregistrement, à la fermeture voulue (y compris « Ne pas
+  enregistrer ») et au rechargement. Les fichiers orphelins sont supprimés au démarrage.
+- Fichier modifié ailleurs : date de modification comparée toutes les 5 s et au retour sur la
+  fenêtre ; bandeau « Recharger » ou « Enregistrer mes modifications sous… ».
+- Tests du moteur : une seule instance de PDFium par binaire de test (`tests/common`), PDFium ne
+  se rechargeant pas après libération dans un même processus.

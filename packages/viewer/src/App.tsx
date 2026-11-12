@@ -1,11 +1,15 @@
-import { Button, Dialog, DocumentTabs, IconButton, Menu, MenuItem, MenuSection, MenuTrigger, Spinner, TextField, useToast } from "@pdfreader/ui";
-import { Home, Palette } from "lucide-react";
+import { Button, Dialog, DocumentTabs, IconButton, isModalOpen, Menu, MenuItem, MenuSection, MenuTrigger, Spinner, TextField, useToast } from "@pdfreader/ui";
+import { Home, Palette, Settings } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { DEFAULT_STYLES, type Tool, type ToolStyle, type ToolStyles } from "./annot";
 import { type DocActions, DocumentView } from "./DocumentView";
-import { runE2E } from "./e2e";
-import { type DocInfo, type EngineClient, isOpenError, type Theme } from "./engine";
+import { runE2E, runStage } from "./e2e";
+import { type DocInfo, type EngineClient, isOpenError, type RecoveryItem, type Theme } from "./engine";
 import { HomeView } from "./HomeView";
+import { DEFAULT_PREFS, DEFAULT_PRINT, parsePrefs, parsePrintSettings, type Prefs, type PrintSettings } from "./prefs";
+import { PreferencesDialog } from "./PreferencesDialog";
+import { PrintDialog } from "./PrintDialog";
+import { RecoveryDialog } from "./RecoveryDialog";
 import { reducer } from "./state";
 
 
@@ -15,6 +19,11 @@ const THEMES: { id: Theme; label: string }[] = [
   { id: "dark", label: "Sombre" },
   { id: "contrast", label: "Contraste élevé" },
 ];
+
+/** Taille de l'interface : la taille de police racine (tout est en rem). */
+function applyScale(percent: number) {
+  document.documentElement.style.fontSize = `${percent}%`;
+}
 
 /** Applique le thème : jetons CSS (attribut data-theme) et barre de titre de la fenêtre. */
 function applyTheme(engine: EngineClient, theme: Theme) {
@@ -31,7 +40,16 @@ export interface AppActions {
   /** Actions du document actif (commentaires). */
   doc(): DocActions | null;
   setAuthor(name: string): Promise<void>;
-  save(id: number): Promise<boolean>;
+  setPref<K extends keyof Prefs>(key: K, value: Prefs[K]): void;
+  prefs(): Prefs;
+  openPrint(): void;
+  openPreferences(): void;
+  /** Copie de récupération immédiate des documents modifiés. */
+  snapshotNow(): Promise<number>;
+  /** Vérifie tout de suite si un fichier ouvert a été modifié ailleurs. */
+  checkExternal(): Promise<void>;
+  reload(id: number): Promise<boolean>;
+  save(id: number, asPath?: string): Promise<boolean>;
   closeDoc(id: number): Promise<void>;
   activeId(): number | null;
 }
@@ -48,7 +66,15 @@ export function App({ engine }: { engine: EngineClient }) {
   const [password, setPassword] = useState<{ path: string; wrong: boolean; value: string } | null>(null);
   const [confirmClose, setConfirmClose] = useState<{ ids: number[]; quit: boolean } | null>(null);
   const [homeRefresh, setHomeRefresh] = useState(0);
-  const [theme, setTheme] = useState<Theme>("system");
+  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
+  const theme = prefs.theme;
+  const [printSettings, setPrintSettings] = useState<PrintSettings>(DEFAULT_PRINT);
+  const [printFor, setPrintFor] = useState<number | null>(null);
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const [recovery, setRecovery] = useState<RecoveryItem[] | null>(null);
+  const [external, setExternal] = useState<Set<number>>(() => new Set());
   const docsRef = useRef(docs);
   docsRef.current = docs;
   const activeRef = useRef(active);
@@ -65,8 +91,8 @@ export function App({ engine }: { engine: EngineClient }) {
     engine
       .preferences()
       .then((p) => {
-        const t = p.theme;
-        if (t === "light" || t === "dark" || t === "contrast" || t === "system") setTheme(t);
+        setPrefs(parsePrefs(p));
+        setPrintSettings(parsePrintSettings(p.print));
         // Styles des outils mémorisés : on ne garde que les entrées valides.
         const saved = p.toolStyles as Partial<Record<keyof ToolStyles, Partial<ToolStyle>>> | undefined;
         if (saved && typeof saved === "object") {
@@ -87,6 +113,29 @@ export function App({ engine }: { engine: EngineClient }) {
       .catch(() => undefined);
   }, [engine]);
   useEffect(() => applyTheme(engine, theme), [engine, theme]);
+  useEffect(() => applyScale(prefs.uiScale), [prefs.uiScale]);
+  const setPref = useCallback(
+    <K extends keyof Prefs>(key: K, value: Prefs[K]) => {
+      setPrefs((cur) => ({ ...cur, [key]: value }));
+      void engine.setPreference(key, value).catch(() => undefined);
+    },
+    [engine],
+  );
+  const resetPrefs = useCallback(async () => {
+    await engine.resetPreferences().catch(() => undefined);
+    setPrefs(DEFAULT_PREFS);
+    setStyles(DEFAULT_STYLES);
+    setPrintSettings(DEFAULT_PRINT);
+    setAuthor(await engine.author().catch(() => ""));
+    toast({ tone: "success", message: "Réglages par défaut rétablis." });
+  }, [engine, toast]);
+  const changePrintSettings = useCallback(
+    (ps: PrintSettings) => {
+      setPrintSettings(ps);
+      void engine.setPreference("print", ps).catch(() => undefined);
+    },
+    [engine],
+  );
   useEffect(() => {
     engine
       .author()
@@ -110,10 +159,7 @@ export function App({ engine }: { engine: EngineClient }) {
     },
     [engine],
   );
-  const chooseTheme = (t: Theme) => {
-    setTheme(t);
-    void engine.setPreference("theme", t).catch(() => undefined);
-  };
+  const chooseTheme = (t: Theme) => setPref("theme", t);
 
   // ------------------------------------------------------------ ouverture
   const openPath = useCallback(
@@ -188,6 +234,10 @@ export function App({ engine }: { engine: EngineClient }) {
       try {
         const r = await engine.save(id, asPath);
         dispatch({ type: "saved", id, generation: r.generation, path: r.path, fingerprint: r.fingerprint });
+        // Enregistré : les copies de récupération (sous l'ancien et le nouveau chemin) ne servent plus.
+        await engine.recoveryClear(d.info.path).catch(() => undefined);
+        if (r.path !== d.info.path) await engine.recoveryClear(r.path).catch(() => undefined);
+        snapshotEdits.current.delete(id);
         toast({ tone: "success", message: `« ${r.path.split(/[\\/]/).pop()} » enregistré` });
         setHomeRefresh((n) => n + 1);
         return true;
@@ -220,6 +270,16 @@ export function App({ engine }: { engine: EngineClient }) {
   // ------------------------------------------------------------ fermeture
   const reallyClose = useCallback(
     (id: number) => {
+      // Fermeture voulue (y compris « Ne pas enregistrer ») : plus rien à récupérer.
+      const d = docsRef.current.find((x) => x.info.id === id);
+      if (d) void engine.recoveryClear(d.info.path).catch(() => undefined);
+      snapshotEdits.current.delete(id);
+      setExternal((s) => {
+        if (!s.has(id)) return s;
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
       engine.close(id);
       docActions.current.delete(id);
       dispatch({ type: "closed", id });
@@ -250,6 +310,79 @@ export function App({ engine }: { engine: EngineClient }) {
     return () => off?.();
   }, [engine]);
 
+  // ------------------------------------------------------------ copies de récupération
+  /** Nombre de modifications au moment de la dernière copie, par document. */
+  const snapshotEdits = useRef(new Map<number, number>());
+  const snapshotNow = useCallback(async (): Promise<number> => {
+    let n = 0;
+    for (const d of docsRef.current) {
+      if (!d.dirty || snapshotEdits.current.get(d.info.id) === d.edits) continue;
+      try {
+        await engine.recoverySnapshot(d.info.id, d.info.path, d.info.fingerprint);
+        snapshotEdits.current.set(d.info.id, d.edits);
+        n++;
+      } catch {
+        // Disque plein ou document fermé entre-temps : on réessaiera au prochain tour.
+      }
+    }
+    return n;
+  }, [engine]);
+  useEffect(() => {
+    if (!prefs.recovery) return;
+    const t = window.setInterval(() => void snapshotNow(), prefs.recoveryMinutes * 60_000);
+    return () => window.clearInterval(t);
+  }, [prefs.recovery, prefs.recoveryMinutes, snapshotNow]);
+
+  // ------------------------------------------------------------ fichier modifié ailleurs
+  const checkExternal = useCallback(async () => {
+    for (const d of docsRef.current) {
+      const changed = await engine.changedOnDisk(d.info.id).catch(() => false);
+      setExternal((s) => {
+        if (changed === s.has(d.info.id)) return s;
+        const n = new Set(s);
+        if (changed) n.add(d.info.id);
+        else n.delete(d.info.id);
+        return n;
+      });
+    }
+  }, [engine]);
+  useEffect(() => {
+    const onFocus = () => void checkExternal();
+    window.addEventListener("focus", onFocus);
+    const t = window.setInterval(() => {
+      if (document.visibilityState === "visible") void checkExternal();
+    }, 5000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(t);
+    };
+  }, [checkExternal]);
+  const reload = useCallback(
+    async (id: number): Promise<boolean> => {
+      try {
+        const info = await engine.reload(id);
+        dispatch({ type: "reloaded", info });
+        snapshotEdits.current.delete(id);
+        void engine.recoveryClear(info.path).catch(() => undefined);
+        setExternal((s) => {
+          const n = new Set(s);
+          n.delete(id);
+          return n;
+        });
+        return true;
+      } catch (e) {
+        toast({ tone: "error", message: `Le fichier n'a pas pu être relu : il a peut-être été supprimé ou déplacé (${String(e)}).` });
+        return false;
+      }
+    },
+    [engine, toast],
+  );
+
+  const openPrint = useCallback(() => {
+    const id = Number(activeRef.current);
+    if (id) setPrintFor(id);
+  }, []);
+
   // ------------------------------------------------------------ fichiers reçus de l'extérieur
   useEffect(() => {
     let off: (() => void) | undefined;
@@ -258,6 +391,9 @@ export function App({ engine }: { engine: EngineClient }) {
       off = await engine.onExternalFiles((paths) => paths.forEach((p) => void openPath(p)));
       const launch = await engine.launchFiles();
       const e2e = await engine.e2eEnabled();
+      // Copies laissées par une fermeture inattendue.
+      const left = await engine.recoveryList().catch(() => [] as RecoveryItem[]);
+      if (left.length && !cancelled) setRecovery(left);
       let first: DocInfo | null = null;
       for (const p of launch) {
         const info = await openPath(p);
@@ -269,11 +405,19 @@ export function App({ engine }: { engine: EngineClient }) {
           highlightSelection,
           doc: () => docActions.current.get(Number(activeRef.current)) ?? null,
           setAuthor: changeAuthor,
+          setPref,
+          prefs: () => prefsRef.current,
+          openPrint,
+          openPreferences: () => setPrefsOpen(true),
+          snapshotNow,
+          checkExternal,
+          reload,
           save,
           closeDoc: async (id) => reallyClose(id),
           activeId: () => Number(activeRef.current) || null,
         };
-        const report = await runE2E(engine, actions, first, launch[0] ?? null);
+        const stage = await engine.e2eStage();
+        const report = stage ? await runStage(stage, engine, actions, first) : await runE2E(engine, actions, first, launch[0] ?? null);
         await engine.e2eReport(report);
       }
     })();
@@ -288,10 +432,19 @@ export function App({ engine }: { engine: EngineClient }) {
   // ------------------------------------------------------------ raccourcis
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Boîte modale ouverte : elle seule réagit au clavier.
+      if (isModalOpen()) return;
       const target = e.target as HTMLElement | null;
       const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
       const id = Number(activeRef.current);
-      if (e.ctrlKey && e.key.toLowerCase() === "o") {
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "p") {
+        // Remplace l'impression du navigateur intégré.
+        e.preventDefault();
+        openPrint();
+      } else if (e.ctrlKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPrefsOpen(true);
+      } else if (e.ctrlKey && e.key.toLowerCase() === "o") {
         e.preventDefault();
         void pick();
       } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "s") {
@@ -308,8 +461,8 @@ export function App({ engine }: { engine: EngineClient }) {
         const order = ["home", ...docsRef.current.map((d) => String(d.info.id))];
         const i = order.indexOf(activeRef.current);
         setActive(order[(i + (e.shiftKey ? -1 : 1) + order.length) % order.length] ?? "home");
-      } else if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        // Raccourcis à une touche (désactivables dans les Préférences en M2).
+      } else if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey && prefsRef.current.singleKeys) {
+        // Raccourcis à une touche (désactivables dans les Préférences, catégorie Accessibilité).
         const k = e.key.toLowerCase();
         const byKey: Record<string, Tool> = { v: "select", u: "highlight", n: "note", d: "ink", e: "eraser", t: "text", s: "sign" };
         if (byKey[k]) setTool(byKey[k]);
@@ -317,7 +470,7 @@ export function App({ engine }: { engine: EngineClient }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pick, save, saveAs, closeDoc]);
+  }, [pick, save, saveAs, closeDoc, openPrint]);
 
   return (
     <div className="flex h-screen flex-col bg-bg text-fg">
@@ -336,7 +489,8 @@ export function App({ engine }: { engine: EngineClient }) {
             <Spinner label="" /> Ouverture de {opening}…
           </span>
         )}
-        <div className="mb-1 ml-auto shrink-0">
+        <div className="mb-1 ml-auto flex shrink-0 items-center gap-0.5">
+          <IconButton label="Préférences" shortcut="Ctrl+K" icon={<Settings size={18} />} onPress={() => setPrefsOpen(true)} />
           <MenuTrigger>
             <IconButton label="Apparence" icon={<Palette size={18} />} />
             <Menu aria-label="Apparence">
@@ -377,10 +531,52 @@ export function App({ engine }: { engine: EngineClient }) {
           onAnnotated={onAnnotated}
           onSave={() => void save(d.info.id)}
           onOpen={() => void pick()}
+          onPrint={() => setPrintFor(d.info.id)}
           register={registerFor(d.info.id)}
+          defaults={{ zoom: prefs.defaultZoom, layout: prefs.defaultLayout, restoreView: prefs.restoreView }}
+          externalChange={external.has(d.info.id)}
+          onReload={() => void reload(d.info.id)}
+          onSaveAs={() => void saveAs(d.info.id)}
         />
       ))}
 
+      {printFor !== null &&
+        (() => {
+          const d = docs.find((x) => x.info.id === printFor);
+          if (!d) return null;
+          return (
+            <PrintDialog
+              engine={engine}
+              info={d.info}
+              currentPage={docActions.current.get(d.info.id)?.currentPage() ?? 1}
+              settings={printSettings}
+              onSettings={changePrintSettings}
+              onClose={() => setPrintFor(null)}
+            />
+          );
+        })()}
+      {prefsOpen && (
+        <PreferencesDialog
+          engine={engine}
+          prefs={prefs}
+          author={author}
+          onChange={setPref}
+          onAuthorChange={(n) => void changeAuthor(n)}
+          onReset={resetPrefs}
+          onClose={() => setPrefsOpen(false)}
+        />
+      )}
+      {recovery && recovery.length > 0 && (
+        <RecoveryDialog
+          engine={engine}
+          items={recovery}
+          onRestored={(info) => {
+            dispatch({ type: "opened", info, dirty: true });
+            setActive(String(info.id));
+          }}
+          onDone={() => setRecovery(null)}
+        />
+      )}
       {password && (
         <Dialog
           title="Document protégé"

@@ -5,6 +5,8 @@ mod db;
 mod engine;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use engine::{AnnotOp, AnnotResult, Cmd, DocInfo, EngineHandle, SaveResult};
 use pdfreader_engine::{Bookmark, OpenError, PageLink, SearchBatch, TextWord};
@@ -47,7 +49,7 @@ fn get_launch_files() -> Vec<String> {
 #[tauri::command]
 async fn doc_open(path: String, password: Option<String>, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<DocInfo, OpenError> {
     let (tx, rx) = oneshot::channel();
-    engine.send(Cmd::Open { path: PathBuf::from(&path), password, reply: tx });
+    engine.send(Cmd::Open { path: PathBuf::from(&path), shown_as: None, password, reply: tx });
     let mut r = rx.await.map_err(|_| OpenError::Other("moteur indisponible".into()))??;
     let _ = db.touch(&r.info.fingerprint, &r.info.path, &r.info.name, r.size, r.info.page_count, &r.thumbnail);
     r.info.view_state = db.view_state(&r.info.fingerprint);
@@ -217,6 +219,151 @@ fn signature_delete(kind: String, db: State<'_, db::Db>) -> Result<(), String> {
     db.delete_signature(&kind).map_err(|e| e.to_string())
 }
 
+/// Dossier de données de cette session.
+struct DataDir(PathBuf);
+
+fn recovery_dir(data: &DataDir) -> PathBuf {
+    data.0.join("recovery")
+}
+
+fn remove_files(files: Vec<String>) {
+    for f in files {
+        // Peut échouer si le fichier est encore ouvert : il sera supprimé au prochain démarrage.
+        let _ = std::fs::remove_file(f);
+    }
+}
+
+/// Copie de récupération des modifications non enregistrées d'un document ouvert.
+#[tauri::command]
+async fn recovery_snapshot(doc: u32, path: String, fingerprint: String, engine: State<'_, EngineHandle>, db: State<'_, db::Db>, data: State<'_, DataDir>) -> Result<(), String> {
+    let dir = recovery_dir(&data);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let target = dir.join(format!("{}.pdf", uuid::Uuid::new_v4()));
+    ask(&engine, |reply| Cmd::Snapshot { doc, target: target.clone(), reply }).await?;
+    let old = db.add_snapshot(&fingerprint, &path, &target.display().to_string()).map_err(|e| e.to_string())?;
+    remove_files(old);
+    Ok(())
+}
+
+/// Le document a été enregistré ou fermé volontairement : ses copies ne servent plus.
+#[tauri::command]
+fn recovery_clear(path: String, db: State<'_, db::Db>) -> Result<(), String> {
+    remove_files(db.remove_snapshots(None, Some(&path)).map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecoveryItem {
+    id: String,
+    original_path: String,
+    name: String,
+    created_at: i64,
+}
+
+/// Copies laissées par une fermeture inattendue (plantage, coupure de courant).
+#[tauri::command]
+fn recovery_list(db: State<'_, db::Db>) -> Result<Vec<RecoveryItem>, String> {
+    let mut out = Vec::new();
+    for (id, original, snapshot, created_at) in db.snapshots().map_err(|e| e.to_string())? {
+        if !Path::new(&snapshot).exists() {
+            let _ = db.remove_snapshots(Some(&id), None);
+            continue;
+        }
+        let name = Path::new(&original).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Document".into());
+        out.push(RecoveryItem { id, original_path: original, name, created_at });
+    }
+    Ok(out)
+}
+
+/// Rouvre une copie de récupération à la place du document d'origine : Ctrl+S l'enregistrera
+/// sous le chemin d'origine.
+#[tauri::command]
+async fn recovery_restore(id: String, password: Option<String>, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<DocInfo, OpenError> {
+    let (original, snapshot) = db
+        .snapshots()
+        .map_err(|e| OpenError::Other(e.to_string()))?
+        .into_iter()
+        .find(|s| s.0 == id)
+        .map(|s| (s.1, s.2))
+        .ok_or(OpenError::NotFound)?;
+    let (tx, rx) = oneshot::channel();
+    engine.send(Cmd::Open { path: PathBuf::from(&snapshot), shown_as: Some(PathBuf::from(&original)), password, reply: tx });
+    let mut r = rx.await.map_err(|_| OpenError::Other("moteur indisponible".into()))??;
+    r.info.view_state = db.view_state(&r.info.fingerprint);
+    Ok(r.info)
+}
+
+#[tauri::command]
+fn recovery_discard(id: String, db: State<'_, db::Db>) -> Result<(), String> {
+    remove_files(db.remove_snapshots(Some(&id), None).map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+#[tauri::command]
+fn pref_reset(db: State<'_, db::Db>) -> Result<(), String> {
+    db.reset_preferences().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn printer_sheet(name: String) -> Result<Option<[f32; 2]>, String> {
+    tauri::async_runtime::spawn_blocking(move || pdfreader_engine::print_win::sheet_size(&name)).await.map_err(|e| e.to_string())
+}
+
+/// Ouvre une page des Paramètres de Windows (liste fermée : applications par défaut, imprimantes).
+#[tauri::command]
+fn open_settings(page: String) -> Result<(), String> {
+    let uri = match page.as_str() {
+        "defaultapps" => "ms-settings:defaultapps",
+        "printers" => "ms-settings:printers",
+        _ => return Err("page inconnue".into()),
+    };
+    shell_open(uri)
+}
+
+/// Drapeau d'annulation de l'impression en cours.
+#[derive(Default)]
+struct PrintState(Mutex<Arc<AtomicBool>>);
+
+#[tauri::command]
+async fn printers() -> Result<Vec<pdfreader_engine::print_win::PrinterInfo>, String> {
+    // L'énumération peut être lente (imprimantes réseau) : hors du fil de l'interface.
+    tauri::async_runtime::spawn_blocking(pdfreader_engine::print_win::printers).await.map_err(|e| e.to_string())
+}
+
+/// Imprime ; renvoie le nombre de pages envoyées. Émet « print-progress » { done, total }.
+/// Erreurs typées : `print_forbidden`, `print_cancelled`, `print_busy`.
+#[tauri::command]
+async fn doc_print(doc: u32, mut options: pdfreader_engine::print_win::PrintOptions, app: AppHandle, engine: State<'_, EngineHandle>, state: State<'_, PrintState>) -> Result<usize, String> {
+    // Le fichier de sortie n'est accepté que pour les tests : sinon le pilote demande lui-même.
+    if std::env::var("PDFREADER_E2E").is_err() {
+        options.output_file = None;
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    *state.0.lock().unwrap() = cancel.clone();
+    let progress = Box::new(move |done: usize, total: usize| {
+        let _ = app.emit("print-progress", serde_json::json!({ "done": done, "total": total }));
+    });
+    ask(&engine, |reply| Cmd::Print { doc, opts: options, cancel, progress, reply }).await
+}
+
+#[tauri::command]
+fn print_cancel(state: State<'_, PrintState>) {
+    state.0.lock().unwrap().store(true, Ordering::Relaxed);
+}
+
+#[tauri::command]
+async fn doc_changed_on_disk(doc: u32, engine: State<'_, EngineHandle>) -> Result<bool, String> {
+    ask(&engine, |reply| Cmd::ChangedOnDisk { doc, reply }).await
+}
+
+#[tauri::command]
+async fn doc_reload(doc: u32, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<DocInfo, String> {
+    let mut info = ask(&engine, |reply| Cmd::Reload { doc, reply }).await?;
+    info.view_state = db.view_state(&info.fingerprint);
+    Ok(info)
+}
+
 #[tauri::command]
 fn recent_star(id: String, starred: bool, db: State<'_, db::Db>) -> Result<(), String> {
     db.set_starred(&id, starred).map_err(|e| e.to_string())
@@ -372,12 +519,37 @@ fn e2e_pause() -> u32 {
     std::env::var("PDFREADER_E2E_PAUSE").ok().and_then(|v| v.parse().ok()).unwrap_or(0).min(10_000)
 }
 
+/// Étape demandée au scénario (« crash » : préparer une copie de récupération puis quitter net).
+#[tauri::command]
+fn e2e_stage() -> String {
+    if std::env::var("PDFREADER_E2E").is_err() {
+        return String::new();
+    }
+    std::env::var("PDFREADER_E2E_STAGE").unwrap_or_default()
+}
+
 #[tauri::command]
 fn e2e_report(report: String, app: AppHandle) {
     if let Ok(path) = std::env::var("PDFREADER_E2E") {
         let _ = std::fs::write(path, report);
         app.exit(0);
     }
+}
+
+/// Dossier de données (base locale, copies de récupération). Les tests de bout en bout
+/// (PDFREADER_E2E) utilisent toujours un dossier à part, à côté de leur rapport : ils ne touchent
+/// jamais aux récents, aux préférences ni à la signature de l'utilisateur. PDFREADER_DATA_DIR
+/// permet de le choisir (captures d'écran, version portable).
+fn data_dir(app: &AppHandle) -> PathBuf {
+    if let Ok(d) = std::env::var("PDFREADER_DATA_DIR") {
+        if !d.trim().is_empty() {
+            return PathBuf::from(d);
+        }
+    }
+    if let Ok(report) = std::env::var("PDFREADER_E2E") {
+        return Path::new(&report).parent().unwrap_or(Path::new(".")).join("e2e-data");
+    }
+    app.path().app_data_dir().expect("dossier de données")
 }
 
 // ------------------------------------------------------------------ PDFium et protocole
@@ -446,8 +618,20 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(engine::start(pdfium_dir(&handle)));
-            let dir = app.path().app_data_dir().expect("dossier de données");
-            app.manage(db::Db::open(&dir).expect("base locale"));
+            let dir = data_dir(&handle);
+            let db = db::Db::open(&dir).expect("base locale");
+            // Ménage : fichiers de récupération que plus aucune ligne ne référence.
+            if let (Ok(known), Ok(files)) = (db.snapshots(), std::fs::read_dir(dir.join("recovery"))) {
+                for f in files.flatten() {
+                    let p = f.path().display().to_string();
+                    if !known.iter().any(|k| k.2 == p) {
+                        let _ = std::fs::remove_file(f.path());
+                    }
+                }
+            }
+            app.manage(db);
+            app.manage(DataDir(dir));
+            app.manage(PrintState::default());
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("pdfpage", |ctx, request, responder| {
@@ -464,6 +648,20 @@ fn main() {
             annot_update,
             annot_delete,
             recent_star,
+            printers,
+            printer_sheet,
+            open_settings,
+            pref_reset,
+            recovery_snapshot,
+            recovery_clear,
+            recovery_list,
+            recovery_restore,
+            recovery_discard,
+            e2e_stage,
+            doc_print,
+            print_cancel,
+            doc_changed_on_disk,
+            doc_reload,
             doc_fields,
             field_set,
             fill_add_text,

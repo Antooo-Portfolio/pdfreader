@@ -6,21 +6,8 @@ use std::path::Path;
 use pdfreader_engine as eng;
 use pdfreader_engine::fill::{self, FieldInput};
 
-/// Une seule instance de PDFium pour tout le binaire de test (PDFium ne se recharge pas après
-/// libération), utilisée par un test à la fois.
-static PDFIUM: std::sync::OnceLock<std::sync::Mutex<pdfium_render::prelude::Pdfium>> = std::sync::OnceLock::new();
-
-fn pdfium() -> std::sync::MutexGuard<'static, pdfium_render::prelude::Pdfium> {
-    PDFIUM
-        .get_or_init(|| std::sync::Mutex::new(eng::load_pdfium(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/pdfium-win-x64/bin")).expect("pdfium.dll")))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-}
-
-fn corpus(name: &str) -> Option<std::path::PathBuf> {
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/generated").join(name);
-    p.exists().then_some(p)
-}
+mod common;
+use common::{pdfium, corpus};
 
 fn tmp(name: &str, from: &Path) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("pdfreader-fill-{}", std::process::id()));

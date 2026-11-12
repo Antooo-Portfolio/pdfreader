@@ -5,6 +5,9 @@ use std::path::Path;
 
 use pdfreader_engine as eng;
 
+mod common;
+use common::pdfium;
+
 /// PDF de 3 pages : page 1 avec du texte, un lien vers la page 3 (destination /XYZ) et un lien
 /// web ; signets imbriqués (Partie A > Section A.1, Partie B).
 fn sample_pdf() -> Vec<u8> {
@@ -39,10 +42,6 @@ fn sample_pdf() -> Vec<u8> {
     }
     out.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1).as_bytes());
     out
-}
-
-fn pdfium() -> pdfium_render::prelude::Pdfium {
-    eng::load_pdfium(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/pdfium-win-x64/bin")).expect("pdfium.dll")
 }
 
 #[test]
