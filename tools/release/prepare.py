@@ -33,7 +33,7 @@ OUT = os.path.join(ROOT, "target", "release-upload")
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--notes", default="")
-    ap.add_argument("--base-url", default="https://github.com/AntoooVVE/pdfreader-releases/releases/download")
+    ap.add_argument("--base-url", default="https://github.com/Antooo-Portfolio/pdfreader-releases/releases/download")
     a = ap.parse_args()
     version = json.load(open(CONF, encoding="utf-8"))["version"]
     setup = os.path.join(NSIS, f"PDFReader_{version}_x64-setup.exe")

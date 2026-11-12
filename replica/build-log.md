@@ -243,7 +243,7 @@ désinstallation et réinstallation, dossier de données sauvegardé avant) :
   (TAURI_SIGNING_PRIVATE_KEY) pour la CI.
 - Créer le dépôt public `pdfreader-releases` (Release v0.2.0 avec les fichiers de
   `target/release-upload/`, GitHub Pages avec `site/`) ; l'adresse de l'updater et du site
-  suppose le compte GitHub `AntoooVVE`.
+  suppose l'organisation GitHub `Antooo-Portfolio`.
 - Pousser le code sur un dépôt privé pour que la CI tourne.
 - Tester avec NVDA, et avec le mode contraste élevé de Windows activé.
 - Une impression papier, recto verso compris, sur l'imprimante réelle.
