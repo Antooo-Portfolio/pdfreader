@@ -118,12 +118,12 @@ Ordre de lecture des PDF balisés pour les lecteurs d'écran,accessibilité,shou
 Export / import des préférences en JSON,interface,should,no,no,remplace la synchro par compte
 Installeur setup.exe (NSIS) téléchargeable,distribution,must,no,yes,"M1 : PDFReader_0.1.0_x64-setup.exe, 6,2 Mo, installation utilisateur sans admin, désinstalleur"
 Signature de code de l'installeur,distribution,should,no,skip,choix zéro coût pour l'éditeur : setup non signé ; page de téléchargement qui explique l'avertissement SmartScreen
-Page de téléchargement statique,distribution,must,no,partial,"M2 : site/ (FR, EN) avec téléchargement, marche à suivre SmartScreen, confidentialité, contrat de licence, composants tiers ; tools/release/prepare.py prépare setup, .sig et latest.json. Pas encore publié (dépôt public et GitHub Pages à créer)"
+Page de téléchargement statique,distribution,must,no,yes,"M2 : site/ (FR, EN) avec téléchargement, marche à suivre SmartScreen, confidentialité, contrat de licence, composants tiers ; tools/release/prepare.py prépare setup, .sig et latest.json. Publié : https://portfolio.antonyrodrigues.fr/pdfreader/ (GitHub Pages, workflow pages.yml), Releases du dépôt Antooo-Portfolio/pdfreader"
 Fiche Microsoft Store gratuite (installation sans avertissement),distribution,could,no,no,"facultatif, en plus du setup ; MSIX signé gratuitement par le Store"
 Moteur PDF dans un processus séparé et redémarrable,sécurité,should,no,no,un PDF piégé ne fait tomber que son onglet
 Setup « hors ligne » avec WebView2 embarqué,distribution,could,no,no,postes sans Internet
 Écran Licences tierces (mentions MIT / BSD / Apache / OFL),distribution,must,no,yes,"M2 : À propos > Composants tiers (340 composants, recherche, texte complet) ; THIRD-PARTY-NOTICES.txt installé avec l'app, généré par tools/licenses/notices.py"
-Contrôle des licences des dépendances en CI,distribution,must,no,partial,M2 : cargo-deny et tools/check-npm-licenses.py passent ; workflow .github/workflows/ci.yml écrit mais pas encore exécuté (pas de dépôt GitHub)
+Contrôle des licences des dépendances en CI,distribution,must,no,yes,"M2 : cargo-deny et tools/check-npm-licenses.py passent ; exécutés à chaque envoi par .github/workflows/ci.yml (dépôt Antooo-Portfolio/pdfreader, CI verte)"
 EULA et politique de confidentialité,distribution,must,no,yes,M2 : contrat de licence FR / EN affiché par l'installeur et dans À propos ; politique de confidentialité dans À propos et sur le site
 Partager un lien de lecture / relecture,collaboration,should,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur
 Relecteur commente sans compte,collaboration,should,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur
