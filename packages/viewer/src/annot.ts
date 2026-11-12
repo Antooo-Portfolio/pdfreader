@@ -1,3 +1,4 @@
+import { locale, msg, t } from "@pdfreader/ui";
 /** Outils de commentaire, styles par outil et fonctions utilitaires (libellés, couleurs, dates,
  *  détection du commentaire sous le pointeur). */
 import type { Annot, AnnotKind, MarkupKind, Rgb } from "./engine";
@@ -27,25 +28,25 @@ export const DEFAULT_STYLES: ToolStyles = {
 };
 
 export const KIND_LABELS: Record<AnnotKind, string> = {
-  highlight: "Surlignage",
-  underline: "Souligné",
-  strikeout: "Barré",
-  squiggly: "Ondulé",
-  note: "Note",
-  ink: "Dessin",
-  freetext: "Zone de texte",
-  line: "Ligne",
-  square: "Rectangle",
-  circle: "Ellipse",
-  polygon: "Polygone",
-  polyline: "Ligne brisée",
-  stamp: "Tampon",
-  text: "Texte",
-  mark: "Coche",
-  signature: "Signature",
-  textbox: "Zone de texte",
-  callout: "Légende",
-  other: "Annotation",
+  highlight: msg("Surlignage"),
+  underline: msg("Souligné"),
+  strikeout: msg("Barré"),
+  squiggly: msg("Ondulé"),
+  note: msg("Note"),
+  ink: msg("Dessin"),
+  freetext: msg("Zone de texte"),
+  line: msg("Ligne"),
+  square: msg("Rectangle"),
+  circle: msg("Ellipse"),
+  polygon: msg("Polygone"),
+  polyline: msg("Ligne brisée"),
+  stamp: msg("Tampon"),
+  text: msg("Texte"),
+  mark: msg("Coche"),
+  signature: msg("Signature"),
+  textbox: msg("Zone de texte"),
+  callout: msg("Légende"),
+  other: msg("Annotation"),
 };
 
 export const toHex = ([r, g, b]: Rgb) => `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
@@ -72,9 +73,9 @@ export function parsePdfDate(s: string | null | undefined): Date | null {
 export function formatDate(d: Date | null): string {
   if (!d) return "";
   const today = new Date();
-  const time = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  if (d.toDateString() === today.toDateString()) return `aujourd'hui, ${time}`;
-  return `${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: d.getFullYear() === today.getFullYear() ? undefined : "numeric" })}, ${time}`;
+  const time = d.toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === today.toDateString()) return t("aujourd'hui, {time}", { time });
+  return `${d.toLocaleDateString(locale(), { day: "numeric", month: "short", year: d.getFullYear() === today.getFullYear() ? undefined : "numeric" })}, ${time}`;
 }
 
 function distToSegment(px: number, py: number, [ax, ay]: [number, number], [bx, by]: [number, number]) {
@@ -107,5 +108,5 @@ export function hitTest(annots: Annot[], x: number, y: number, tolerance: number
 
 /** Texte court qui résume un commentaire (liste, lecteurs d'écran). */
 export function annotSummary(a: Annot): string {
-  return a.contents.trim() || KIND_LABELS[a.kind];
+  return a.contents.trim() || t(KIND_LABELS[a.kind]);
 }

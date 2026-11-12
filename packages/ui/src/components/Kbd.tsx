@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { clsx } from "clsx";
 import type { ReactNode } from "react";
 

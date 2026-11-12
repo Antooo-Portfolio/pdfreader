@@ -1,4 +1,4 @@
-import { Button, EmptyState, GridList, GridListItem, IconButton, Kbd, SearchField, Spinner, ToolButton, ToolGroup } from "@pdfreader/ui";
+import { t, Button, GridList, GridListItem, IconButton, Kbd, EmptyState, ToolButton, ToolGroup, SearchField, Spinner, locale } from "@pdfreader/ui";
 import { clsx } from "clsx";
 import { FileText, FolderOpen, LayoutGrid, List, Star, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -9,10 +9,10 @@ function when(ms: number): string {
   const d = new Date(ms);
   const today = new Date();
   const yesterday = new Date(Date.now() - 86_400_000);
-  const time = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  if (d.toDateString() === today.toDateString()) return `Aujourd'hui, ${time}`;
-  if (d.toDateString() === yesterday.toDateString()) return `Hier, ${time}`;
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: d.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+  const time = d.toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === today.toDateString()) return t("Aujourd'hui, {time}", { time });
+  if (d.toDateString() === yesterday.toDateString()) return t("Hier, {time}", { time });
+  return d.toLocaleDateString(locale(), { day: "numeric", month: "short", year: d.getFullYear() === today.getFullYear() ? undefined : "numeric" });
 }
 
 type View = "list" | "grid";
@@ -60,8 +60,8 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
   };
 
   const shown = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase("fr");
-    return (recents ?? []).filter((r) => (filter === "recent" || r.starred) && (!q || r.name.toLocaleLowerCase("fr").includes(q) || r.folder.toLocaleLowerCase("fr").includes(q)));
+    const q = query.trim().toLocaleLowerCase(locale());
+    return (recents ?? []).filter((r) => (filter === "recent" || r.starred) && (!q || r.name.toLocaleLowerCase(locale()).includes(q) || r.folder.toLocaleLowerCase(locale()).includes(q)));
   }, [recents, filter, query]);
   const starredCount = recents?.filter((r) => r.starred).length ?? 0;
 
@@ -75,20 +75,20 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
       <div className="mx-auto flex max-w-(--layout-home-max) flex-col gap-5 px-8 py-8 max-sm:px-4">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <h1 id="home-title" className="text-xl">
-            Accueil
+            {t("Accueil")}
           </h1>
           <Button variant="primary" icon={<FolderOpen size={16} />} onPress={onPick}>
-            Ouvrir un fichier
+            {t("Ouvrir un fichier")}
           </Button>
         </header>
 
         <div className="flex flex-wrap items-end justify-between gap-3">
           <Tabs selectedKey={filter} onSelectionChange={(k) => setFilter(k as Filter)}>
-            <TabList aria-label="Fichiers" className="flex gap-1 border-b border-border">
+            <TabList aria-label={t("Fichiers")} className="flex gap-1 border-b border-border">
               {(
                 [
-                  ["recent", "Récents"],
-                  ["starred", `Favoris${starredCount ? ` (${starredCount})` : ""}`],
+                  ["recent", t("Récents")],
+                  ["starred", starredCount ? t("Favoris ({count})", { count: starredCount }) : t("Favoris")],
                 ] as const
               ).map(([id, label]) => (
                 <Tab
@@ -102,9 +102,9 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
             </TabList>
           </Tabs>
           <div className="flex items-center gap-2">
-            <SearchField label="Rechercher un fichier" size="sm" placeholder="Rechercher un fichier" value={query} onChange={setQuery} className="w-60" />
+            <SearchField label={t("Rechercher un fichier")} size="sm" placeholder={t("Rechercher un fichier")} value={query} onChange={setQuery} className="w-60" />
             <ToolGroup
-              aria-label="Présentation"
+              aria-label={t("Présentation")}
               selectionMode="single"
               disallowEmptySelection
               selectedKeys={new Set([view])}
@@ -113,8 +113,8 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
                 if (k === "list" || k === "grid") chooseView(k);
               }}
             >
-              <ToolButton id="list" label="Liste" icon={<List size={18} />} />
-              <ToolButton id="grid" label="Vignettes" icon={<LayoutGrid size={18} />} />
+              <ToolButton id="list" label={t("Liste")} icon={<List size={18} />} />
+              <ToolButton id="grid" label={t("Vignettes")} icon={<LayoutGrid size={18} />} />
             </ToolGroup>
           </div>
         </div>
@@ -123,14 +123,14 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
 
         {recents === null && !error && (
           <p className="flex items-center gap-2 text-sm text-muted">
-            <Spinner label="" /> Chargement…
+            <Spinner label="" /> {t("Chargement…")}
           </p>
         )}
 
         {recents?.length === 0 && (
           <div className="rounded-lg border border-dashed border-border-strong bg-bg">
-            <EmptyState icon={<FileText size={32} />} title="Aucun fichier récent" action={<Button variant="primary" icon={<FolderOpen size={16} />} onPress={onPick}>Ouvrir un PDF</Button>}>
-              Ouvrez un PDF ou faites-le glisser sur cette fenêtre. Raccourci : <Kbd>Ctrl+O</Kbd>
+            <EmptyState icon={<FileText size={32} />} title={t("Aucun fichier récent")} action={<Button variant="primary" icon={<FolderOpen size={16} />} onPress={onPick}>{t("Ouvrir un PDF")}</Button>}>
+              {t("Ouvrez un PDF ou faites-le glisser sur cette fenêtre. Raccourci :")} <Kbd>Ctrl+O</Kbd>
             </EmptyState>
           </div>
         )}
@@ -138,19 +138,19 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
         {recents && recents.length > 0 && shown.length === 0 && (
           <div className="rounded-lg border border-dashed border-border-strong bg-bg">
             {query.trim() ? (
-              <EmptyState icon={<FileText size={32} />} title="Aucun fichier ne correspond" action={<Button onPress={() => setQuery("")}>Effacer la recherche</Button>}>
-                Aucun nom ni dossier ne contient « {query.trim()} ».
+              <EmptyState icon={<FileText size={32} />} title={t("Aucun fichier ne correspond")} action={<Button onPress={() => setQuery("")}>{t("Effacer la recherche")}</Button>}>
+                {t("Aucun nom ni dossier ne contient « {query} ».", { query: query.trim() })}
               </EmptyState>
             ) : (
-              <EmptyState icon={<Star size={32} />} title="Aucun favori">
-                Cliquez sur l'étoile d'un fichier pour le retrouver ici.
+              <EmptyState icon={<Star size={32} />} title={t("Aucun favori")}>
+                {t("Cliquez sur l'étoile d'un fichier pour le retrouver ici.")}
               </EmptyState>
             )}
           </div>
         )}
 
         {shown.length > 0 && view === "list" && (
-          <GridList aria-label={filter === "recent" ? "Fichiers récents" : "Favoris"} items={shown} onAction={open} className="flex flex-col gap-px rounded-lg border border-border bg-bg p-1">
+          <GridList aria-label={filter === "recent" ? t("Fichiers récents") : t("Favoris")} items={shown} onAction={open} className="flex flex-col gap-px rounded-lg border border-border bg-bg p-1">
             {(f) => (
               <GridListItem id={f.id} textValue={f.name} className="flex h-16 items-center gap-3 px-3">
                 <div className="grid h-12 w-9 shrink-0 place-items-center overflow-hidden rounded-[2px] bg-page shadow-raised">
@@ -159,12 +159,12 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
                 <div className="min-w-0 flex-1">
                   <div className={clsx("truncate text-base", !f.exists && "text-muted")}>{f.name}</div>
                   <div className="truncate text-xs text-muted">
-                    {f.exists ? f.folder : "Fichier introuvable (déplacé ou supprimé)"} · {when(f.lastOpenedAt)}
-                    {f.pageCount ? ` · ${f.pageCount} p.` : ""}
+                    {f.exists ? f.folder : t("Fichier introuvable (déplacé ou supprimé)")} · {when(f.lastOpenedAt)}
+                    {f.pageCount ? ` · ${t("{count} p.", { count: f.pageCount })}` : ""}
                   </div>
                 </div>
                 <StarButton f={f} onToggle={toggleStar} />
-                <IconButton label={`Retirer « ${f.name} » des récents`} size="sm" icon={<X size={14} />} onPress={() => engine.removeRecent(f.id).then(load)} />
+                <IconButton label={t("Retirer « {name} » des récents", { name: f.name })} size="sm" icon={<X size={14} />} onPress={() => engine.removeRecent(f.id).then(load)} />
               </GridListItem>
             )}
           </GridList>
@@ -172,7 +172,7 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
 
         {shown.length > 0 && view === "grid" && (
           <GridList
-            aria-label={filter === "recent" ? "Fichiers récents" : "Favoris"}
+            aria-label={filter === "recent" ? t("Fichiers récents") : t("Favoris")}
             items={shown}
             onAction={open}
             layout="grid"
@@ -190,7 +190,7 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
                   <div className={clsx("truncate text-sm", !f.exists && "text-muted")} title={f.name}>
                     {f.name}
                   </div>
-                  <div className="truncate text-xs text-muted">{f.exists ? when(f.lastOpenedAt) : "Introuvable"}</div>
+                  <div className="truncate text-xs text-muted">{f.exists ? when(f.lastOpenedAt) : t("Introuvable")}</div>
                 </div>
               </GridListItem>
             )}
@@ -204,7 +204,7 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
 function StarButton({ f, onToggle }: { f: RecentFile; onToggle: (f: RecentFile) => void }) {
   return (
     <IconButton
-      label={f.starred ? `Retirer « ${f.name} » des favoris` : `Ajouter « ${f.name} » aux favoris`}
+      label={f.starred ? t("Retirer « {name} » des favoris", { name: f.name }) : t("Ajouter « {name} » aux favoris", { name: f.name })}
       size="sm"
       icon={<Star size={15} className={f.starred ? "fill-current text-warning" : undefined} />}
       onPress={() => onToggle(f)}

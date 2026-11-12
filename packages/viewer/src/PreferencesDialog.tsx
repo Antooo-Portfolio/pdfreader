@@ -1,6 +1,6 @@
 /** S14 : préférences, par catégorie. Chaque réglage s'applique tout de suite et est mémorisé dans
  *  la base locale. */
-import { Button, Dialog, Select, Switch, TextField } from "@pdfreader/ui";
+import { t, Button, Dialog, Select, Switch, TextField, msg } from "@pdfreader/ui";
 import { ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { Tab, TabList, TabPanel, Tabs } from "react-aria-components";
@@ -10,11 +10,11 @@ import { type DefaultZoom, type Prefs, RECOVERY_MINUTES, UI_SCALES } from "./pre
 type Category = "general" | "display" | "comments" | "documents" | "accessibility";
 
 const CATEGORIES: [Category, string][] = [
-  ["general", "Général"],
-  ["display", "Affichage des pages"],
-  ["comments", "Commentaires"],
-  ["documents", "Documents"],
-  ["accessibility", "Accessibilité"],
+  ["general", msg("Général")],
+  ["display", msg("Affichage des pages")],
+  ["comments", msg("Commentaires")],
+  ["documents", msg("Documents")],
+  ["accessibility", msg("Accessibilité")],
 ];
 
 export function PreferencesDialog({
@@ -45,7 +45,7 @@ export function PreferencesDialog({
 
   return (
     <Dialog
-      title="Préférences"
+      title={t("Préférences")}
       size="lg"
       isOpen
       onOpenChange={(o) => {
@@ -58,7 +58,7 @@ export function PreferencesDialog({
         <>
           {confirmReset ? (
             <span className="mr-auto flex items-center gap-2 text-sm">
-              Tout remettre comme à l'installation ?
+              {t("Tout remettre comme à l'installation ?")}
               <Button
                 size="sm"
                 variant="danger"
@@ -68,15 +68,15 @@ export function PreferencesDialog({
                   close();
                 }}
               >
-                Rétablir
+                {t("Rétablir")}
               </Button>
               <Button size="sm" onPress={() => setConfirmReset(false)}>
-                Non
+                {t("Non")}
               </Button>
             </span>
           ) : (
             <Button variant="ghost" onPress={() => setConfirmReset(true)} className="mr-auto">
-              Rétablir les réglages par défaut
+              {t("Rétablir les réglages par défaut")}
             </Button>
           )}
           <Button
@@ -86,85 +86,92 @@ export function PreferencesDialog({
               close();
             }}
           >
-            Fermer
+            {t("Fermer")}
           </Button>
         </>
       )}
     >
       <Tabs orientation="vertical" selectedKey={cat} onSelectionChange={(k) => setCat(k as Category)} className="flex min-h-80 gap-6 max-sm:flex-col">
-        <TabList aria-label="Catégories" className="flex w-48 shrink-0 flex-col gap-0.5 max-sm:w-full max-sm:flex-row max-sm:overflow-x-auto">
+        <TabList aria-label={t("Catégories")} className="flex w-48 shrink-0 flex-col gap-0.5 max-sm:w-full max-sm:flex-row max-sm:overflow-x-auto">
           {CATEGORIES.map(([id, label]) => (
             <Tab
               key={id}
               id={id}
               className="focus-ring-inset cursor-default rounded-md px-3 py-2 text-base text-muted data-hovered:bg-surface-hover data-hovered:text-fg data-selected:bg-surface-selected data-selected:font-medium data-selected:text-fg"
             >
-              {label}
+              {t(label)}
             </Tab>
           ))}
         </TabList>
 
         <TabPanel id="general" className="flex flex-1 flex-col gap-5 outline-none">
           <Select
-            label="Thème"
+            label={t("Thème")}
             options={[
-              { id: "system", label: "Comme Windows" },
-              { id: "light", label: "Clair" },
-              { id: "dark", label: "Sombre" },
-              { id: "contrast", label: "Contraste élevé" },
+              { id: "system", label: t("Comme Windows") },
+              { id: "light", label: t("Clair") },
+              { id: "dark", label: t("Sombre") },
+              { id: "contrast", label: t("Contraste élevé") },
             ]}
             selectedKey={prefs.theme}
             onSelectionChange={(k) => onChange("theme", k as Theme)}
             className="max-w-72"
           />
           <section className="flex flex-col gap-2">
-            <h3 className="text-base font-semibold">Lecteur PDF par défaut</h3>
+            <h3 className="text-base font-semibold">{t("Lecteur PDF par défaut")}</h3>
             <p className="text-sm text-muted">
-              Windows ne laisse aucune application se choisir elle-même. Dans les Paramètres, cherchez « .pdf » et choisissez PDFReader.
+              {t("Windows ne laisse aucune application se choisir elle-même. Dans les Paramètres, cherchez « .pdf » et choisissez PDFReader.")}
             </p>
             <Button size="sm" icon={<ExternalLink size={16} />} onPress={() => void engine.openSettings("defaultapps")} className="self-start">
-              Ouvrir les applications par défaut
+              {t("Ouvrir les applications par défaut")}
             </Button>
           </section>
-          <section className="flex flex-col gap-1">
-            <h3 className="text-base font-semibold">Langue</h3>
-            <p className="text-sm text-muted">Français. L'anglais arrive dans une prochaine version.</p>
-          </section>
+          <Select
+            label={t("Langue")}
+            options={[
+              { id: "system", label: t("Comme Windows") },
+              { id: "fr", label: "Français" },
+              { id: "en", label: "English" },
+            ]}
+            selectedKey={prefs.language}
+            onSelectionChange={(k) => onChange("language", k as Prefs["language"])}
+            className="max-w-72"
+          />
         </TabPanel>
 
         <TabPanel id="display" className="flex flex-1 flex-col gap-5 outline-none">
           <Select
-            label="Zoom à l'ouverture d'un document"
+            label={t("Zoom à l'ouverture d'un document")}
             options={[
-              { id: "fit-width", label: "Pleine largeur" },
-              { id: "fit-page", label: "Page entière" },
-              { id: "actual", label: "Taille réelle (100 %)" },
+              { id: "fit-width", label: t("Pleine largeur") },
+              { id: "fit-page", label: t("Page entière") },
+              { id: "actual", label: t("Taille réelle (100 %)") },
             ]}
             selectedKey={prefs.defaultZoom}
             onSelectionChange={(k) => onChange("defaultZoom", k as DefaultZoom)}
             className="max-w-72"
           />
           <Select
-            label="Mode d'affichage à l'ouverture"
+            label={t("Mode d'affichage à l'ouverture")}
             options={[
-              { id: "continuous", label: "Défilement continu" },
-              { id: "single", label: "Une page à la fois" },
-              { id: "double", label: "Deux pages à la fois" },
-              { id: "continuous-double", label: "Deux pages en continu" },
+              { id: "continuous", label: t("Défilement continu") },
+              { id: "single", label: t("Une page à la fois") },
+              { id: "double", label: t("Deux pages à la fois") },
+              { id: "continuous-double", label: t("Deux pages en continu") },
             ]}
             selectedKey={prefs.defaultLayout}
             onSelectionChange={(k) => onChange("defaultLayout", k as Layout)}
             className="max-w-72"
           />
           <Switch isSelected={prefs.restoreView} onChange={(v) => onChange("restoreView", v)}>
-            Rouvrir chaque document là où je l'ai laissé (page, zoom, mode)
+            {t("Rouvrir chaque document là où je l'ai laissé (page, zoom, mode)")}
           </Switch>
         </TabPanel>
 
         <TabPanel id="comments" className="flex flex-1 flex-col gap-5 outline-none">
           <TextField
-            label="Nom d'auteur"
-            description="Il signe vos commentaires et apparaît dans les autres lecteurs PDF."
+            label={t("Nom d'auteur")}
+            description={t("Il signe vos commentaires et apparaît dans les autres lecteurs PDF.")}
             value={name}
             onChange={setName}
             onBlur={commitName}
@@ -175,35 +182,36 @@ export function PreferencesDialog({
 
         <TabPanel id="documents" className="flex flex-1 flex-col gap-5 outline-none">
           <Switch isSelected={prefs.recovery} onChange={(v) => onChange("recovery", v)}>
-            Garder une copie de récupération des modifications non enregistrées
+            {t("Garder une copie de récupération des modifications non enregistrées")}
           </Switch>
           <Select
-            label="Fréquence des copies"
+            label={t("Fréquence des copies")}
             isDisabled={!prefs.recovery}
-            options={RECOVERY_MINUTES.map((m) => ({ id: String(m), label: m === 1 ? "Toutes les minutes" : `Toutes les ${m} minutes` }))}
+            options={RECOVERY_MINUTES.map((m) => ({ id: String(m), label: m === 1 ? t("Toutes les minutes") : t("Toutes les {count} minutes", { count: m }) }))}
             selectedKey={String(prefs.recoveryMinutes)}
             onSelectionChange={(k) => onChange("recoveryMinutes", Number(k))}
             className="max-w-72"
           />
           <p className="text-sm text-muted">
-            Si PDFReader se ferme sans prévenir (panne, coupure de courant), il propose au démarrage suivant de récupérer ces documents. Les copies restent sur cet ordinateur et sont
-            effacées dès que vous enregistrez ou fermez le document.
+            {t(
+              "Si PDFReader se ferme sans prévenir (panne, coupure de courant), il propose au démarrage suivant de récupérer ces documents. Les copies restent sur cet ordinateur et sont effacées dès que vous enregistrez ou fermez le document.",
+            )}
           </p>
         </TabPanel>
 
         <TabPanel id="accessibility" className="flex flex-1 flex-col gap-5 outline-none">
           <Select
-            label="Taille de l'interface"
+            label={t("Taille de l'interface")}
             options={UI_SCALES.map((v) => ({ id: String(v), label: `${String(v).replace(".", ",")} %` }))}
             selectedKey={String(prefs.uiScale)}
             onSelectionChange={(k) => onChange("uiScale", Number(k))}
             className="max-w-72"
           />
           <Switch isSelected={prefs.singleKeys} onChange={(v) => onChange("singleKeys", v)}>
-            Raccourcis à une touche (V, U, N, D, E, T, S pour changer d'outil)
+            {t("Raccourcis à une touche (V, U, N, D, E, T, S pour changer d'outil)")}
           </Switch>
           <p className="text-sm text-muted">
-            Désactivez-les si vous utilisez la commande vocale ou un logiciel qui envoie des touches seules : les raccourcis avec Ctrl restent actifs.
+            {t("Désactivez-les si vous utilisez la commande vocale ou un logiciel qui envoie des touches seules : les raccourcis avec Ctrl restent actifs.")}
           </p>
         </TabPanel>
       </Tabs>

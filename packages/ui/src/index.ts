@@ -7,3 +7,4 @@ export * from "./components/Overlays";
 export * from "./components/Progress";
 export * from "./components/Reader";
 export * from "./components/Tooltip";
+export * from "./i18n";

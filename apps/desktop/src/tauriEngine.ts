@@ -1,3 +1,4 @@
+import { t } from "@pdfreader/ui";
 import type { AnnotResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Bookmark, DocInfo, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -45,10 +46,10 @@ export const tauriEngine: EngineClient = {
   tileUrl: (doc, gen, ver, page, scale, x, y) => `${BASE}/tile/${doc}/${gen}/${ver}/${page}/${scale.toFixed(4)}/${x}/${y}`,
   thumbUrl: (id, bust) => `${BASE}/thumb/${id}?v=${bust}`,
   async pickFiles() {
-    const r = await open({ multiple: true, directory: false, filters: [{ name: "Documents PDF", extensions: ["pdf"] }] });
+    const r = await open({ multiple: true, directory: false, filters: [{ name: t("Documents PDF"), extensions: ["pdf"] }] });
     return r === null ? [] : Array.isArray(r) ? r : [r];
   },
-  pickSavePath: (defaultPath) => save({ defaultPath, filters: [{ name: "Document PDF", extensions: ["pdf"] }] }),
+  pickSavePath: (defaultPath) => save({ defaultPath, filters: [{ name: t("Document PDF"), extensions: ["pdf"] }] }),
   async onExternalFiles(cb) {
     const off1 = await listen<string[]>("open-files", (e) => cb(e.payload));
     const off2 = await getCurrentWebview().onDragDropEvent((e) => {

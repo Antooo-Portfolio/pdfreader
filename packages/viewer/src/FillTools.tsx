@@ -1,6 +1,6 @@
 /** S11 (formulaires) et S12 (signature) : champs AcroForm superposés à la page, zone de saisie du
  *  texte libre, boîte de création de la signature. */
-import { Button, Checkbox, Dialog } from "@pdfreader/ui";
+import { t, Button, Checkbox, Dialog } from "@pdfreader/ui";
 import { clsx } from "clsx";
 import { PenLine, Undo2 } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
@@ -130,7 +130,7 @@ function FieldControl({ f, k, disabled, highlight, onSet, onSign }: { f: Field; 
         type="button"
         disabled={disabled}
         aria-label={`Signer ici : ${label}`}
-        title="Signer ici"
+        title={t("Signer ici")}
         onClick={(e) => {
           e.stopPropagation();
           onSign(f);
@@ -138,7 +138,7 @@ function FieldControl({ f, k, disabled, highlight, onSet, onSign }: { f: Field; 
         className={clsx(common, "flex items-center justify-center gap-1 rounded-[2px] border border-dashed border-accent text-accent-text", highlight ? "bg-accent/10" : "bg-transparent")}
         style={{ ...box, fontSize: Math.min(12, h * k * 0.4) }}
       >
-        <PenLine size={Math.min(16, h * k * 0.5)} aria-hidden /> Signer ici
+        <PenLine size={Math.min(16, h * k * 0.5)} aria-hidden /> {t("Signer ici")}
       </button>
     );
   }
@@ -195,7 +195,7 @@ export function TextDraft({
   return (
     <textarea
       ref={ref}
-      aria-label="Texte à ajouter sur la page"
+      aria-label={t("Texte à ajouter sur la page")}
       value={text}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => finish(true)}
@@ -332,14 +332,14 @@ export function SignatureDialog({
     if (tab !== "image" || !file) return setPreview(null);
     imageToPng(file, removeWhite)
       .then((p) => alive && setPreview(p))
-      .catch(() => alive && setError("Cette image n'a pas pu être lue."));
+      .catch(() => alive && setError(t("Cette image n'a pas pu être lue.")));
     return () => {
       alive = false;
     };
   }, [tab, file, removeWhite]);
 
   const ready = tab === "typed" ? name.trim().length > 0 : tab === "drawn" ? !!drawn : !!preview;
-  const title = kind === "initials" ? "Créer vos initiales" : "Créer votre signature";
+  const title = kind === "initials" ? t("Créer vos initiales") : t("Créer votre signature");
 
   return (
     <Dialog
@@ -349,7 +349,7 @@ export function SignatureDialog({
       onOpenChange={(o) => !o && onClose()}
       footer={(close) => (
         <>
-          <Button onPress={close}>Annuler</Button>
+          <Button onPress={close}>{t("Annuler")}</Button>
           <Button
             variant="primary"
             isDisabled={!ready || busy}
@@ -363,21 +363,21 @@ export function SignatureDialog({
                 await onSave(tab, data, tab === "typed" ? "Caveat" : null);
                 close();
               } catch (e) {
-                setError(`L'enregistrement a échoué (${String(e)}).`);
+                setError(t("L'enregistrement a échoué ({detail}).", { detail: String(e) }));
               } finally {
                 setBusy(false);
               }
             }}
           >
-            Enregistrer
+            {t("Enregistrer")}
           </Button>
         </>
       )}
     >
       <div className="flex flex-col gap-3">
-        <p className="text-sm text-muted">Elle reste sur cet ordinateur et sera proposée chaque fois que vous signerez.</p>
+        <p className="text-sm text-muted">{t("Elle reste sur cet ordinateur et sera proposée chaque fois que vous signerez.")}</p>
         <Tabs selectedKey={tab} onSelectionChange={(k) => setTab(k as typeof tab)} className="flex flex-col gap-3">
-          <TabList aria-label="Méthode" className="flex gap-1 border-b border-border">
+          <TabList aria-label={t("Méthode")} className="flex gap-1 border-b border-border">
             {(
               [
                 ["typed", "Taper"],
@@ -396,7 +396,7 @@ export function SignatureDialog({
           </TabList>
           <TabPanel id="typed" className="flex flex-col gap-3 outline-none">
             <label className="flex flex-col gap-1 text-sm font-medium">
-              {kind === "initials" ? "Vos initiales" : "Votre nom"}
+              {kind === "initials" ? t("Vos initiales") : t("Votre nom")}
               <input
                 value={name}
                 autoFocus
@@ -414,14 +414,14 @@ export function SignatureDialog({
           </TabPanel>
           <TabPanel id="image" className="flex flex-col gap-3 outline-none">
             <label className="flex flex-col gap-1 text-sm font-medium">
-              Image de votre signature (PNG ou JPEG)
+              {t("Image de votre signature (PNG ou JPEG)")}
               <input type="file" accept="image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm font-normal" />
             </label>
             <Checkbox isSelected={removeWhite} onChange={setRemoveWhite}>
-              Rendre le fond blanc transparent
+              {t("Rendre le fond blanc transparent")}
             </Checkbox>
             <div className="grid h-32 place-items-center rounded-md border border-border bg-page">
-              {preview ? <img src={preview} alt="Aperçu de la signature" className="max-h-28 max-w-full" /> : <span className="text-sm text-muted">Aucune image choisie</span>}
+              {preview ? <img src={preview} alt={t("Aperçu de la signature")} className="max-h-28 max-w-full" /> : <span className="text-sm text-muted">{t("Aucune image choisie")}</span>}
             </div>
           </TabPanel>
         </Tabs>
@@ -459,7 +459,7 @@ function DrawPad({ onChange }: { onChange: (png: string | null) => void }) {
       <div className="relative h-32 rounded-md border border-border bg-page">
         <canvas
           ref={ref}
-          aria-label="Zone de dessin de la signature. Au clavier, utilisez l'onglet Taper."
+          aria-label={t("Zone de dessin de la signature. Au clavier, utilisez l'onglet Taper.")}
           className="absolute inset-0 size-full touch-none"
           onPointerDown={(e) => {
             drawing.current = true;
@@ -492,7 +492,7 @@ function DrawPad({ onChange }: { onChange: (png: string | null) => void }) {
           }}
         />
         <div aria-hidden className="pointer-events-none absolute inset-x-6 bottom-8 border-b border-border-strong" />
-        {empty && <span className="pointer-events-none absolute inset-x-0 top-3 text-center text-sm text-muted">Dessinez votre signature</span>}
+        {empty && <span className="pointer-events-none absolute inset-x-0 top-3 text-center text-sm text-muted">{t("Dessinez votre signature")}</span>}
       </div>
       <div className="flex justify-end">
         <Button
@@ -507,7 +507,7 @@ function DrawPad({ onChange }: { onChange: (png: string | null) => void }) {
             onChange(null);
           }}
         >
-          Effacer
+          {t("Effacer")}
         </Button>
       </div>
     </div>

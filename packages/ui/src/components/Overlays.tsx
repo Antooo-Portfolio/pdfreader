@@ -1,3 +1,4 @@
+import { t, shortcutLabel } from "../i18n";
 import { clsx } from "clsx";
 import { Check, ChevronRight, X } from "lucide-react";
 import type { ReactNode } from "react";
@@ -73,7 +74,7 @@ export function MenuItem({ children, icon, shortcut, destructive, hasSubmenu, ..
             {children}
           </Text>
           {shortcut && (
-            <Keyboard className="font-mono text-xs text-muted">{shortcut.replaceAll("+", " ")}</Keyboard>
+            <Keyboard className="font-mono text-xs text-muted">{shortcutLabel(shortcut).replaceAll("+", " ")}</Keyboard>
           )}
           {hasSubmenu && <ChevronRight size={16} aria-hidden className="text-muted" />}
         </>
@@ -140,7 +141,7 @@ export function Dialog({ title, children, footer, size = "md", role = "dialog", 
                 {isDismissable && (
                   <RACButton
                     onPress={close}
-                    aria-label="Fermer"
+                    aria-label={t("Fermer")}
                     className="focus-ring grid size-(--control-sm) place-items-center rounded-md text-muted data-hovered:bg-surface-hover"
                   >
                     <X size={18} aria-hidden />

@@ -1,3 +1,4 @@
+import { t } from "@pdfreader/ui";
 import { clsx } from "clsx";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Tool, ToolStyle } from "./annot";
@@ -152,7 +153,7 @@ export const PageView = memo(function PageView(p: Props) {
       data-ph={ph}
       data-rot={rotation}
       role="region"
-      aria-label={`Page ${index + 1}`}
+      aria-label={t("Page {page}", { page: index + 1 })}
     >
       {!active && (
         <span aria-hidden className="absolute inset-0 grid place-items-center text-sm text-muted">
@@ -186,7 +187,7 @@ export const PageView = memo(function PageView(p: Props) {
           />
         )}
       </div>
-      {active && textError && <span className="sr-only">Le texte de cette page n'a pas pu être lu.</span>}
+      {active && textError && <span className="sr-only">{t("Le texte de cette page n'a pas pu être lu.")}</span>}
       {active && p.annots && (
         <AnnotLayer
           size={size}
@@ -257,9 +258,9 @@ function Hits({ hits, current, k }: { hits: Box[][]; current: number; k: number 
 }
 
 function linkLabel(a: LinkAction): string {
-  if (a.kind === "goto") return `Lien vers la page ${a.page + 1}`;
-  if (a.kind === "uri") return a.uri.toLowerCase().startsWith("mailto:") ? `Lien e-mail : ${a.uri.slice(7)}` : `Lien vers ${a.uri}`;
-  return "Lien";
+  if (a.kind === "goto") return t("Lien vers la page {page}", { page: a.page + 1 });
+  if (a.kind === "uri") return a.uri.toLowerCase().startsWith("mailto:") ? t("Lien e-mail : {address}", { address: a.uri.slice(7) }) : t("Lien vers {address}", { address: a.uri });
+  return t("Lien");
 }
 
 function Links({ links, k, onLink }: { links: PageLink[]; k: number; onLink: (a: LinkAction) => void }) {
@@ -302,7 +303,7 @@ function TextLayer({ lines, k }: { lines: TextWord[][]; k: number }) {
     return out;
   }, [lines, k]);
   return (
-    <div className="pdf-text-layer absolute inset-0 select-text" lang="fr">
+    <div className="pdf-text-layer absolute inset-0 select-text">
       {words.map((w) => (
         <span key={w.key}>
           <span

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { clsx } from "clsx";
 import { Check, ChevronDown, Minus, Plus, Search, X } from "lucide-react";
 import type { ReactNode } from "react";
@@ -68,7 +69,7 @@ export function SearchField({ label, size = "md", className, placeholder, ...pro
         className={clsx(inputBox, h(size), "w-full pl-8 pr-8 [&::-webkit-search-cancel-button]:hidden")}
       />
       <RACButton
-        aria-label="Effacer"
+        aria-label={t("Effacer")}
         className="focus-ring absolute right-1 grid size-6 place-items-center rounded-sm text-muted data-hovered:bg-surface-hover group-data-empty:hidden"
       >
         <X size={14} aria-hidden />

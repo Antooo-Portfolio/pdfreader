@@ -1,3 +1,4 @@
+import { ariaShortcut } from "../i18n";
 import { clsx } from "clsx";
 import type { ReactNode } from "react";
 import {
@@ -80,7 +81,7 @@ export function IconButton({ label, shortcut, icon, variant = "ghost", size = "m
     <RACButton
       {...props}
       aria-label={label}
-      aria-keyshortcuts={shortcut}
+      aria-keyshortcuts={shortcut ? ariaShortcut(shortcut) : undefined}
       className={clsx(base, squareClass[size], variantClass[variant], "p-0", className)}
     >
       {icon}
@@ -110,7 +111,7 @@ export function ToolButton({ label, shortcut, icon, size = "md", className, ...p
       <RACToggleButton
         {...props}
         aria-label={label}
-        aria-keyshortcuts={shortcut}
+        aria-keyshortcuts={shortcut ? ariaShortcut(shortcut) : undefined}
         className={clsx(
           base,
           squareClass[size],

@@ -1,24 +1,4 @@
-import {
-  Banner,
-  Button,
-  Checkbox,
-  Dialog,
-  FindBar,
-  isModalOpen,
-  IconButton,
-  Menu,
-  MenuItem,
-  MenuSection,
-  MenuSeparator,
-  MenuTrigger,
-  PageNavigator,
-  ToolButton,
-  Toolbar,
-  ToolbarSeparator,
-  ToolGroup,
-  useToast,
-  ZoomControl,
-} from "@pdfreader/ui";
+import { t, PageNavigator, Banner, Button, Checkbox, Dialog, FindBar, IconButton, isModalOpen, Menu, MenuItem, MenuSection, MenuSeparator, MenuTrigger, Toolbar, ToolbarSeparator, ToolButton, ToolGroup, useToast, ZoomControl, msg } from "@pdfreader/ui";
 import { clsx } from "clsx";
 import {
   Check,
@@ -125,23 +105,23 @@ interface SearchState {
 const EMPTY_SEARCH: SearchState = { perPage: new Map(), flat: [], current: -1, searching: false, pagesWithText: -1 };
 const SEARCH_BATCH = 10;
 const LAYOUT_LABELS: Record<Layout, string> = {
-  single: "Une page à la fois",
-  continuous: "Défilement continu",
-  double: "Deux pages à la fois",
-  "continuous-double": "Deux pages en continu",
+  single: msg("Une page à la fois"),
+  continuous: msg("Défilement continu"),
+  double: msg("Deux pages à la fois"),
+  "continuous-double": msg("Deux pages en continu"),
 };
 
 const TOOL_LABELS: Record<Exclude<Tool, "select" | "eraser">, string> = {
-  highlight: "Surligner",
-  underline: "Souligner",
-  strikeout: "Barrer",
-  note: "Note",
-  ink: "Dessin",
-  text: "Texte",
-  textbox: "Zone de texte",
-  callout: "Légende",
-  check: "Coche",
-  sign: "Signer",
+  highlight: msg("Surligner"),
+  underline: msg("Souligner"),
+  strikeout: msg("Barrer"),
+  note: msg("Note"),
+  ink: msg("Dessin"),
+  text: msg("Texte"),
+  textbox: msg("Zone de texte"),
+  callout: msg("Légende"),
+  check: msg("Coche"),
+  sign: msg("Signer"),
 };
 const STAMP_KINDS = new Set(["text", "mark", "signature", "stamp", "textbox", "callout"]);
 /** Largeur d'une nouvelle zone de texte, en points. */
@@ -390,8 +370,8 @@ export function DocumentView({
   const latestView = useRef({ fp: info.fingerprint, vs: viewState });
   latestView.current = { fp: info.fingerprint, vs: viewState };
   useEffect(() => {
-    const t = setTimeout(() => void engine.setViewState(info.fingerprint, viewState).catch(() => undefined), 600);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => void engine.setViewState(info.fingerprint, viewState).catch(() => undefined), 600);
+    return () => clearTimeout(timer);
   }, [engine, info.fingerprint, viewState]);
   useEffect(
     () => () => {
@@ -446,7 +426,7 @@ export function DocumentView({
     const q = query.trim();
     if (!findOpen || !q) return;
     let cancelled = false;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       const startPage = pageRef.current - 1;
       let perPage = new Map<number, Box[][]>();
       let flat: [number, number][] = [];
@@ -485,13 +465,13 @@ export function DocumentView({
       } catch (e) {
         if (!cancelled) {
           setSearch((s) => ({ ...s, searching: false }));
-          toast({ tone: "error", message: `La recherche a échoué : ${String(e)}` });
+          toast({ tone: "error", message: t("La recherche a échoué : {detail}", { detail: String(e) }) });
         }
       }
     }, 250);
     return () => {
       cancelled = true;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
     // showHit dépend du zoom : relancer la recherche à chaque zoom serait inutile.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -624,7 +604,7 @@ export function DocumentView({
       const st = stylesRef.current[kind];
       let n = 0;
       for (const [p, rects] of byPage) {
-        const r = await attempt(() => engine.addMarkup(info.id, p, kind, rects, st.color, st.opacity), "Le commentaire n'a pas pu être ajouté");
+        const r = await attempt(() => engine.addMarkup(info.id, p, kind, rects, st.color, st.opacity), t("Le commentaire n'a pas pu être ajouté"));
         if (r) {
           apply(p, r);
           n++;
@@ -638,7 +618,7 @@ export function DocumentView({
 
   const createNote = useCallback(
     async (p: number, x: number, y: number, text = ""): Promise<string | null> => {
-      const r = await attempt(() => engine.addNote(info.id, p, x, y, text, stylesRef.current.note.color), "La note n'a pas pu être ajoutée");
+      const r = await attempt(() => engine.addNote(info.id, p, x, y, text, stylesRef.current.note.color), t("La note n'a pas pu être ajoutée"));
       if (!r?.id) return null;
       apply(p, r);
       setSelected({ page: p, id: r.id });
@@ -652,7 +632,7 @@ export function DocumentView({
   const createInk = useCallback(
     async (p: number, strokes: [number, number][][]): Promise<string | null> => {
       const st = stylesRef.current.ink;
-      const r = await attempt(() => engine.addInk(info.id, p, strokes, st.color, st.opacity, st.width), "Le dessin n'a pas pu être ajouté");
+      const r = await attempt(() => engine.addInk(info.id, p, strokes, st.color, st.opacity, st.width), t("Le dessin n'a pas pu être ajouté"));
       if (!r) return null;
       apply(p, r);
       return r.id;
@@ -662,7 +642,7 @@ export function DocumentView({
 
   const updateAnnot = useCallback(
     async (p: number, id: string, patch: AnnotPatch): Promise<boolean> => {
-      const r = await attempt(() => engine.updateAnnot(info.id, p, id, patch), "La modification a échoué");
+      const r = await attempt(() => engine.updateAnnot(info.id, p, id, patch), t("La modification a échoué"));
       if (r) apply(p, r);
       return !!r;
     },
@@ -671,7 +651,7 @@ export function DocumentView({
 
   const deleteAnnot = useCallback(
     async (p: number, id: string): Promise<boolean> => {
-      const r = await attempt(() => engine.deleteAnnot(info.id, p, id), "La suppression a échoué");
+      const r = await attempt(() => engine.deleteAnnot(info.id, p, id), t("La suppression a échoué"));
       if (!r) return false;
       apply(p, r);
       setSelected((s) => (s && s.page === p && s.id === id ? null : s));
@@ -727,7 +707,7 @@ export function DocumentView({
       const color = a.color ?? st.color;
       const r = await attempt(
         () => (box ? engine.addTextBox(info.id, a.page, box, text, size, color, a.filled, a.anchor) : engine.addText(info.id, a.page, a.rect[0] + 1, a.rect[1] + 1, text, size, color)),
-        "Le texte n'a pas pu être modifié",
+        t("Le texte n'a pas pu être modifié"),
       );
       if (r) {
         apply(a.page, r);
@@ -803,7 +783,7 @@ export function DocumentView({
 
   const setField = useCallback(
     async (p: number, index: number, input: FieldInput): Promise<Field[] | null> => {
-      const r = await attempt(() => engine.setField(info.id, p, index, input), "La saisie n'a pas pu être enregistrée");
+      const r = await attempt(() => engine.setField(info.id, p, index, input), t("La saisie n'a pas pu être enregistrée"));
       if (!r) return null;
       fieldsRef.current = new Map(fieldsRef.current).set(p, r);
       setFields(fieldsRef.current);
@@ -816,7 +796,7 @@ export function DocumentView({
   const addText = useCallback(
     async (p: number, x: number, y: number, text: string): Promise<string | null> => {
       const st = stylesRef.current.text;
-      const r = await attempt(() => engine.addText(info.id, p, x, y, text, st.width, st.color), "Le texte n'a pas pu être ajouté");
+      const r = await attempt(() => engine.addText(info.id, p, x, y, text, st.width, st.color), t("Le texte n'a pas pu être ajouté"));
       if (!r) return null;
       apply(p, r);
       return r.id;
@@ -829,7 +809,7 @@ export function DocumentView({
   const addTextBox = useCallback(
     async (p: number, rect: Box, text: string, anchor: [number, number] | null): Promise<string | null> => {
       const st = stylesRef.current.text;
-      const r = await attempt(() => engine.addTextBox(info.id, p, rect, text, st.width, st.color, boxFilledRef.current, anchor), "La zone de texte n'a pas pu être ajoutée");
+      const r = await attempt(() => engine.addTextBox(info.id, p, rect, text, st.width, st.color, boxFilledRef.current, anchor), t("La zone de texte n'a pas pu être ajoutée"));
       if (!r) return null;
       apply(p, r);
       return r.id;
@@ -843,7 +823,7 @@ export function DocumentView({
     async (p: number, x: number, y: number): Promise<string | null> => {
       const st = stylesRef.current.check;
       // La coche est centrée sur le clic.
-      const r = await attempt(() => engine.addMark(info.id, p, Math.max(0, x - st.width / 2), Math.max(0, y - st.width / 2), st.width, markCrossRef.current, st.color), "La coche n'a pas pu être ajoutée");
+      const r = await attempt(() => engine.addMark(info.id, p, Math.max(0, x - st.width / 2), Math.max(0, y - st.width / 2), st.width, markCrossRef.current, st.color), t("La coche n'a pas pu être ajoutée"));
       if (!r) return null;
       apply(p, r);
       return r.id;
@@ -902,7 +882,7 @@ export function DocumentView({
       const rect: Box = fit
         ? [fit.rect[0] + (fit.rect[2] - w) / 2, fit.rect[1] + (fit.rect[3] - h) / 2, w, h]
         : [Math.min(Math.max(0, x - w / 2), pw - w), Math.min(Math.max(0, y - h / 2), ph - h), w, h];
-      const r = await attempt(() => engine.addSignature(info.id, p, rect, kind), "La signature n'a pas pu être posée");
+      const r = await attempt(() => engine.addSignature(info.id, p, rect, kind), t("La signature n'a pas pu être posée"));
       if (!r) return null;
       apply(p, r);
       return r.id;
@@ -1018,9 +998,9 @@ export function DocumentView({
     const onKey = (e: KeyboardEvent) => {
       if (isModalOpen()) return;
       const c = ctx.current;
-      const t = e.target instanceof HTMLElement ? e.target : null;
-      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-      const inDoc = !t || t === document.body || !!scroller.current?.contains(t);
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      const typing = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      const inDoc = !target || target === document.body || !!scroller.current?.contains(target);
       const key = e.key;
       // Ctrl+Alt+flèche : pivoter la vue (Ctrl+Maj+flèche sert à la sélection).
       if (e.ctrlKey && e.altKey && !e.shiftKey && (key === "ArrowRight" || key === "ArrowLeft")) {
@@ -1135,7 +1115,7 @@ export function DocumentView({
 
   // ------------------------------------------------------------ rendu
   const restricted = !perms.copy || !perms.annotate || !perms.print;
-  const restrictions = [!perms.copy && "copie du texte", !perms.annotate && "commentaires", !perms.print && "impression"].filter(Boolean).join(", ");
+  const restrictions = [!perms.copy && t("copie du texte"), !perms.annotate && t("commentaires"), !perms.print && t("impression")].filter(Boolean).join(", ");
   const currentHit = search.flat[search.current];
   const shownRows = continuous ? rows : [currentRow, currentRow];
   const visiblePages: number[] = [];
@@ -1151,16 +1131,16 @@ export function DocumentView({
   const selectedAnnot = selected ? annots.get(selected.page)?.find((a) => a.id === selected.id) : undefined;
   const styleTool = tool === "select" || tool === "eraser" ? null : tool;
   const sig = sigs[sigKind];
-  const notice = !search.searching && search.flat.length === 0 && search.pagesWithText === 0 ? "Aucun texte dans ce document (numérisé ?)" : null;
+  const notice = !search.searching && search.flat.length === 0 && search.pagesWithText === 0 ? t("Aucun texte dans ce document (numérisé ?)") : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" hidden={!isActive}>
-      <Toolbar aria-label="Barre d'outils du document" className="h-(--layout-toolbar) shrink-0 border-b border-border bg-bg px-2">
-        <IconButton label="Ouvrir un fichier" shortcut="Ctrl+O" icon={<FolderOpen size={18} />} onPress={onOpen} />
-        <IconButton label="Enregistrer" shortcut="Ctrl+S" icon={<Save size={18} />} onPress={onSave} isDisabled={!doc.dirty} />
+      <Toolbar aria-label={t("Barre d'outils du document")} className="h-(--layout-toolbar) shrink-0 border-b border-border bg-bg px-2">
+        <IconButton label={t("Ouvrir un fichier")} shortcut="Ctrl+O" icon={<FolderOpen size={18} />} onPress={onOpen} />
+        <IconButton label={t("Enregistrer")} shortcut="Ctrl+S" icon={<Save size={18} />} onPress={onSave} isDisabled={!doc.dirty} />
         <ToolbarSeparator />
         <ToolGroup
-          aria-label="Outils"
+          aria-label={t("Outils")}
           selectionMode="single"
           disallowEmptySelection
           selectedKeys={new Set([canAnnotate ? tool : "select"])}
@@ -1169,31 +1149,31 @@ export function DocumentView({
             if (typeof k === "string") onToolChange(k as Tool);
           }}
         >
-          <ToolButton id="select" label="Sélectionner (texte et commentaires)" shortcut="V" icon={<MousePointer2 size={18} />} />
-          <ToolButton id="highlight" label={canAnnotate ? "Surligner du texte" : "Commentaires désactivés par l'auteur"} shortcut="U" icon={<Highlighter size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="underline" label="Souligner du texte" icon={<Underline size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="strikeout" label="Barrer du texte" icon={<Strikethrough size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="note" label="Ajouter une note (cliquez sur la page)" shortcut="N" icon={<StickyNote size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="ink" label="Dessiner à main levée" shortcut="D" icon={<PenLine size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="eraser" label="Gomme (efface les dessins)" shortcut="E" icon={<Eraser size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="text" label="Ajouter du texte (cliquez sur la page)" shortcut="T" icon={<Type size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="textbox" label="Zone de texte encadrée" icon={<SquarePen size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="callout" label="Légende (cliquez sur le point à désigner)" icon={<MessageSquareText size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="check" label="Ajouter une coche ou une croix" icon={<Check size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="sign" label="Signer (cliquez sur la page)" shortcut="S" icon={<SignatureIcon size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="select" label={t("Sélectionner (texte et commentaires)")} shortcut="V" icon={<MousePointer2 size={18} />} />
+          <ToolButton id="highlight" label={canAnnotate ? t("Surligner du texte") : t("Commentaires désactivés par l'auteur")} shortcut="U" icon={<Highlighter size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="underline" label={t("Souligner du texte")} icon={<Underline size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="strikeout" label={t("Barrer du texte")} icon={<Strikethrough size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="note" label={t("Ajouter une note (cliquez sur la page)")} shortcut="N" icon={<StickyNote size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="ink" label={t("Dessiner à main levée")} shortcut="D" icon={<PenLine size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="eraser" label={t("Gomme (efface les dessins)")} shortcut="E" icon={<Eraser size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="text" label={t("Ajouter du texte (cliquez sur la page)")} shortcut="T" icon={<Type size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="textbox" label={t("Zone de texte encadrée")} icon={<SquarePen size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="callout" label={t("Légende (cliquez sur le point à désigner)")} icon={<MessageSquareText size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="check" label={t("Ajouter une coche ou une croix")} icon={<Check size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="sign" label={t("Signer (cliquez sur la page)")} shortcut="S" icon={<SignatureIcon size={18} />} isDisabled={!canAnnotate} />
         </ToolGroup>
         <div className="ml-auto flex items-center gap-1">
-          <IconButton label="Imprimer" shortcut="Ctrl+P" icon={<Printer size={18} />} onPress={onPrint} />
-          <IconButton label="Rechercher" shortcut="Ctrl+F" icon={<Search size={18} />} onPress={openFind} />
+          <IconButton label={t("Imprimer")} shortcut="Ctrl+P" icon={<Printer size={18} />} onPress={onPrint} />
+          <IconButton label={t("Rechercher")} shortcut="Ctrl+F" icon={<Search size={18} />} onPress={openFind} />
           <ToolbarSeparator />
           <PageNavigator page={page} total={info.pageCount} onChange={(p) => goTo(p)} />
           <ToolbarSeparator />
           <ZoomControl value={Math.round(zoom * 100)} onChange={(v) => zoomTo(v / 100)} onFit={fit} fit={zoomMode === "custom" ? null : zoomMode} />
           <MenuTrigger>
-            <IconButton label="Affichage des pages" icon={<BookOpen size={18} />} />
-            <Menu aria-label="Affichage des pages">
+            <IconButton label={t("Affichage des pages")} icon={<BookOpen size={18} />} />
+            <Menu aria-label={t("Affichage des pages")}>
               <MenuSection
-                title="Mode d'affichage"
+                title={t("Mode d'affichage")}
                 selectionMode="single"
                 selectedKeys={[layoutMode]}
                 onSelectionChange={(keys) => {
@@ -1203,7 +1183,7 @@ export function DocumentView({
               >
                 {(Object.keys(LAYOUT_LABELS) as Layout[]).map((l) => (
                   <MenuItem key={l} id={l}>
-                    {LAYOUT_LABELS[l]}
+                    {t(LAYOUT_LABELS[l])}
                   </MenuItem>
                 ))}
               </MenuSection>
@@ -1216,16 +1196,16 @@ export function DocumentView({
                 }}
               >
                 <MenuItem id="cover" isDisabled={!isSpread(layoutMode)}>
-                  Première page seule (couverture)
+                  {t("Première page seule (couverture)")}
                 </MenuItem>
               </MenuSection>
               <MenuSeparator />
               <MenuSection>
                 <MenuItem id="rot-r" icon={<RotateCw size={16} />} shortcut="Ctrl+Alt+→" onAction={() => rotate(1)}>
-                  Pivoter à droite
+                  {t("Pivoter à droite")}
                 </MenuItem>
                 <MenuItem id="rot-l" icon={<RotateCcw size={16} />} shortcut="Ctrl+Alt+←" onAction={() => rotate(-1)}>
-                  Pivoter à gauche
+                  {t("Pivoter à gauche")}
                 </MenuItem>
               </MenuSection>
             </Menu>
@@ -1235,7 +1215,7 @@ export function DocumentView({
 
       {canAnnotate && selectedAnnot && !selectedAnnot.locked ? (
         <PropertyBar
-          title={`Sélection : ${KIND_LABELS[selectedAnnot.kind]}`}
+          title={t("Sélection : {kind}", { kind: t(KIND_LABELS[selectedAnnot.kind]) })}
           style={{ color: selectedAnnot.color ?? DEFAULT_STYLES.highlight.color, opacity: selectedAnnot.opacity, width: selectedAnnot.width }}
           showColor={!STAMP_KINDS.has(selectedAnnot.kind)}
           showOpacity={!STAMP_KINDS.has(selectedAnnot.kind) && selectedAnnot.kind !== "note"}
@@ -1248,7 +1228,7 @@ export function DocumentView({
         styleTool &&
         (styleTool === "sign" ? (
           <PropertyBar
-            title="Signer"
+            title={t("Signer")}
             style={styles.text}
             showColor={false}
             showOpacity={false}
@@ -1257,7 +1237,7 @@ export function DocumentView({
             extra={
               <div className="flex items-center gap-3">
                 <ToolGroup
-                  aria-label="Que poser"
+                  aria-label={t("Que poser")}
                   selectionMode="single"
                   disallowEmptySelection
                   selectedKeys={new Set([sigKind])}
@@ -1266,16 +1246,16 @@ export function DocumentView({
                     if (v === "signature" || v === "initials") setSigKind(v);
                   }}
                 >
-                  <ToolButton id="signature" label="Signature" icon={<SignatureIcon size={16} />} size="sm" />
-                  <ToolButton id="initials" label="Initiales" icon={<Type size={16} />} size="sm" />
+                  <ToolButton id="signature" label={t("Signature")} icon={<SignatureIcon size={16} />} size="sm" />
+                  <ToolButton id="initials" label={t("Initiales")} icon={<Type size={16} />} size="sm" />
                 </ToolGroup>
                 {sig ? (
-                  <img src={sig.data} alt={sigKind === "initials" ? "Vos initiales" : "Votre signature"} className="h-7 max-w-40 rounded-sm bg-page object-contain px-1" />
+                  <img src={sig.data} alt={sigKind === "initials" ? t("Vos initiales") : t("Votre signature")} className="h-7 max-w-40 rounded-sm bg-page object-contain px-1" />
                 ) : (
-                  <span className="text-sm text-muted">{sigKind === "initials" ? "Aucunes initiales enregistrées" : "Aucune signature enregistrée"}</span>
+                  <span className="text-sm text-muted">{sigKind === "initials" ? t("Aucunes initiales enregistrées") : t("Aucune signature enregistrée")}</span>
                 )}
                 <Button size="sm" onPress={() => setSigDialog({ kind: sigKind })}>
-                  {sig ? "Modifier" : "Créer"}
+                  {sig ? t("Modifier") : t("Créer")}
                 </Button>
                 {sig && (
                   <Button
@@ -1286,37 +1266,37 @@ export function DocumentView({
                       setSigs((m) => ({ ...m, [sigKind]: null }));
                     }}
                   >
-                    Oublier
+                    {t("Oublier")}
                   </Button>
                 )}
-                <span className="text-sm text-muted">Cliquez sur la page pour la poser.</span>
+                <span className="text-sm text-muted">{t("Cliquez sur la page pour la poser.")}</span>
               </div>
             }
           />
         ) : (
           <PropertyBar
-            title={TOOL_LABELS[styleTool]}
+            title={t(TOOL_LABELS[styleTool])}
             style={styles[styleTool === "textbox" || styleTool === "callout" ? "text" : styleTool]}
             showOpacity={!["note", "text", "check", "textbox", "callout"].includes(styleTool)}
             showWidth={["ink", "text", "check", "textbox", "callout"].includes(styleTool)}
-            widthLabel={styleTool === "ink" ? "Épaisseur" : "Taille"}
+            widthLabel={styleTool === "ink" ? t("Épaisseur") : t("Taille")}
             widthRange={styleTool === "ink" ? [0.5, 12, 0.5] : [6, 48, 1]}
             onChange={(patch) => onStyleChange(styleTool === "textbox" || styleTool === "callout" ? "text" : styleTool, patch)}
             extra={
               styleTool === "textbox" || styleTool === "callout" ? (
                 <Checkbox isSelected={boxFilled} onChange={setBoxFilled}>
-                  Fond blanc
+                  {t("Fond blanc")}
                 </Checkbox>
               ) : styleTool === "check" ? (
                 <ToolGroup
-                  aria-label="Forme"
+                  aria-label={t("Forme")}
                   selectionMode="single"
                   disallowEmptySelection
                   selectedKeys={new Set([markCross ? "cross" : "check"])}
                   onSelectionChange={(k) => setMarkCross([...k][0] === "cross")}
                 >
-                  <ToolButton id="check" label="Coche" icon={<Check size={16} />} size="sm" />
-                  <ToolButton id="cross" label="Croix" icon={<XIcon size={16} />} size="sm" />
+                  <ToolButton id="check" label={t("Coche")} icon={<Check size={16} />} size="sm" />
+                  <ToolButton id="cross" label={t("Croix")} icon={<XIcon size={16} />} size="sm" />
                 </ToolGroup>
               ) : undefined
             }
@@ -1330,7 +1310,7 @@ export function DocumentView({
             <>
               {doc.dirty && (
                 <Button size="sm" onPress={onSaveAs}>
-                  Enregistrer mes modifications sous…
+                  {t("Enregistrer mes modifications sous…")}
                 </Button>
               )}
               <Button size="sm" variant={doc.dirty ? "ghost" : "primary"} onPress={onReload}>
@@ -1339,11 +1319,11 @@ export function DocumentView({
             </>
           }
         >
-          Ce fichier a été modifié par un autre programme depuis son ouverture.
+          {t("Ce fichier a été modifié par un autre programme depuis son ouverture.")}
         </Banner>
       )}
       {info.isXfa && (
-        <Banner tone="warning">Ce document utilise des formulaires XFA, qui ne sont pas pris en charge : certaines pages peuvent s'afficher incomplètes.</Banner>
+        <Banner tone="warning">{t("Ce document utilise des formulaires XFA, qui ne sont pas pris en charge : certaines pages peuvent s'afficher incomplètes.")}</Banner>
       )}
       {info.hasForm && !info.isXfa && !formBannerClosed && (
         <Banner
@@ -1351,11 +1331,11 @@ export function DocumentView({
           onDismiss={() => setFormBannerClosed(true)}
           actions={
             <Button size="sm" variant="ghost" onPress={() => setHighlightFields((h) => !h)}>
-              {highlightFields ? "Ne plus surligner les champs" : "Surligner les champs"}
+              {highlightFields ? t("Ne plus surligner les champs") : t("Surligner les champs")}
             </Button>
           }
         >
-          {canFill ? "Ce document contient un formulaire : cliquez dans les champs pour les remplir (Tab passe au suivant)." : "Ce document contient un formulaire, mais son auteur en a interdit le remplissage."}
+          {canFill ? t("Ce document contient un formulaire : cliquez dans les champs pour les remplir (Tab passe au suivant).") : t("Ce document contient un formulaire, mais son auteur en a interdit le remplissage.")}
         </Banner>
       )}
       {restricted && !restrictionsDismissed && (
@@ -1393,12 +1373,12 @@ export function DocumentView({
             onCopy={(e) => {
               if (!perms.copy) {
                 e.preventDefault();
-                toast({ tone: "info", message: "L'auteur de ce document a désactivé la copie du texte." });
+                toast({ tone: "info", message: t("L'auteur de ce document a désactivé la copie du texte.") });
               }
             }}
             tabIndex={0}
             role="document"
-            aria-label={`${info.name}, page ${page} sur ${info.pageCount}`}
+            aria-label={t("{name}, page {page} sur {total}", { name: info.name, page, total: info.pageCount })}
             className={clsx("focus-ring-inset min-h-0 flex-1 overflow-auto bg-canvas [scrollbar-gutter:stable]", isMarkupTool(tool) && canAnnotate && "cursor-text")}
             onMouseUp={() => {
               if (isMarkupTool(tool) && canAnnotate) void markupSelection(tool);
@@ -1486,15 +1466,15 @@ export function DocumentView({
             )}
           </aside>
         )}
-        <Toolbar aria-label="Panneaux" orientation="vertical" className="flex w-(--layout-panel-rail) shrink-0 flex-col items-center gap-1 border-l border-border bg-bg py-2">
+        <Toolbar aria-label={t("Panneaux")} orientation="vertical" className="flex w-(--layout-panel-rail) shrink-0 flex-col items-center gap-1 border-l border-border bg-bg py-2">
           <ToolButton
-            label="Vignettes"
+            label={t("Vignettes")}
             icon={<GalleryVertical size={18} />}
             isSelected={panel === "thumbnails"}
             onChange={(on) => setPanel(on ? "thumbnails" : null)}
           />
-          <ToolButton label="Signets" icon={<BookmarkIcon size={18} />} isSelected={panel === "bookmarks"} onChange={(on) => setPanel(on ? "bookmarks" : null)} />
-          <ToolButton label="Commentaires" icon={<MessageSquare size={18} />} isSelected={panel === "comments"} onChange={(on) => setPanel(on ? "comments" : null)} />
+          <ToolButton label={t("Signets")} icon={<BookmarkIcon size={18} />} isSelected={panel === "bookmarks"} onChange={(on) => setPanel(on ? "bookmarks" : null)} />
+          <ToolButton label={t("Commentaires")} icon={<MessageSquare size={18} />} isSelected={panel === "comments"} onChange={(on) => setPanel(on ? "comments" : null)} />
         </Toolbar>
       </div>
 
@@ -1512,33 +1492,33 @@ export function DocumentView({
       )}
       {confirmUrl && (
         <Dialog
-          title="Ouvrir ce lien ?"
+          title={t("Ouvrir ce lien ?")}
           size="sm"
           isOpen
           onOpenChange={(o) => !o && setConfirmUrl(null)}
           footer={(close) => (
             <>
-              <Button onPress={close}>Annuler</Button>
+              <Button onPress={close}>{t("Annuler")}</Button>
               <Button
                 variant="primary"
                 autoFocus
                 onPress={() => {
                   const url = confirmUrl;
                   close();
-                  engine.openUrl(url).catch(() => toast({ tone: "error", message: "Ce lien n'a pas pu être ouvert." }));
+                  engine.openUrl(url).catch(() => toast({ tone: "error", message: t("Ce lien n'a pas pu être ouvert.") }));
                 }}
               >
-                Ouvrir
+                {t("Ouvrir")}
               </Button>
             </>
           )}
         >
           <div className="flex flex-col gap-2">
             <p className="text-base">
-              {confirmUrl.toLowerCase().startsWith("mailto:") ? "Le document propose d'écrire un e-mail avec votre messagerie :" : "Le document propose d'ouvrir cette adresse dans votre navigateur :"}
+              {confirmUrl.toLowerCase().startsWith("mailto:") ? t("Le document propose d'écrire un e-mail avec votre messagerie :") : t("Le document propose d'ouvrir cette adresse dans votre navigateur :")}
             </p>
             <p className="rounded-md bg-surface px-2 py-1.5 font-mono text-sm break-all">{confirmUrl}</p>
-            {!/^(https?:|mailto:)/i.test(confirmUrl) && <p className="text-sm text-danger">Ce type d'adresse n'est pas autorisé et ne sera pas ouvert.</p>}
+            {!/^(https?:|mailto:)/i.test(confirmUrl) && <p className="text-sm text-danger">{t("Ce type d'adresse n'est pas autorisé et ne sera pas ouvert.")}</p>}
           </div>
         </Dialog>
       )}

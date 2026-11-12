@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { clsx } from "clsx";
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
@@ -14,19 +15,19 @@ const toneClass: Record<Tone, { box: string; icon: string; Icon: typeof Info }> 
 
 /** Bandeau de document (S03, S11). Fermable ; les actions sont de vrais boutons. */
 export function Banner({ tone = "info", children, actions, onDismiss }: { tone?: Tone; children: ReactNode; actions?: ReactNode; onDismiss?: () => void }) {
-  const t = toneClass[tone];
+  const tc = toneClass[tone];
   return (
     <div
       role="status"
-      className={clsx("flex min-h-10 items-center gap-3 border-b border-l-[3px] border-b-border px-3 py-1.5 text-base text-fg forced-colors:border", t.box)}
+      className={clsx("flex min-h-10 items-center gap-3 border-b border-l-[3px] border-b-border px-3 py-1.5 text-base text-fg forced-colors:border", tc.box)}
     >
-      <t.Icon size={18} aria-hidden className={clsx("shrink-0", t.icon)} />
+      <tc.Icon size={18} aria-hidden className={clsx("shrink-0", tc.icon)} />
       <div className="flex-1">{children}</div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
       {onDismiss && (
         <RACButton
           onPress={onDismiss}
-          aria-label="Masquer ce bandeau"
+          aria-label={t("Masquer ce bandeau")}
           className="focus-ring grid size-(--control-sm) place-items-center rounded-md text-muted data-hovered:bg-surface-hover"
         >
           <X size={16} aria-hidden />
@@ -76,7 +77,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div
         role="region"
-        aria-label="Notifications"
+        aria-label={t("Notifications")}
         className="pointer-events-none fixed bottom-4 left-1/2 z-(--z-toast) flex -translate-x-1/2 flex-col items-center gap-2"
       >
         <div aria-live="polite" className="contents">
@@ -94,8 +95,8 @@ function Toast({ item, onClose }: { item: ToastItem; onClose: () => void }) {
   const [paused, setPaused] = useState(false);
   useEffect(() => {
     if (paused) return;
-    const t = setTimeout(onClose, item.action ? 10000 : 6000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(onClose, item.action ? 10000 : 6000);
+    return () => clearTimeout(timer);
   }, [paused, onClose, item.action]);
   const Icon = item.tone === "error" ? XCircle : item.tone === "success" ? CheckCircle2 : Info;
   return (
@@ -119,7 +120,7 @@ function Toast({ item, onClose }: { item: ToastItem; onClose: () => void }) {
           {item.action.label}
         </RACButton>
       )}
-      <RACButton onPress={onClose} aria-label="Fermer la notification" className="focus-ring grid size-7 place-items-center rounded-md opacity-80 data-hovered:opacity-100">
+      <RACButton onPress={onClose} aria-label={t("Fermer la notification")} className="focus-ring grid size-7 place-items-center rounded-md opacity-80 data-hovered:opacity-100">
         <X size={16} aria-hidden />
       </RACButton>
     </div>

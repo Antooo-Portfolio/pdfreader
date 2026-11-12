@@ -1,3 +1,4 @@
+import { t } from "@pdfreader/ui";
 /** Préférences de l'application (S14) et petites fonctions pures de l'impression (S13). */
 import type { Layout, PrintDuplex, PrintOrientation, PrintScale, Theme } from "./engine";
 
@@ -5,6 +6,8 @@ export type DefaultZoom = "fit-width" | "fit-page" | "actual";
 
 export interface Prefs {
   theme: Theme;
+  /** Langue de l'interface ; « system » : celle de Windows. */
+  language: "system" | "fr" | "en";
   /** Taille de l'interface (taille de police racine), en pour cent. */
   uiScale: number;
   defaultZoom: DefaultZoom;
@@ -21,6 +24,7 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = {
   theme: "system",
+  language: "system",
   uiScale: 100,
   defaultZoom: "fit-width",
   defaultLayout: "continuous",
@@ -38,6 +42,7 @@ export function parsePrefs(raw: Record<string, unknown>): Prefs {
   const p = { ...DEFAULT_PREFS };
   const t = raw.theme;
   if (t === "system" || t === "light" || t === "dark" || t === "contrast") p.theme = t;
+  if (raw.language === "system" || raw.language === "fr" || raw.language === "en") p.language = raw.language;
   if (typeof raw.uiScale === "number" && UI_SCALES.includes(raw.uiScale)) p.uiScale = raw.uiScale;
   if (raw.defaultZoom === "fit-width" || raw.defaultZoom === "fit-page" || raw.defaultZoom === "actual") p.defaultZoom = raw.defaultZoom;
   if (raw.defaultLayout === "continuous" || raw.defaultLayout === "single" || raw.defaultLayout === "double" || raw.defaultLayout === "continuous-double") p.defaultLayout = raw.defaultLayout;
@@ -81,16 +86,16 @@ export function parsePrintSettings(raw: unknown): PrintSettings {
  *  saisie n'est pas comprise. */
 export function parseRange(text: string, total: number): number[] | string {
   const parts = text.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
-  if (parts.length === 0) return "Indiquez au moins une page.";
+  if (parts.length === 0) return t("Indiquez au moins une page.");
   const out: number[] = [];
   const seen = new Set<number>();
   for (const part of parts) {
     const m = /^(\d*)\s*(?:[-–]\s*(\d*))?$/.exec(part);
-    if (!m || (m[1] === "" && (m[2] === undefined || m[2] === ""))) return `« ${part} » n'est pas une page ni une plage (exemple : 1-3, 5, 8-).`;
+    if (!m || (m[1] === "" && (m[2] === undefined || m[2] === ""))) return t("« {part} » n'est pas une page ni une plage (exemple : 1-3, 5, 8-).", { part });
     const isRange = part.includes("-") || part.includes("–");
     const a = m[1] ? Number(m[1]) : 1;
     const b = isRange ? (m[2] ? Number(m[2]) : total) : a;
-    if (a < 1 || b < 1 || a > total || b > total) return `Ce document a ${total} page${total > 1 ? "s" : ""} : « ${part} » est en dehors.`;
+    if (a < 1 || b < 1 || a > total || b > total) return t(total > 1 ? "Ce document a {total} pages : « {part} » est en dehors." : "Ce document a {total} page : « {part} » est en dehors.", { total, part });
     const step = a <= b ? 1 : -1;
     for (let p = a; step > 0 ? p <= b : p >= b; p += step) {
       if (!seen.has(p)) {

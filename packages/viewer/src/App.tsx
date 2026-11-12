@@ -1,4 +1,4 @@
-import { Button, Dialog, DocumentTabs, IconButton, isModalOpen, Menu, MenuItem, MenuSection, MenuTrigger, Spinner, TextField, useToast } from "@pdfreader/ui";
+import { t, Button, Dialog, DocumentTabs, IconButton, isModalOpen, Menu, MenuItem, MenuSection, MenuTrigger, Spinner, useToast, TextField, msg, getLanguage, type Language, setLanguage, systemLanguage } from "@pdfreader/ui";
 import { Home, Palette, Settings } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { DEFAULT_STYLES, type Tool, type ToolStyle, type ToolStyles } from "./annot";
@@ -14,10 +14,10 @@ import { reducer } from "./state";
 
 
 const THEMES: { id: Theme; label: string }[] = [
-  { id: "system", label: "Comme Windows" },
-  { id: "light", label: "Clair" },
-  { id: "dark", label: "Sombre" },
-  { id: "contrast", label: "Contraste élevé" },
+  { id: "system", label: msg("Comme Windows") },
+  { id: "light", label: msg("Clair") },
+  { id: "dark", label: msg("Sombre") },
+  { id: "contrast", label: msg("Contraste élevé") },
 ];
 
 /** Taille de l'interface : la taille de police racine (tout est en rem). */
@@ -70,6 +70,11 @@ export function App({ engine }: { engine: EngineClient }) {
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
   const theme = prefs.theme;
+  // Langue de l'interface, appliquée avant le rendu des enfants (t() la lit à chaque rendu).
+  // Les tests de bout en bout cherchent des textes français : ils forcent le français.
+  const [e2eMode, setE2eMode] = useState(false);
+  const lang: Language = e2eMode ? "fr" : prefs.language === "system" ? systemLanguage() : prefs.language;
+  if (getLanguage() !== lang) setLanguage(lang);
   const [printSettings, setPrintSettings] = useState<PrintSettings>(DEFAULT_PRINT);
   const [printFor, setPrintFor] = useState<number | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
@@ -127,7 +132,7 @@ export function App({ engine }: { engine: EngineClient }) {
     setStyles(DEFAULT_STYLES);
     setPrintSettings(DEFAULT_PRINT);
     setAuthor(await engine.author().catch(() => ""));
-    toast({ tone: "success", message: "Réglages par défaut rétablis." });
+    toast({ tone: "success", message: t("Réglages par défaut rétablis.") });
   }, [engine, toast]);
   const changePrintSettings = useCallback(
     (ps: PrintSettings) => {
@@ -181,11 +186,11 @@ export function App({ engine }: { engine: EngineClient }) {
         if (isOpenError(e) && (e.kind === "password_required" || e.kind === "wrong_password")) {
           setPassword({ path, wrong: e.kind === "wrong_password", value: "" });
         } else if (isOpenError(e) && e.kind === "not_found") {
-          toast({ tone: "error", message: "Ce fichier est introuvable : il a peut-être été déplacé ou supprimé." });
+          toast({ tone: "error", message: t("Ce fichier est introuvable : il a peut-être été déplacé ou supprimé.") });
         } else if (isOpenError(e) && e.kind === "corrupted") {
-          toast({ tone: "error", message: "Ce fichier est endommagé ou n'est pas un PDF valide." });
+          toast({ tone: "error", message: t("Ce fichier est endommagé ou n'est pas un PDF valide.") });
         } else {
-          toast({ tone: "error", message: `Impossible d'ouvrir ce fichier (${isOpenError(e) ? (e.detail ?? e.kind) : String(e)}).` });
+          toast({ tone: "error", message: t("Impossible d'ouvrir ce fichier ({detail}).", { detail: isOpenError(e) ? (e.detail ?? e.kind) : String(e) }) });
         }
         return null;
       } finally {
@@ -204,7 +209,7 @@ export function App({ engine }: { engine: EngineClient }) {
     const a = docActions.current.get(Number(activeRef.current));
     if (!a) return 0;
     const n = await a.markupSelection("highlight");
-    if (n === 0) toast({ tone: "info", message: "Sélectionnez d'abord du texte à surligner." });
+    if (n === 0) toast({ tone: "info", message: t("Sélectionnez d'abord du texte à surligner.") });
     return engine.countHighlights(Number(activeRef.current), 0);
   }, [engine, toast]);
 
@@ -238,17 +243,17 @@ export function App({ engine }: { engine: EngineClient }) {
         await engine.recoveryClear(d.info.path).catch(() => undefined);
         if (r.path !== d.info.path) await engine.recoveryClear(r.path).catch(() => undefined);
         snapshotEdits.current.delete(id);
-        toast({ tone: "success", message: `« ${r.path.split(/[\\/]/).pop()} » enregistré` });
+        toast({ tone: "success", message: t("« {name} » enregistré", { name: r.path.split(/[\\/]/).pop() ?? "" }) });
         setHomeRefresh((n) => n + 1);
         return true;
       } catch (e) {
         const msg = String(e);
         if (msg.includes("file_changed")) {
-          toast({ tone: "error", message: "Le fichier a été modifié par un autre programme. Utilisez « Enregistrer sous » pour ne rien perdre.", action: { label: "Enregistrer sous", onAction: () => void saveAs(id) } });
+          toast({ tone: "error", message: t("Le fichier a été modifié par un autre programme. Utilisez « Enregistrer sous » pour ne rien perdre."), action: { label: t("Enregistrer sous"), onAction: () => void saveAs(id) } });
         } else if (msg.includes("file_locked")) {
-          toast({ tone: "error", message: "Le fichier est ouvert dans un autre programme.", action: { label: "Enregistrer sous", onAction: () => void saveAs(id) } });
+          toast({ tone: "error", message: t("Le fichier est ouvert dans un autre programme."), action: { label: t("Enregistrer sous"), onAction: () => void saveAs(id) } });
         } else {
-          toast({ tone: "error", message: `L'enregistrement a échoué : ${msg}` });
+          toast({ tone: "error", message: t("L'enregistrement a échoué : {detail}", { detail: msg }) });
         }
         return false;
       }
@@ -329,8 +334,8 @@ export function App({ engine }: { engine: EngineClient }) {
   }, [engine]);
   useEffect(() => {
     if (!prefs.recovery) return;
-    const t = window.setInterval(() => void snapshotNow(), prefs.recoveryMinutes * 60_000);
-    return () => window.clearInterval(t);
+    const timer = window.setInterval(() => void snapshotNow(), prefs.recoveryMinutes * 60_000);
+    return () => window.clearInterval(timer);
   }, [prefs.recovery, prefs.recoveryMinutes, snapshotNow]);
 
   // ------------------------------------------------------------ fichier modifié ailleurs
@@ -349,12 +354,12 @@ export function App({ engine }: { engine: EngineClient }) {
   useEffect(() => {
     const onFocus = () => void checkExternal();
     window.addEventListener("focus", onFocus);
-    const t = window.setInterval(() => {
+    const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void checkExternal();
     }, 5000);
     return () => {
       window.removeEventListener("focus", onFocus);
-      window.clearInterval(t);
+      window.clearInterval(timer);
     };
   }, [checkExternal]);
   const reload = useCallback(
@@ -371,7 +376,7 @@ export function App({ engine }: { engine: EngineClient }) {
         });
         return true;
       } catch (e) {
-        toast({ tone: "error", message: `Le fichier n'a pas pu être relu : il a peut-être été supprimé ou déplacé (${String(e)}).` });
+        toast({ tone: "error", message: t("Le fichier n'a pas pu être relu : il a peut-être été supprimé ou déplacé ({detail}).", { detail: String(e) }) });
         return false;
       }
     },
@@ -391,6 +396,7 @@ export function App({ engine }: { engine: EngineClient }) {
       off = await engine.onExternalFiles((paths) => paths.forEach((p) => void openPath(p)));
       const launch = await engine.launchFiles();
       const e2e = await engine.e2eEnabled();
+      if (e2e) setE2eMode(true);
       // Copies laissées par une fermeture inattendue.
       const left = await engine.recoveryList().catch(() => [] as RecoveryItem[]);
       if (left.length && !cancelled) setRecovery(left);
@@ -480,7 +486,7 @@ export function App({ engine }: { engine: EngineClient }) {
           onSelectionChange={(k) => setActive(String(k))}
           onClose={(id) => void closeDoc(Number(id))}
           tabs={[
-            { id: "home", title: "Accueil", icon: <Home size={14} aria-hidden /> },
+            { id: "home", title: t("Accueil"), icon: <Home size={14} aria-hidden /> },
             ...docs.map((d) => ({ id: String(d.info.id), title: d.info.name, modified: d.dirty })),
           ]}
         />
@@ -490,12 +496,12 @@ export function App({ engine }: { engine: EngineClient }) {
           </span>
         )}
         <div className="mb-1 ml-auto flex shrink-0 items-center gap-0.5">
-          <IconButton label="Préférences" shortcut="Ctrl+K" icon={<Settings size={18} />} onPress={() => setPrefsOpen(true)} />
+          <IconButton label={t("Préférences")} shortcut="Ctrl+K" icon={<Settings size={18} />} onPress={() => setPrefsOpen(true)} />
           <MenuTrigger>
-            <IconButton label="Apparence" icon={<Palette size={18} />} />
-            <Menu aria-label="Apparence">
+            <IconButton label={t("Apparence")} icon={<Palette size={18} />} />
+            <Menu aria-label={t("Apparence")}>
               <MenuSection
-                title="Thème"
+                title={t("Thème")}
                 selectionMode="single"
                 selectedKeys={[theme]}
                 onSelectionChange={(keys) => {
@@ -503,9 +509,9 @@ export function App({ engine }: { engine: EngineClient }) {
                   if (k) chooseTheme(k);
                 }}
               >
-                {THEMES.map((t) => (
-                  <MenuItem key={t.id} id={t.id}>
-                    {t.label}
+                {THEMES.map((th) => (
+                  <MenuItem key={th.id} id={th.id}>
+                    {t(th.label)}
                   </MenuItem>
                 ))}
               </MenuSection>
@@ -579,15 +585,15 @@ export function App({ engine }: { engine: EngineClient }) {
       )}
       {password && (
         <Dialog
-          title="Document protégé"
+          title={t("Document protégé")}
           size="sm"
           isOpen
           onOpenChange={(open) => !open && setPassword(null)}
           footer={(close) => (
             <>
-              <Button onPress={close}>Annuler</Button>
+              <Button onPress={close}>{t("Annuler")}</Button>
               <Button variant="primary" onPress={() => void openPath(password.path, password.value)}>
-                Ouvrir
+                {t("Ouvrir")}
               </Button>
             </>
           )}
@@ -601,13 +607,13 @@ export function App({ engine }: { engine: EngineClient }) {
           >
             <p className="text-base">« {password.path.split(/[\\/]/).pop()} » est protégé par un mot de passe.</p>
             <TextField
-              label="Mot de passe"
+              label={t("Mot de passe")}
               type="password"
               autoFocus
               value={password.value}
               onChange={(value) => setPassword({ ...password, value })}
               isInvalid={password.wrong}
-              errorMessage="Mot de passe incorrect. Réessayez."
+              errorMessage={t("Mot de passe incorrect. Réessayez.")}
             />
           </form>
         </Dialog>
@@ -615,7 +621,7 @@ export function App({ engine }: { engine: EngineClient }) {
 
       {confirmClose && (
         <Dialog
-          title="Enregistrer les modifications ?"
+          title={t("Enregistrer les modifications ?")}
           size="sm"
           role="alertdialog"
           isDismissable={false}
@@ -631,9 +637,9 @@ export function App({ engine }: { engine: EngineClient }) {
                   else ids.forEach(reallyClose);
                 }}
               >
-                Ne pas enregistrer
+                {t("Ne pas enregistrer")}
               </Button>
-              <Button onPress={() => setConfirmClose(null)}>Annuler</Button>
+              <Button onPress={() => setConfirmClose(null)}>{t("Annuler")}</Button>
               <Button
                 variant="primary"
                 onPress={async () => {
@@ -646,15 +652,15 @@ export function App({ engine }: { engine: EngineClient }) {
                   else ids.forEach(reallyClose);
                 }}
               >
-                Enregistrer
+                {t("Enregistrer")}
               </Button>
             </>
           )}
         >
           <p className="text-base">
             {confirmClose.ids.length === 1
-              ? `Les modifications de « ${docs.find((d) => d.info.id === confirmClose.ids[0])?.info.name} » seront perdues si vous ne les enregistrez pas.`
-              : `${confirmClose.ids.length} documents ont des modifications non enregistrées.`}
+              ? t("Les modifications de « {name} » seront perdues si vous ne les enregistrez pas.", { name: docs.find((d) => d.info.id === confirmClose.ids[0])?.info.name ?? "" })
+              : t("{count} documents ont des modifications non enregistrées.", { count: confirmClose.ids.length })}
           </p>
         </Dialog>
       )}

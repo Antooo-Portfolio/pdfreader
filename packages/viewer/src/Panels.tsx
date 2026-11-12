@@ -1,4 +1,4 @@
-import { EmptyState, IconButton, PanelHeader, Spinner, Tree, type TreeNode } from "@pdfreader/ui";
+import { t, PanelHeader, IconButton, EmptyState, Tree, type TreeNode, Spinner } from "@pdfreader/ui";
 import { clsx } from "clsx";
 import { Bookmark as BookmarkIcon, ChevronsDownUp, ChevronsUpDown, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -84,8 +84,8 @@ export function ThumbnailsPanel({
   };
 
   return (
-    <section aria-label="Vignettes des pages" className="flex min-h-0 flex-1 flex-col">
-      <PanelHeader title="Vignettes" actions={<IconButton label="Fermer le panneau" size="sm" icon={<X size={16} />} onPress={onClose} />} />
+    <section aria-label={t("Vignettes des pages")} className="flex min-h-0 flex-1 flex-col">
+      <PanelHeader title={t("Vignettes")} actions={<IconButton label={t("Fermer le panneau")} size="sm" icon={<X size={16} />} onPress={onClose} />} />
       <div
         ref={scroller}
         className="relative min-h-0 flex-1 overflow-y-auto"
@@ -99,7 +99,7 @@ export function ThumbnailsPanel({
           }
         }}
       >
-        <ul className="relative" style={{ height: total }} aria-label={`${info.pageCount} pages`}>
+        <ul className="relative" style={{ height: total }} aria-label={t("{count} pages", { count: info.pageCount })}>
           {items.slice(first, last + 1).map((it, j) => {
             const i = first + j;
             const current = i + 1 === page;
@@ -117,7 +117,7 @@ export function ThumbnailsPanel({
                   data-thumb={i + 1}
                   tabIndex={current ? 0 : -1}
                   aria-current={current ? "page" : undefined}
-                  aria-label={`Page ${i + 1}`}
+                  aria-label={t("Page {page}", { page: i + 1 })}
                   onClick={() => onGoTo(i + 1)}
                   className="focus-ring flex cursor-default flex-col items-center gap-1 rounded-md p-1 outline-none hover:bg-surface-hover"
                 >
@@ -165,7 +165,7 @@ function index(bookmarks: Bookmark[]): Indexed {
       if (b.children.length) parents.push(id);
       return {
         id,
-        label: b.title || "(sans titre)",
+        label: b.title || t("(sans titre)"),
         page: b.action.kind === "goto" ? b.action.page + 1 : undefined,
         children: b.children.length ? walk(b.children, id) : undefined,
       };
@@ -210,37 +210,37 @@ export function BookmarksPanel({
   const allOpen = !!idx && idx.parents.length > 0 && idx.parents.every((p) => expanded.has(p));
 
   return (
-    <section aria-label="Signets" className="flex min-h-0 flex-1 flex-col">
+    <section aria-label={t("Signets")} className="flex min-h-0 flex-1 flex-col">
       <PanelHeader
-        title="Signets"
+        title={t("Signets")}
         actions={
           <>
             {idx && idx.parents.length > 0 && (
               <IconButton
-                label={allOpen ? "Tout replier" : "Tout déplier"}
+                label={allOpen ? t("Tout replier") : t("Tout déplier")}
                 size="sm"
                 icon={allOpen ? <ChevronsDownUp size={16} /> : <ChevronsUpDown size={16} />}
                 onPress={() => setExpanded(allOpen ? new Set() : new Set(idx.parents))}
               />
             )}
-            <IconButton label="Fermer le panneau" size="sm" icon={<X size={16} />} onPress={onClose} />
+            <IconButton label={t("Fermer le panneau")} size="sm" icon={<X size={16} />} onPress={onClose} />
           </>
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto p-1">
         {error ? (
-          <p className="p-3 text-sm text-danger">Les signets n'ont pas pu être lus.</p>
+          <p className="p-3 text-sm text-danger">{t("Les signets n'ont pas pu être lus.")}</p>
         ) : !idx ? (
           <div className="grid place-items-center p-6">
-            <Spinner label="Lecture des signets" />
+            <Spinner label={t("Lecture des signets")} />
           </div>
         ) : idx.nodes.length === 0 ? (
-          <EmptyState icon={<BookmarkIcon size={24} />} title="Aucun signet">
-            Ce document n'a pas de table des matières.
+          <EmptyState icon={<BookmarkIcon size={24} />} title={t("Aucun signet")}>
+            {t("Ce document n'a pas de table des matières.")}
           </EmptyState>
         ) : (
           <Tree
-            aria-label="Signets du document"
+            aria-label={t("Signets du document")}
             nodes={idx.nodes}
             expandedKeys={expanded}
             onExpandedChange={setExpanded}

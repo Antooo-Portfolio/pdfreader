@@ -1,5 +1,5 @@
 /** Récupération au démarrage : copies laissées par une fermeture inattendue. */
-import { Button, Dialog, TextField } from "@pdfreader/ui";
+import { t, Button, Dialog, TextField, locale } from "@pdfreader/ui";
 import { FileWarning } from "lucide-react";
 import { useState } from "react";
 import { type DocInfo, type EngineClient, isOpenError, type RecoveryItem } from "./engine";
@@ -38,7 +38,7 @@ export function RecoveryDialog({
       if (isOpenError(e) && (e.kind === "password_required" || e.kind === "wrong_password")) {
         setNeedPassword({ id: it.id, value: "", wrong: e.kind === "wrong_password" });
       } else {
-        setError(`« ${it.name} » n'a pas pu être récupéré (${isOpenError(e) ? (e.detail ?? e.kind) : String(e)}).`);
+        setError(t("« {name} » n'a pas pu être récupéré ({detail}).", { name: it.name, detail: isOpenError(e) ? (e.detail ?? e.kind) : String(e) }));
       }
     } finally {
       setBusy(null);
@@ -52,7 +52,7 @@ export function RecoveryDialog({
 
   return (
     <Dialog
-      title="Récupérer vos documents"
+      title={t("Récupérer vos documents")}
       size="md"
       role="alertdialog"
       isDismissable={false}
@@ -65,7 +65,7 @@ export function RecoveryDialog({
               onDone();
             }}
           >
-            Tout ignorer
+            {t("Tout ignorer")}
           </Button>
           <Button
             variant="primary"
@@ -74,14 +74,14 @@ export function RecoveryDialog({
               for (const it of left) await restore(it);
             }}
           >
-            Tout récupérer
+            {t("Tout récupérer")}
           </Button>
         </>
       )}
     >
       <div className="flex flex-col gap-3">
-        <p className="text-base">PDFReader s'est fermé sans que ces documents soient enregistrés. Vos dernières modifications ont été gardées :</p>
-        <ul className="flex flex-col gap-2" aria-label="Documents à récupérer">
+        <p className="text-base">{t("PDFReader s'est fermé sans que ces documents soient enregistrés. Vos dernières modifications ont été gardées :")}</p>
+        <ul className="flex flex-col gap-2" aria-label={t("Documents à récupérer")}>
           {left.map((it) => (
             <li key={it.id} className="flex flex-col gap-2 rounded-md border border-border p-2.5" data-recovery={it.name}>
               <div className="flex items-center gap-3">
@@ -89,14 +89,14 @@ export function RecoveryDialog({
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-base font-medium">{it.name}</div>
                   <div className="truncate text-xs text-muted">
-                    {it.originalPath} · copie du {new Date(it.createdAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                    {it.originalPath} · {t("copie du {date}", { date: new Date(it.createdAt).toLocaleString(locale(), { dateStyle: "short", timeStyle: "short" }) })}
                   </div>
                 </div>
                 <Button size="sm" onPress={() => void discard(it)} isDisabled={busy === it.id}>
-                  Ignorer
+                  {t("Ignorer")}
                 </Button>
                 <Button size="sm" variant="primary" onPress={() => void restore(it)} isPending={busy === it.id}>
-                  Récupérer
+                  {t("Récupérer")}
                 </Button>
               </div>
               {needPassword?.id === it.id && (
@@ -108,24 +108,24 @@ export function RecoveryDialog({
                   }}
                 >
                   <TextField
-                    label="Mot de passe du document"
+                    label={t("Mot de passe du document")}
                     type="password"
                     autoFocus
                     value={needPassword.value}
                     onChange={(value) => setNeedPassword({ ...needPassword, value })}
                     isInvalid={needPassword.wrong}
-                    errorMessage="Mot de passe incorrect."
+                    errorMessage={t("Mot de passe incorrect.")}
                     className="flex-1"
                   />
                   <Button size="sm" type="submit" variant="primary">
-                    Ouvrir
+                    {t("Ouvrir")}
                   </Button>
                 </form>
               )}
             </li>
           ))}
         </ul>
-        <p className="text-sm text-muted">Un document récupéré s'ouvre avec ses modifications : enregistrez-le (Ctrl+S) pour les garder dans le fichier d'origine.</p>
+        <p className="text-sm text-muted">{t("Un document récupéré s'ouvre avec ses modifications : enregistrez-le (Ctrl+S) pour les garder dans le fichier d'origine.")}</p>
         {error && (
           <p role="alert" className="text-sm text-danger">
             {error}

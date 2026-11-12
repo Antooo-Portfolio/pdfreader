@@ -1,4 +1,4 @@
-import { Button, ColorSwatches, IconButton, Slider, Toolbar, ToolbarSeparator } from "@pdfreader/ui";
+import { t, Button, ColorSwatches, IconButton, Toolbar, ToolbarSeparator, Slider } from "@pdfreader/ui";
 import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { formatDate, fromHex, hitTest, KIND_LABELS, parsePdfDate, type Tool, type ToolStyle, toHex } from "./annot";
@@ -223,21 +223,21 @@ export function NoteEditor({
       </div>
       <textarea
         ref={ref}
-        aria-label="Texte de la note"
+        aria-label={t("Texte de la note")}
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={4}
-        placeholder="Votre commentaire"
+        placeholder={t("Votre commentaire")}
         className="focus-ring resize-y rounded-md border border-border-input bg-bg p-2 text-base"
       />
       <div className="flex items-center justify-between">
-        <IconButton label="Supprimer la note" size="sm" variant="ghost" icon={<Trash2 size={16} />} onPress={onDelete} />
+        <IconButton label={t("Supprimer la note")} size="sm" variant="ghost" icon={<Trash2 size={16} />} onPress={onDelete} />
         <div className="flex gap-1">
           <Button size="sm" onPress={onClose}>
-            Fermer
+            {t("Fermer")}
           </Button>
           <Button size="sm" variant="primary" onPress={commit}>
-            Enregistrer
+            {t("Enregistrer")}
           </Button>
         </div>
       </div>
@@ -253,7 +253,7 @@ export function PropertyBar({
   showWidth,
   showOpacity,
   showColor = true,
-  widthLabel = "Épaisseur",
+  widthLabel = t("Épaisseur"),
   widthRange = [0.5, 12, 0.5],
   extra,
   onChange,
@@ -278,7 +278,7 @@ export function PropertyBar({
       <span className="shrink-0 text-sm font-medium whitespace-nowrap text-muted">{title}</span>
       {showColor && (
         <ColorSwatches
-          aria-label="Couleur"
+          aria-label={t("Couleur")}
           value={toHex(style.color)}
           onChange={(c) => {
             const rgb = fromHex(c.toString("hex"));
@@ -290,7 +290,7 @@ export function PropertyBar({
         <>
           <ToolbarSeparator />
           <Slider
-            label="Opacité"
+            label={t("Opacité")}
             unit=" %"
             minValue={10}
             maxValue={100}
@@ -319,11 +319,11 @@ export function PropertyBar({
       {extra}
       {onDelete && (
         <Button size="sm" variant="ghost" icon={<Trash2 size={16} />} onPress={onDelete} className="ml-auto">
-          Supprimer
+          {t("Supprimer")}
         </Button>
       )}
     </Toolbar>
   );
 }
 
-export const kindLabel = (a: Annot) => KIND_LABELS[a.kind];
+export const kindLabel = (a: Annot) => t(KIND_LABELS[a.kind]);

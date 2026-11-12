@@ -1,3 +1,4 @@
+import { shortcutLabel } from "../i18n";
 import type { ReactNode } from "react";
 import { Tooltip as RACTooltip, type TooltipProps as RACTooltipProps } from "react-aria-components";
 import { Kbd } from "./Kbd";
@@ -16,7 +17,7 @@ export function Tooltip({ children, shortcut, offset = 6, ...props }: TooltipPro
       className="z-(--z-tooltip) flex items-center gap-2 rounded-sm bg-fg px-2 py-1 text-xs text-bg shadow-pop forced-colors:border forced-colors:border-[CanvasText]"
     >
       {children}
-      {shortcut ? <Kbd inverted>{shortcut}</Kbd> : null}
+      {shortcut ? <Kbd inverted>{shortcutLabel(shortcut)}</Kbd> : null}
     </RACTooltip>
   );
 }
