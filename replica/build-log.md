@@ -256,3 +256,23 @@ désinstallation et réinstallation, dossier de données sauvegardé avant) :
   fichiers, pages du site à jour.
 - `tools/i18n/` : extraction des clés, traductions anglaises, contrôle (`npm run i18n:check`).
 - Rotation de la vue déplacée sur Ctrl+Alt+flèches (Ctrl+Maj+flèche étend la sélection).
+
+### Vérifications complémentaires (2026-11-12)
+
+- **Arbre d'accessibilité** (ce que lit un lecteur d'écran), relevé par UI Automation sur
+  l'application en marche (`tools/a11y/uia-dump.ps1`) : 18 boutons, tous nommés ; outils exposés
+  comme boutons radio ; document annoncé « 08-formulaire-acroform.pdf, page 1 sur 1 » ; texte de la
+  page exposé mot par mot ; champs du formulaire nommés (« Nom », « J'accepte », « Formule :
+  mensuelle ») ; bandeau en zone d'état ; une boîte modale masque bien le reste de la fenêtre. À
+  améliorer : les champs arrivent après tout le texte de la page, pas à côté de leur libellé. NVDA
+  lui-même n'est pas installé sur ce poste : l'écoute reste à faire.
+- **Contraste élevé** simulé (forced-colors) sur la page des composants : interface lisible,
+  sélection visible. La simulation a montré un risque réel : le mode impose la couleur du texte, y
+  compris celle de la couche de texte invisible ; avec le contraste élevé de Windows, le texte du
+  PDF serait apparu en double. Corrigé (`forced-color-adjust: none` sur la couche de texte, les
+  images de page et les tracés). Le mode de Windows lui-même n'a pas été activé (réglage système).
+- **Impression papier** : l'imprimante réseau était hors ligne (ne répond pas sur le réseau) ; rien
+  n'a été envoyé, pour ne pas laisser un travail en attente. Test prêt :
+  `PDFREADER_TEST_PRINTER="<nom de l'imprimante>" cargo test -p pdfreader-engine --test print real_printer -- --ignored`.
+- **Clé de signature** copiée sur un second disque, hors du dépôt ; une copie hors de
+  l'ordinateur reste à faire.

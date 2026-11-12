@@ -10,3 +10,18 @@ html, body, #root { height: 100%; overflow: hidden; }
 
 /* Couche de texte : texte invisible mais sélectionnable ; la sélection reste visible. */
 .pdf-text-layer ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); color: transparent; }
+
+/* Contraste élevé de Windows (forced-colors) : la couche de texte doit rester invisible (sinon le
+   texte du PDF apparaît en double par-dessus l'image de la page) ; les pages, leurs images et les
+   tracés des commentaires gardent leurs couleurs, qui sont celles du document. */
+@media (forced-colors: active) {
+  .pdf-text-layer,
+  .pdf-text-layer * {
+    forced-color-adjust: none;
+    color: transparent;
+  }
+  .pdf-page img,
+  .pdf-page svg {
+    forced-color-adjust: none;
+  }
+}

@@ -206,3 +206,36 @@ fn comments_option_page_range_and_orientation() {
     drop(printed);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Impression sur une vraie imprimante, lancée à la main seulement :
+///     PDFREADER_TEST_PRINTER="Nom de l'imprimante" cargo test -p pdfreader-engine --test print real_printer -- --ignored
+/// Trois pages en recto verso (bord long), avec les commentaires : à vérifier sur le papier.
+#[test]
+#[ignore]
+fn real_printer_duplex() {
+    let Ok(printer) = std::env::var("PDFREADER_TEST_PRINTER") else {
+        eprintln!("PDFREADER_TEST_PRINTER non défini");
+        return;
+    };
+    let Some(src) = ready("01-texte-10p.pdf") else { return };
+    let info = print_win::printers().into_iter().find(|p| p.name == printer).expect("imprimante inconnue");
+    let pdfium = pdfium();
+    let doc = eng::open_typed(&pdfium, &src, None).unwrap();
+    let mut page = doc.pages().get(0).unwrap();
+    eng::annotations::add_ink(&mut page, &[vec![[80.0, 760.0], [520.0, 760.0]]], [0, 160, 0], 1.0, 4.0, "Test").unwrap();
+    drop(page);
+    let opts = PrintOptions {
+        printer: printer.clone(),
+        pages: vec![0, 1, 2],
+        scale: Scale::Fit,
+        custom_scale: 100.0,
+        orientation: Orientation::Auto,
+        duplex: if info.duplex { Duplex::Long } else { Duplex::None },
+        copies: 1,
+        comments: true,
+        output_file: None,
+        title: "PDFReader — essai d'impression recto verso".into(),
+    };
+    print_win::print(&doc, &opts, true).unwrap();
+    eprintln!("envoyé à « {printer} » (recto verso : {})", info.duplex);
+}
