@@ -100,6 +100,7 @@ pub enum Cmd {
     SetField { doc: u32, page: i32, index: i32, input: eng::fill::FieldInput, reply: Reply<Vec<eng::fill::Field>> },
     Links { doc: u32, page: i32, reply: Reply<Vec<eng::PageLink>> },
     Bookmarks { doc: u32, reply: Reply<Vec<eng::Bookmark>> },
+    Properties { doc: u32, reply: Reply<eng::properties::DocProperties> },
     Search { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool, reply: Reply<eng::SearchBatch> },
     Close { doc: u32 },
     Tile { doc: u32, page: i32, scale: f32, x: i32, y: i32, size: i32, responder: UriSchemeResponder },
@@ -377,6 +378,10 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                 let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::bookmarks(&e.doc));
                 let _ = reply.send(r);
             }
+            Cmd::Properties { doc, reply } => {
+                let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::properties::properties(&e.doc, &e.path));
+                let _ = reply.send(r);
+            }
             Cmd::Search { doc, from, count, query, match_case, whole_word, reply } => {
                 let r = docs
                     .get(&doc)
@@ -460,6 +465,9 @@ fn fail(cmd: Cmd, msg: &str) {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Bookmarks { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::Properties { reply, .. } => {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Fields { reply, .. } | Cmd::SetField { reply, .. } => {

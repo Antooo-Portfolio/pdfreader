@@ -296,3 +296,24 @@ désinstallation et réinstallation, dossier de données sauvegardé avant) :
   (clé lue dans le dossier de l'utilisateur ; ou prendre l'artefact « setup » de la CI), `python tools/release/prepare.py --notes "…"`, puis
   `gh release create vX.Y.Z -R Antooo-Portfolio/pdfreader` avec les trois fichiers de
   `target/release-upload/`.
+
+## M3 — lot « lecture » (2026-11-12)
+
+Branche `m3-lecture`. Vue précédente / suivante, mode lecture et plein écran, propriétés du
+document (S15), export et import des préférences. Partie `m3reading` du scénario de bout en bout
+(historique avec Alt+flèches, mode lecture et Échap, plein écran avec clic pour avancer et retour
+au mode du document, Propriétés avec l'onglet Polices, export puis import des préférences et
+fichier refusé) ; test du moteur `document_properties` (métadonnées, version, polices, Courier non
+incorporée, chiffrement AES-256 R6). Scénario complet passé quatre fois de suite.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Vue précédente / suivante | 2026-11-12 | fait | — | le premier saut après un retour sur l'onglet échouait : une « ancre » prise lors d'un redimensionnement sans effet sur la mise en page (hauteur seule) restait en attente et ramenait la vue en arrière au changement de page suivant ; les ancres non consommées sont maintenant effacées après chaque rendu |
+| S10 Mode lecture, plein écran | 2026-11-12 | fait | défilement automatique (could) | en sortant du plein écran, la vue retombait en page 1 : le recalage était posé dans un effet, qui passe après celui de la mise en page ; il est décidé pendant le rendu |
+| S15 Propriétés du document | 2026-11-12 | fait (lecture) | modifier les métadonnées (could) ; type de chaque police | polices lues par l'API brute de PDFium, objets de formulaire imbriqués compris (profondeur limitée) |
+| Export / import des préférences | 2026-11-12 | fait | — | — |
+
+Corrigé au passage : quatre phrases de l'interface échappaient à la traduction (bandeau
+« Recharger », bandeau des droits du document, « Ouverture de… », demande de mot de passe) ;
+le test du formulaire attend chaque saisie avant la suivante (une exécution sur quatre perdait le
+bouton radio et la liste, cliqués dans la même milliseconde).

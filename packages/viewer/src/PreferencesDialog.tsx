@@ -1,7 +1,7 @@
 /** S14 : préférences, par catégorie. Chaque réglage s'applique tout de suite et est mémorisé dans
  *  la base locale. */
 import { t, Button, Dialog, Select, Switch, TextField, msg } from "@pdfreader/ui";
-import { ExternalLink } from "lucide-react";
+import { Download, ExternalLink, Upload } from "lucide-react";
 import { useState } from "react";
 import { Tab, TabList, TabPanel, Tabs } from "react-aria-components";
 import type { EngineClient, Layout, Theme } from "./engine";
@@ -24,6 +24,8 @@ export function PreferencesDialog({
   onChange,
   onAuthorChange,
   onReset,
+  onExport,
+  onImport,
   onClose,
 }: {
   engine: EngineClient;
@@ -32,6 +34,8 @@ export function PreferencesDialog({
   onChange: <K extends keyof Prefs>(key: K, value: Prefs[K]) => void;
   onAuthorChange: (name: string) => void;
   onReset: () => Promise<void>;
+  onExport: () => void;
+  onImport: () => void;
   onClose: () => void;
 }) {
   const [cat, setCat] = useState<Category>("general");
@@ -140,6 +144,18 @@ export function PreferencesDialog({
             onSelectionChange={(k) => onChange("language", k as Prefs["language"])}
             className="max-w-72"
           />
+          <section className="flex flex-col gap-2">
+            <h3 className="text-base font-semibold">{t("Sauvegarder mes réglages")}</h3>
+            <p className="text-sm text-muted">{t("Un fichier à garder ou à reprendre sur un autre ordinateur. Vos signatures n'y sont pas : elles restent sur ce poste.")}</p>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" icon={<Download size={16} />} onPress={onExport}>
+                {t("Exporter…")}
+              </Button>
+              <Button size="sm" icon={<Upload size={16} />} onPress={onImport}>
+                {t("Importer…")}
+              </Button>
+            </div>
+          </section>
         </TabPanel>
 
         <TabPanel id="display" className="flex flex-1 flex-col gap-5 outline-none">

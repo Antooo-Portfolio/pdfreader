@@ -67,7 +67,14 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.m2 = await runM2(engine, actions, annot.doc ?? reopened, path);
     steps.fill = await runFill(actions, path.replace(/[^\\/]+$/, "08-formulaire-acroform.pdf"), await engine.e2ePause());
     steps.settings = await runSettings(engine, actions, path, await engine.e2ePause());
-    steps.ok = m1 && (steps.m2 as { ok: boolean }).ok && (annot.report.ok as boolean) && (steps.fill as { ok: boolean }).ok && (steps.settings as { ok: boolean }).ok;
+    steps.m3reading = await runM3Reading(engine, actions, path);
+    steps.ok =
+      m1 &&
+      (steps.m2 as { ok: boolean }).ok &&
+      (annot.report.ok as boolean) &&
+      (steps.fill as { ok: boolean }).ok &&
+      (steps.settings as { ok: boolean }).ok &&
+      (steps.m3reading as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -313,9 +320,13 @@ async function runFill(actions: AppActions, formPath: string, pauseMs = 0) {
     nom.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     nom.blur();
     const accept = await waitFor(() => document.querySelector<HTMLInputElement>('input[type="checkbox"][aria-label="J\'accepte"]'));
+    // Chaque saisie est attendue avant la suivante, comme le ferait un utilisateur.
+    const fieldIs = (test: (f: Awaited<ReturnType<typeof a.fields>>) => boolean) => until(async () => test(await a.fields(0)) || null, 3000);
     accept.click();
+    await fieldIs((f) => !!f.find((x) => x.name === "accepte")?.checked);
     const radio = await waitFor(() => document.querySelector<HTMLInputElement>('input[type="radio"][aria-label="Formule : annuelle"]'));
     radio.click();
+    await fieldIs((f) => !!f.filter((x) => x.name === "formule")[1]?.checked);
     const pays = await waitFor(() => document.querySelector<HTMLSelectElement>('select[aria-label="Pays"]'));
     setNativeValue(pays, "2");
     const filled = await until(async () => {
@@ -603,6 +614,119 @@ async function runSettings(engine: EngineClient, actions: AppActions, path: stri
   return r;
 }
 
+/** M3, lot « lecture » : vue précédente / suivante, mode lecture, plein écran, propriétés du
+ *  document, export et import des préférences. */
+async function runM3Reading(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  try {
+    const doc = await actions.openPath(dir + "01-texte-10p.pdf");
+    if (!doc) throw new Error("document de test introuvable");
+    const a = await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    const pageIs = (n: number) => waitFor(() => (a.view().page === n ? true : null), 4000).catch(() => false);
+    // Barre d'outils du document actif (les onglets cachés gardent la leur).
+    const toolbarShown = () => Array.from(document.querySelectorAll(`[aria-label="Barre d'outils du document"]`)).some((el) => !el.closest("[hidden]"));
+    await waitFor(() => document.querySelector(`[data-page-index="0"] img`), 6000).catch(() => null);
+    await sleep(300);
+
+    // Vue précédente / suivante : sauts inscrits, Alt+← et Alt+→.
+    const trace: string[] = [];
+    const note = (what: string) => trace.push(`${what}:${a.view().page}/${a.view().back}/${a.view().forward}`);
+    note("début");
+    a.jumpTo(1);
+    await pageIs(1);
+    note("j1");
+    a.jumpTo(5);
+    const at5 = await pageIs(5);
+    note("j5");
+    a.jumpTo(8);
+    const at8 = await pageIs(8);
+    note("j8");
+    a.back();
+    const back5 = await pageIs(5);
+    note("b");
+    key("ArrowLeft", { altKey: true });
+    const back1 = await pageIs(1);
+    note("b");
+    key("ArrowRight", { altKey: true });
+    const fwd5 = await pageIs(5);
+    note("f");
+    const v = a.view();
+    r.history = { at5, at8, back5, back1, fwd5, back: v.back, forward: v.forward, trace };
+    checks.history = at5 && at8 && back5 && back1 && fwd5 && v.forward === 1;
+
+    // Mode lecture (Ctrl+H) : barres et onglets masqués, barre flottante ; Échap en sort.
+    key("h", { ctrlKey: true });
+    await waitFor(() => (actions.immersive() === "reading" ? true : null), 3000);
+    await sleep(150);
+    const toolbarHidden = !toolbarShown();
+    const tabsHidden = !!document.querySelector('[role="tablist"]')?.closest("[hidden]");
+    const bar = !!document.querySelector("[data-immersive-bar]");
+    key("Escape");
+    await sleep(150);
+    const readingOff = actions.immersive() === null && toolbarShown();
+    r.reading = { toolbarHidden, tabsHidden, bar, readingOff };
+    checks.reading = toolbarHidden && tabsHidden && bar && readingOff;
+
+    // Plein écran (Ctrl+L) : une page, ajustée ; un clic avance ; Échap rétablit le mode du document.
+    const before = a.view();
+    key("l", { ctrlKey: true });
+    await waitFor(() => (a.view().layout === "single" ? true : null), 3000);
+    const fsView = a.view();
+    await sleep(300);
+    document.querySelector<HTMLElement>('[role="document"]')?.click();
+    const advanced = await pageIs(fsView.page + 1);
+    key("Escape");
+    await waitFor(() => (actions.immersive() === null ? true : null), 3000);
+    await sleep(200);
+    const after = a.view();
+    r.fullscreen = { before, fsView, advanced, after };
+    checks.fullscreen = fsView.zoomMode === "fit-page" && advanced && after.layout === before.layout && after.zoomMode === before.zoomMode && after.page === fsView.page + 1;
+
+    // Propriétés du document (Ctrl+D).
+    key("d", { ctrlKey: true });
+    const props = await waitFor(() => document.querySelector("[data-properties]"), 6000);
+    const desc = await waitFor(() => (props.textContent?.includes("Corpus PDFReader") ? props.textContent : null), 4000).catch(() => props.textContent ?? "");
+    const fontsTab = Array.from(props.querySelectorAll('[role="tab"]')).find((x) => x.textContent === "Polices") as HTMLElement | undefined;
+    fontsTab?.click();
+    const fonts = await waitFor(() => props.querySelector('[aria-label="Polices"]')?.querySelectorAll("li").length || null, 3000).catch(() => 0);
+    const p = await engine.properties(doc.id);
+    r.properties = { author: p.author, producer: p.producer, version: p.version, fonts, pages: p.pageCount, descOk: desc.includes("Corpus PDFReader") && desc.includes("01-texte-10p.pdf") };
+    checks.properties = desc.includes("Corpus PDFReader") && desc.includes("01-texte-10p.pdf") && fonts > 0 && p.pageCount === 10;
+    const dlg = props.closest('[role="dialog"]');
+    Array.from(dlg?.querySelectorAll("button") ?? []).find((x) => x.textContent === "Fermer")?.click();
+    await sleep(200);
+    checks.propertiesClosed = !document.querySelector("[data-properties]");
+
+    // Préférences : export, changement, import (retour à la valeur exportée) ; fichier refusé.
+    const file = (await engine.appInfo()).dataDir.replace(/[\\/]$/, "") + "\\prefs-export.json";
+    actions.setPref("uiScale", 125);
+    await sleep(100);
+    const exported = await engine.exportPreferences(file);
+    actions.setPref("uiScale", 150);
+    await sleep(100);
+    const imported = await engine.importPreferences(file);
+    await actions.reloadPreferences();
+    await sleep(100);
+    const restored = actions.prefs().uiScale;
+    let refused = "";
+    try {
+      await engine.importPreferences(path);
+    } catch (e) {
+      refused = String(e);
+    }
+    actions.setPref("uiScale", 100);
+    r.prefs = { exported, imported, restored, refused };
+    checks.prefs = (exported ?? 0) > 0 && (imported ?? 0) > 0 && restored === 125 && refused.includes("invalid_file");
+  } catch (e) {
+    r.error = String(e);
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 6;
+  return r;
+}
+
 /** Scénarios en deux lancements : « crash » modifie un document, fait sa copie de récupération et
  *  quitte sans rien nettoyer ; « recover » vérifie qu'au lancement suivant la copie est proposée,
  *  rouverte avec la modification, puis effacée à l'enregistrement. */
@@ -632,6 +756,20 @@ export async function runStage(stage: string, engine: EngineClient, actions: App
       r.saved = id ? await actions.save(id) : false;
       r.leftAfterSave = (await engine.recoveryList()).length;
       r.ok = !!r.offered && (r.restoredMarks as number) >= 1 && dirty && r.saved === true && r.leftAfterSave === 0;
+    } else if (stage === "shots") {
+      // Captures d'écran (outil externe) : propriétés du document, puis mode lecture.
+      if (!first) throw new Error("aucun fichier passé en argument");
+      await waitFor(() => actions.doc());
+      await waitFor(() => document.querySelector(`[data-page-index="0"] img`), 8000);
+      const pause = (await engine.e2ePause()) || 3000;
+      actions.setPropertiesOpen(true);
+      await waitFor(() => document.querySelector("[data-properties]"), 6000);
+      await sleep(pause);
+      actions.setPropertiesOpen(false);
+      actions.setImmersive("reading");
+      await sleep(pause);
+      actions.setImmersive(null);
+      r.ok = true;
     } else if (stage === "update") {
       // Interroge le vrai flux de mises à jour (latest.json publié) : une erreur réseau ou un
       // fichier illisible lève une exception ; sinon, version proposée ou rien si déjà à jour.

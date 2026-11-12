@@ -218,6 +218,7 @@ pub use reading::*;
 pub mod annotations;
 pub mod fonts;
 pub mod fill;
+pub mod properties;
 
 #[cfg(windows)]
 pub mod print_win;

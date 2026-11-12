@@ -1,5 +1,5 @@
 import { t } from "@pdfreader/ui";
-import type { AnnotResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Bookmark, DocInfo, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
+import type { AnnotResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Bookmark, DocInfo, DocProperties, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -31,12 +31,23 @@ export const tauriEngine: EngineClient = {
   countHighlights: (doc, page) => invoke<number>("doc_count_highlights", { doc, page }),
   links: (doc, page) => invoke<PageLink[]>("doc_links", { doc, page }),
   bookmarks: (doc) => invoke<Bookmark[]>("doc_bookmarks", { doc }),
+  properties: (doc) => invoke<DocProperties>("doc_properties", { doc }),
   search: (doc, from, count, query, matchCase, wholeWord) => invoke<SearchBatch>("doc_search", { doc, from, count, query, matchCase, wholeWord }),
   setViewState: (fingerprint, state) => invoke("view_state_set", { fingerprint, state }),
   preferences: () => invoke<Record<string, unknown>>("pref_all"),
   setPreference: (key, value) => invoke("pref_set", { key, value }),
   openUrl: (url) => invoke("open_url", { url }),
   setWindowTheme: (theme) => getCurrentWindow().setTheme(theme),
+  setFullscreen: (on) => getCurrentWindow().setFullscreen(on),
+  async exportPreferences(path) {
+    const target = path ?? (await save({ defaultPath: "PDFReader-preferences.json", filters: [{ name: t("Préférences PDFReader"), extensions: ["json"] }] }));
+    return target ? invoke<number>("pref_export", { path: target }) : null;
+  },
+  async importPreferences(path) {
+    const r = path ?? (await open({ multiple: false, directory: false, filters: [{ name: t("Préférences PDFReader"), extensions: ["json"] }] }));
+    const target = Array.isArray(r) ? r[0] : r;
+    return target ? invoke<number>("pref_import", { path: target }) : null;
+  },
   save: (doc, path) => invoke<SaveResult>("doc_save", { doc, path: path ?? null }),
   close: (doc) => void invoke("doc_close", { doc }),
   recents: () => invoke<RecentFile[]>("recent_list"),

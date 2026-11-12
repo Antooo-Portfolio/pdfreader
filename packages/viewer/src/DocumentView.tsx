@@ -1,8 +1,13 @@
 import { t, PageNavigator, Banner, Button, Checkbox, Dialog, FindBar, IconButton, isModalOpen, Menu, MenuItem, MenuSection, MenuSeparator, MenuTrigger, Toolbar, ToolbarSeparator, ToolButton, ToolGroup, useToast, ZoomControl, msg } from "@pdfreader/ui";
 import { clsx } from "clsx";
 import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpenText,
   Check,
   BookOpen,
+  Info,
+  Maximize,
   Bookmark as BookmarkIcon,
   Eraser,
   FolderOpen,
@@ -62,7 +67,21 @@ interface Props {
   externalChange: boolean;
   onReload: () => void;
   onSaveAs: () => void;
+  /** Mode lecture (sans barres) ou plein écran (une page, fond noir) ; null : normal. */
+  immersive: Immersive;
+  onImmersive: (mode: Immersive) => void;
+  onProperties: () => void;
 }
+
+export type Immersive = "reading" | "fullscreen" | null;
+
+/** Position mémorisée pour « Vue précédente / suivante » : page (à partir de 1) et fraction de
+ *  la page au haut de la vue. */
+interface ViewPos {
+  page: number;
+  fy: number;
+}
+const MAX_HISTORY = 100;
 
 export interface DocActions {
   /** Page courante, à partir de 1. */
@@ -81,6 +100,12 @@ export interface DocActions {
   deleteAnnot: (page: number, id: string) => Promise<boolean>;
   annots: (page: number) => Promise<Annot[]>;
   openPanel: (p: PanelId | null) => void;
+  /** Aller à une page en l'inscrivant dans l'historique (comme un lien ou la saisie du numéro). */
+  jumpTo: (page: number) => void;
+  back: () => void;
+  forward: () => void;
+  /** Vue effective : page, mode, zoom, longueur de l'historique (arrière, avant). */
+  view: () => { page: number; layout: Layout; zoomMode: ZoomMode; back: number; forward: number };
 }
 
 /** Point d'ancrage : garde la même portion du document sous les yeux quand le zoom, la rotation
@@ -146,6 +171,9 @@ export function DocumentView({
   externalChange,
   onReload,
   onSaveAs,
+  immersive,
+  onImmersive,
+  onProperties,
 }: Props) {
   const toast = useToast();
   const { info } = doc;
@@ -158,9 +186,9 @@ export function DocumentView({
   const bookmarkCache = useRef<Bookmark[] | null>(null);
 
   // ------------------------------------------------------------ état de la vue
-  const [zoomMode, setZoomMode] = useState<ZoomMode>(saved?.zoomMode ?? (defaults.zoom === "actual" ? "custom" : defaults.zoom));
+  const [zoomModePref, setZoomMode] = useState<ZoomMode>(saved?.zoomMode ?? (defaults.zoom === "actual" ? "custom" : defaults.zoom));
   const [customZoom, setCustomZoom] = useState(saved?.zoom ?? 1);
-  const [layoutMode, setLayoutMode] = useState<Layout>(saved?.layout ?? defaults.layout);
+  const [layoutPref, setLayoutMode] = useState<Layout>(saved?.layout ?? defaults.layout);
   const [cover, setCover] = useState(saved?.cover ?? false);
   const [rotation, setRotation] = useState<Rotation>(saved?.rotation ?? 0);
   const [panel, setPanel] = useState<PanelId | null>(saved?.panel ?? null);
@@ -172,6 +200,23 @@ export function DocumentView({
   const [confirmUrl, setConfirmUrl] = useState<string | null>(null);
   const anchor = useRef<Anchor | null>(null);
   const pendingScroll = useRef<(() => void) | null>(null);
+  // Plein écran : une page à la fois, ajustée à l'écran, sans toucher aux réglages du document.
+  const fullscreen = immersive === "fullscreen";
+  const zoomMode: ZoomMode = fullscreen ? "fit-page" : zoomModePref;
+  const layoutMode: Layout = fullscreen ? "single" : layoutPref;
+  // Entrée et sortie du plein écran : la page courante reste affichée. Décidé ici (et non dans
+  // un effet) pour être prêt avant le recalage qui suit le changement de mise en page.
+  const lastFullscreen = useRef(fullscreen);
+  if (lastFullscreen.current !== fullscreen) {
+    lastFullscreen.current = fullscreen;
+    anchor.current = null;
+    const continuousNow = isContinuous(layoutMode);
+    pendingScroll.current = () => {
+      const el = scroller.current;
+      const b = LRef.current.boxes[pageRef.current - 1];
+      if (el && b) el.scrollTop = continuousNow ? b.top - PAGE_GAP / 2 : 0;
+    };
+  }
 
   const zoom = useMemo(
     () => (zoomMode === "custom" || viewport.w === 0 ? clampZoom(customZoom) : fitZoom(zoomMode, info.pages, rotation, layoutMode, viewport.w, viewport.h)),
@@ -191,6 +236,10 @@ export function DocumentView({
   );
   const LRef = useRef(L);
   LRef.current = L;
+  const layoutModeRef = useRef(layoutMode);
+  layoutModeRef.current = layoutMode;
+  const zoomModeRef = useRef(zoomMode);
+  zoomModeRef.current = zoomMode;
   const pageRef = useRef(page);
   pageRef.current = page;
   const viewportRef = useRef(viewport);
@@ -202,8 +251,12 @@ export function DocumentView({
     if (!el) return;
     const ro = new ResizeObserver(() => {
       if (el.clientWidth === 0) return;
+      const v = viewportRef.current;
+      // Onglet réaffiché sans changement de taille : rien à recaler (une ancre prise ici
+      // resterait en attente et ferait sauter la vue au prochain changement de page).
+      if (v.w === el.clientWidth && v.h === el.clientHeight) return;
       // En mode ajusté, le zoom suit la taille de la fenêtre : on garde le même endroit en vue.
-      if (viewportRef.current.w > 0) captureAnchorRef.current();
+      if (v.w > 0) captureAnchorRef.current();
       setViewport({ w: el.clientWidth, h: el.clientHeight });
     });
     ro.observe(el);
@@ -254,6 +307,11 @@ export function DocumentView({
     el.scrollLeft = a.fx * L.width - a.vx;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [L]);
+  // Une ancre prise pour un changement qui n'a finalement pas modifié la mise en page (hauteur
+  // seule, zoom identique) ne doit pas rester en attente : elle ferait sauter la vue plus tard.
+  useEffect(() => {
+    anchor.current = null;
+  });
 
   // ------------------------------------------------------------ défilement
   const onScroll = useCallback(() => {
@@ -311,6 +369,64 @@ export function DocumentView({
     if (p > 1) goTo(p);
   }, [viewport.w, saved, goTo]);
 
+  // ------------------------------------------------------------ vue précédente / suivante
+  const history = useRef<{ back: ViewPos[]; fwd: ViewPos[] }>({ back: [], fwd: [] });
+  const [historyLen, setHistoryLen] = useState<[number, number]>([0, 0]);
+  const syncHistory = () => setHistoryLen([history.current.back.length, history.current.fwd.length]);
+  const currentPos = useCallback((): ViewPos => {
+    const el = scroller.current;
+    const b = LRef.current.boxes[pageRef.current - 1];
+    if (!el || !b) return { page: pageRef.current, fy: 0 };
+    const fy = (el.scrollTop + PAGE_GAP / 2 - b.top) / Math.max(1, b.height);
+    return { page: pageRef.current, fy: Math.min(1, Math.max(-1, fy)) };
+  }, []);
+  const showPos = useCallback(
+    (pos: ViewPos) => {
+      const target = Math.min(info.pageCount, Math.max(1, pos.page));
+      const scrollThere = () => {
+        const el = scroller.current;
+        const b = LRef.current.boxes[target - 1];
+        if (el && b) el.scrollTop = b.top + pos.fy * b.height - PAGE_GAP / 2;
+      };
+      const sameRow = spreadRows[target - 1] === spreadRows[pageRef.current - 1];
+      setPage(target);
+      if (isContinuous(layoutMode) || sameRow) scrollThere();
+      else pendingScroll.current = scrollThere;
+    },
+    [info.pageCount, layoutMode, spreadRows],
+  );
+  /** Saut (lien, signet, numéro de page, vignette, commentaire) : la position quittée est inscrite
+   *  dans l'historique. */
+  const jump = useCallback(
+    (p: number, topPt?: number | null) => {
+      const h = history.current;
+      const here = currentPos();
+      const last = h.back[h.back.length - 1];
+      if (!last || last.page !== here.page || Math.abs(last.fy - here.fy) > 0.01) h.back.push(here);
+      if (h.back.length > MAX_HISTORY) h.back.shift();
+      h.fwd = [];
+      syncHistory();
+      goTo(p, topPt);
+    },
+    [currentPos, goTo],
+  );
+  const goBack = useCallback(() => {
+    const h = history.current;
+    const pos = h.back.pop();
+    if (!pos) return;
+    h.fwd.push(currentPos());
+    syncHistory();
+    showPos(pos);
+  }, [currentPos, showPos]);
+  const goForward = useCallback(() => {
+    const h = history.current;
+    const pos = h.fwd.pop();
+    if (!pos) return;
+    h.back.push(currentPos());
+    syncHistory();
+    showPos(pos);
+  }, [currentPos, showPos]);
+
   const stepRow = useCallback(
     (dir: 1 | -1, atEnd = false) => {
       const lay = LRef.current;
@@ -362,10 +478,23 @@ export function DocumentView({
     };
   }, []);
 
+  // Barre flottante des modes lecture et plein écran : visible au mouvement de la souris.
+  const [barVisible, setBarVisible] = useState(true);
+  const barTimer = useRef(0);
+  const wakeBar = useCallback(() => {
+    setBarVisible(true);
+    window.clearTimeout(barTimer.current);
+    barTimer.current = window.setTimeout(() => setBarVisible(false), 2500);
+  }, []);
+  useEffect(() => {
+    if (immersive) wakeBar();
+    return () => window.clearTimeout(barTimer.current);
+  }, [immersive, wakeBar]);
+
   // ------------------------------------------------------------ mémoriser la vue
   const viewState: ViewState = useMemo(
-    () => ({ page, zoomMode, zoom: zoomMode === "custom" ? customZoom : null, layout: layoutMode, cover, rotation, panel }),
-    [page, zoomMode, customZoom, layoutMode, cover, rotation, panel],
+    () => ({ page, zoomMode: zoomModePref, zoom: zoomModePref === "custom" ? customZoom : null, layout: layoutPref, cover, rotation, panel }),
+    [page, zoomModePref, customZoom, layoutPref, cover, rotation, panel],
   );
   const latestView = useRef({ fp: info.fingerprint, vs: viewState });
   latestView.current = { fp: info.fingerprint, vs: viewState };
@@ -505,10 +634,10 @@ export function DocumentView({
   // ------------------------------------------------------------ liens
   const onLink = useCallback(
     (a: LinkAction) => {
-      if (a.kind === "goto") goTo(a.page + 1, a.top);
+      if (a.kind === "goto") jump(a.page + 1, a.top);
       else if (a.kind === "uri") setConfirmUrl(a.uri);
     },
-    [goTo],
+    [jump],
   );
 
   // ------------------------------------------------------------ commentaires
@@ -721,9 +850,9 @@ export function DocumentView({
     (a: Annot) => {
       setSelected({ page: a.page, id: a.id });
       setEditing(null);
-      goTo(a.page + 1, Math.max(0, a.rect[1] - 48));
+      jump(a.page + 1, Math.max(0, a.rect[1] - 48));
     },
-    [goTo],
+    [jump],
   );
 
   // Choisir un outil de création désélectionne le commentaire courant ; un outil de marquage
@@ -922,6 +1051,12 @@ export function DocumentView({
 
   /** Clic sur la page avec l'outil de sélection : sélectionne le commentaire sous le pointeur. */
   const onDocClick = (e: React.MouseEvent) => {
+    if (fullscreen) {
+      const sel = window.getSelection();
+      if ((e.target as Element).closest("a") || (sel && !sel.isCollapsed)) return;
+      stepRow(1);
+      return;
+    }
     if (tool !== "select" && !isMarkupTool(tool)) return;
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) return;
@@ -968,8 +1103,12 @@ export function DocumentView({
         return known ? Promise.resolve(known) : loadAnnots(p);
       },
       openPanel: setPanel,
+      jumpTo: (p) => jump(p),
+      back: goBack,
+      forward: goForward,
+      view: () => ({ page: pageRef.current, layout: layoutModeRef.current, zoomMode: zoomModeRef.current, back: history.current.back.length, forward: history.current.fwd.length }),
     });
-  }, [register, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, addTextBox, saveSignature, placeSignature]);
+  }, [register, jump, goBack, goForward, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, addTextBox, saveSignature, placeSignature]);
   useEffect(() => () => register?.(null), [register]);
 
   // ------------------------------------------------------------ sélection du texte au clavier
@@ -991,8 +1130,8 @@ export function DocumentView({
   };
 
   // ------------------------------------------------------------ clavier
-  const ctx = useRef({ zoom, zoomTo, fit, rotate, goTo, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange });
-  ctx.current = { zoom, zoomTo, fit, rotate, goTo, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange };
+  const ctx = useRef({ zoom, zoomTo, fit, rotate, goTo, jump, goBack, goForward, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange, immersive, onImmersive, onProperties });
+  ctx.current = { zoom, zoomTo, fit, rotate, goTo, jump, goBack, goForward, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange, immersive, onImmersive, onProperties };
   useEffect(() => {
     if (!isActive) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1002,6 +1141,17 @@ export function DocumentView({
       const typing = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
       const inDoc = !target || target === document.body || !!scroller.current?.contains(target);
       const key = e.key;
+      // Échap quitte le mode lecture ou le plein écran ; F11 bascule le plein écran.
+      if (key === "Escape" && c.immersive && !c.findOpen && !c.selected) {
+        e.preventDefault();
+        c.onImmersive(null);
+        return;
+      }
+      if (key === "F11") {
+        e.preventDefault();
+        c.onImmersive(c.immersive === "fullscreen" ? null : "fullscreen");
+        return;
+      }
       // Ctrl+Alt+flèche : pivoter la vue (Ctrl+Maj+flèche sert à la sélection).
       if (e.ctrlKey && e.altKey && !e.shiftKey && (key === "ArrowRight" || key === "ArrowLeft")) {
         e.preventDefault();
@@ -1023,10 +1173,13 @@ export function DocumentView({
         else if (key === "0") c.fit("fit-page");
         else if (key === "2") c.fit("fit-width");
         else if (k === "f") c.openFind();
+        else if (k === "h") c.onImmersive(c.immersive === "reading" ? null : "reading");
+        else if (k === "l") c.onImmersive(c.immersive === "fullscreen" ? null : "fullscreen");
+        else if (k === "d") c.onProperties();
         else if (key === "PageDown") c.goTo(c.page + 1);
         else if (key === "PageUp") c.goTo(c.page - 1);
-        else if (key === "Home" && !typing) c.goTo(1);
-        else if (key === "End" && !typing) c.goTo(Number.MAX_SAFE_INTEGER);
+        else if (key === "Home" && !typing) c.jump(1);
+        else if (key === "End" && !typing) c.jump(Number.MAX_SAFE_INTEGER);
         else handled = false;
         if (handled) e.preventDefault();
         return;
@@ -1039,6 +1192,13 @@ export function DocumentView({
       }
       if (key === "Escape" && c.findOpen && (typing || inDoc)) {
         c.closeFind();
+        return;
+      }
+      // Alt+← / Alt+→ : vue précédente / suivante.
+      if (e.altKey && !e.shiftKey && !typing && (key === "ArrowLeft" || key === "ArrowRight")) {
+        e.preventDefault();
+        if (key === "ArrowLeft") c.goBack();
+        else c.goForward();
         return;
       }
       if (typing || e.altKey || e.metaKey) return;
@@ -1067,10 +1227,10 @@ export function DocumentView({
       const noHScroll = el.scrollWidth <= el.clientWidth + 1;
       if (key === "Home") {
         e.preventDefault();
-        c.goTo(1);
+        c.jump(1);
       } else if (key === "End") {
         e.preventDefault();
-        c.goTo(Number.MAX_SAFE_INTEGER);
+        c.jump(Number.MAX_SAFE_INTEGER);
       } else if (noHScroll && key === "ArrowRight") {
         e.preventDefault();
         c.stepRow(1);
@@ -1134,7 +1294,8 @@ export function DocumentView({
   const notice = !search.searching && search.flat.length === 0 && search.pagesWithText === 0 ? t("Aucun texte dans ce document (numérisé ?)") : null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" hidden={!isActive}>
+    <div className="flex min-h-0 flex-1 flex-col" hidden={!isActive} onMouseMove={immersive ? wakeBar : undefined}>
+      {!immersive && (
       <Toolbar aria-label={t("Barre d'outils du document")} className="h-(--layout-toolbar) shrink-0 border-b border-border bg-bg px-2">
         <IconButton label={t("Ouvrir un fichier")} shortcut="Ctrl+O" icon={<FolderOpen size={18} />} onPress={onOpen} />
         <IconButton label={t("Enregistrer")} shortcut="Ctrl+S" icon={<Save size={18} />} onPress={onSave} isDisabled={!doc.dirty} />
@@ -1165,8 +1326,11 @@ export function DocumentView({
         <div className="ml-auto flex items-center gap-1">
           <IconButton label={t("Imprimer")} shortcut="Ctrl+P" icon={<Printer size={18} />} onPress={onPrint} />
           <IconButton label={t("Rechercher")} shortcut="Ctrl+F" icon={<Search size={18} />} onPress={openFind} />
+          <IconButton label={t("Propriétés du document")} shortcut="Ctrl+D" icon={<Info size={18} />} onPress={onProperties} />
           <ToolbarSeparator />
-          <PageNavigator page={page} total={info.pageCount} onChange={(p) => goTo(p)} />
+          <IconButton label={t("Vue précédente")} shortcut="Alt+←" icon={<ArrowLeft size={18} />} onPress={goBack} isDisabled={historyLen[0] === 0} />
+          <IconButton label={t("Vue suivante")} shortcut="Alt+→" icon={<ArrowRight size={18} />} onPress={goForward} isDisabled={historyLen[1] === 0} />
+          <PageNavigator page={page} total={info.pageCount} onChange={(p) => jump(p)} />
           <ToolbarSeparator />
           <ZoomControl value={Math.round(zoom * 100)} onChange={(v) => zoomTo(v / 100)} onFit={fit} fit={zoomMode === "custom" ? null : zoomMode} />
           <MenuTrigger>
@@ -1208,12 +1372,22 @@ export function DocumentView({
                   {t("Pivoter à gauche")}
                 </MenuItem>
               </MenuSection>
+              <MenuSeparator />
+              <MenuSection>
+                <MenuItem id="reading" icon={<BookOpenText size={16} />} shortcut="Ctrl+H" onAction={() => onImmersive("reading")}>
+                  {t("Mode lecture")}
+                </MenuItem>
+                <MenuItem id="fullscreen" icon={<Maximize size={16} />} shortcut="Ctrl+L" onAction={() => onImmersive("fullscreen")}>
+                  {t("Plein écran")}
+                </MenuItem>
+              </MenuSection>
             </Menu>
           </MenuTrigger>
         </div>
       </Toolbar>
+      )}
 
-      {canAnnotate && selectedAnnot && !selectedAnnot.locked ? (
+      {immersive ? null : canAnnotate && selectedAnnot && !selectedAnnot.locked ? (
         <PropertyBar
           title={t("Sélection : {kind}", { kind: t(KIND_LABELS[selectedAnnot.kind]) })}
           style={{ color: selectedAnnot.color ?? DEFAULT_STYLES.highlight.color, opacity: selectedAnnot.opacity, width: selectedAnnot.width }}
@@ -1314,7 +1488,7 @@ export function DocumentView({
                 </Button>
               )}
               <Button size="sm" variant={doc.dirty ? "ghost" : "primary"} onPress={onReload}>
-                {doc.dirty ? "Recharger (perdre mes modifications)" : "Recharger"}
+                {doc.dirty ? t("Recharger (perdre mes modifications)") : t("Recharger")}
               </Button>
             </>
           }
@@ -1322,10 +1496,10 @@ export function DocumentView({
           {t("Ce fichier a été modifié par un autre programme depuis son ouverture.")}
         </Banner>
       )}
-      {info.isXfa && (
+      {info.isXfa && !immersive && (
         <Banner tone="warning">{t("Ce document utilise des formulaires XFA, qui ne sont pas pris en charge : certaines pages peuvent s'afficher incomplètes.")}</Banner>
       )}
-      {info.hasForm && !info.isXfa && !formBannerClosed && (
+      {info.hasForm && !info.isXfa && !formBannerClosed && !immersive && (
         <Banner
           tone="info"
           onDismiss={() => setFormBannerClosed(true)}
@@ -1338,9 +1512,9 @@ export function DocumentView({
           {canFill ? t("Ce document contient un formulaire : cliquez dans les champs pour les remplir (Tab passe au suivant).") : t("Ce document contient un formulaire, mais son auteur en a interdit le remplissage.")}
         </Banner>
       )}
-      {restricted && !restrictionsDismissed && (
+      {restricted && !restrictionsDismissed && !immersive && (
         <Banner tone="info" onDismiss={() => setRestrictionsDismissed(true)}>
-          L'auteur de ce document a désactivé : {restrictions}.
+          {t("L'auteur de ce document a désactivé : {restrictions}.", { restrictions })}
         </Banner>
       )}
 
@@ -1379,7 +1553,20 @@ export function DocumentView({
             tabIndex={0}
             role="document"
             aria-label={t("{name}, page {page} sur {total}", { name: info.name, page, total: info.pageCount })}
-            className={clsx("focus-ring-inset min-h-0 flex-1 overflow-auto bg-canvas [scrollbar-gutter:stable]", isMarkupTool(tool) && canAnnotate && "cursor-text")}
+            className={clsx(
+              "focus-ring-inset min-h-0 flex-1 overflow-auto",
+              fullscreen ? "bg-black [scrollbar-gutter:auto]" : "bg-canvas [scrollbar-gutter:stable]",
+              fullscreen && !barVisible && "cursor-none",
+              !fullscreen && isMarkupTool(tool) && canAnnotate && "cursor-text",
+            )}
+            onContextMenu={
+              fullscreen
+                ? (e) => {
+                    e.preventDefault();
+                    stepRow(-1);
+                  }
+                : undefined
+            }
             onMouseUp={() => {
               if (isMarkupTool(tool) && canAnnotate) void markupSelection(tool);
             }}
@@ -1412,7 +1599,7 @@ export function DocumentView({
                       annots={annots.get(i) ?? null}
                       selectedId={selected?.page === i ? selected.id : null}
                       editing={editing?.page === i ? editing : null}
-                      tool={canAnnotate ? tool : "select"}
+                      tool={canAnnotate && !immersive ? tool : "select"}
                       toolStyle={styles.ink}
                       onPlace={onPlace}
                       fields={fields.get(i) ?? null}
@@ -1441,12 +1628,32 @@ export function DocumentView({
                 })}
             </div>
           </div>
+          {immersive && (
+            <div
+              data-immersive-bar
+              className={clsx(
+                "absolute bottom-4 left-1/2 z-(--z-toolbar) flex -translate-x-1/2 items-center gap-1 rounded-lg border border-border bg-bg/95 px-2 py-1 shadow-lg transition-opacity duration-(--motion-base) focus-within:opacity-100",
+                barVisible ? "opacity-100" : "pointer-events-none opacity-0",
+              )}
+            >
+              <IconButton label={t("Vue précédente")} shortcut="Alt+←" icon={<ArrowLeft size={18} />} onPress={goBack} isDisabled={historyLen[0] === 0} />
+              <PageNavigator page={page} total={info.pageCount} onChange={(p) => jump(p)} />
+              {!fullscreen && <ZoomControl value={Math.round(zoom * 100)} onChange={(v) => zoomTo(v / 100)} onFit={fit} fit={zoomMode === "custom" ? null : zoomMode} />}
+              <ToolbarSeparator />
+              <IconButton
+                label={fullscreen ? t("Quitter le plein écran") : t("Quitter le mode lecture")}
+                shortcut="Échap"
+                icon={<XIcon size={18} />}
+                onPress={() => onImmersive(null)}
+              />
+            </div>
+          )}
         </div>
 
-        {panel && (
+        {panel && !immersive && (
           <aside className="flex w-(--layout-sidepanel) shrink-0 flex-col border-l border-border bg-surface">
             {panel === "thumbnails" ? (
-              <ThumbnailsPanel engine={engine} doc={doc} rotation={rotation} page={page} dpr={dpr} onGoTo={(p) => goTo(p)} onClose={() => setPanel(null)} />
+              <ThumbnailsPanel engine={engine} doc={doc} rotation={rotation} page={page} dpr={dpr} onGoTo={(p) => jump(p)} onClose={() => setPanel(null)} />
             ) : panel === "bookmarks" ? (
               <BookmarksPanel engine={engine} docId={info.id} cache={bookmarkCache} onLink={onLink} onClose={() => setPanel(null)} />
             ) : (
@@ -1466,6 +1673,7 @@ export function DocumentView({
             )}
           </aside>
         )}
+        {!immersive && (
         <Toolbar aria-label={t("Panneaux")} orientation="vertical" className="flex w-(--layout-panel-rail) shrink-0 flex-col items-center gap-1 border-l border-border bg-bg py-2">
           <ToolButton
             label={t("Vignettes")}
@@ -1476,6 +1684,7 @@ export function DocumentView({
           <ToolButton label={t("Signets")} icon={<BookmarkIcon size={18} />} isSelected={panel === "bookmarks"} onChange={(on) => setPanel(on ? "bookmarks" : null)} />
           <ToolButton label={t("Commentaires")} icon={<MessageSquare size={18} />} isSelected={panel === "comments"} onChange={(on) => setPanel(on ? "comments" : null)} />
         </Toolbar>
+        )}
       </div>
 
       {sigDialog && (

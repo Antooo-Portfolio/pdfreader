@@ -138,3 +138,36 @@ fn cjk_fonts_not_embedded_are_drawn() {
     assert!(ja > 400, "le japonais doit s'afficher ({ja})");
     assert!(zh > 400, "le chinois doit s'afficher ({zh})");
 }
+
+#[test]
+fn document_properties() {
+    // Corpus : titre et auteur posés par reportlab ; Courier non embarquée.
+    let (Some(text), Some(courier), Some(enc)) = (common::corpus("01-texte-10p.pdf"), common::corpus("03-courier-non-embarquee.pdf"), common::corpus("09-chiffre-aes256.pdf")) else {
+        eprintln!("corpus absent : test ignoré");
+        return;
+    };
+    let pdfium = pdfium();
+    let doc = eng::open_typed(&pdfium, &text, None).expect("ouverture");
+    let p = eng::properties::properties(&doc, &text);
+    assert_eq!(p.author, "Corpus PDFReader");
+    assert!(!p.title.is_empty(), "titre lu");
+    assert!(p.producer.to_lowercase().contains("reportlab"), "producteur : {}", p.producer);
+    assert!(p.created.starts_with("D:"), "date brute : {}", p.created);
+    assert_eq!(p.page_count, 10);
+    assert!(p.version.as_deref().is_some_and(|v| v.starts_with("1.")), "version : {:?}", p.version);
+    assert!(p.file_size > 1000);
+    assert_eq!(p.security_revision, None);
+    assert!(!p.fonts.is_empty(), "polices lues");
+    assert_eq!(p.fonts_pages, 10);
+    drop(doc);
+
+    let doc = eng::open_typed(&pdfium, &courier, None).expect("ouverture");
+    let p = eng::properties::properties(&doc, &courier);
+    let c = p.fonts.iter().find(|f| f.name.contains("Courier")).expect("Courier listée");
+    assert!(!c.embedded, "Courier non embarquée");
+    drop(doc);
+
+    let doc = eng::open_typed(&pdfium, &enc, Some("test1234")).expect("ouverture avec le mot de passe");
+    let p = eng::properties::properties(&doc, &enc);
+    assert_eq!(p.security_revision, Some(6), "AES-256 (R6)");
+}

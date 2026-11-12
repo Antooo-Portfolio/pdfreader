@@ -3,13 +3,14 @@ import { Home, Info, Palette, Settings } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { AboutDialog, UpdateConsentDialog, UpdateDialog, type UpdateInfo } from "./AboutDialog";
 import { DEFAULT_STYLES, type Tool, type ToolStyle, type ToolStyles } from "./annot";
-import { type DocActions, DocumentView } from "./DocumentView";
+import { type DocActions, DocumentView, type Immersive } from "./DocumentView";
 import { runE2E, runStage } from "./e2e";
 import { type DocInfo, type EngineClient, isOpenError, type RecoveryItem, type Theme } from "./engine";
 import { HomeView } from "./HomeView";
 import { DEFAULT_PREFS, DEFAULT_PRINT, parsePrefs, parsePrintSettings, type Prefs, type PrintSettings } from "./prefs";
 import { PreferencesDialog } from "./PreferencesDialog";
 import { PrintDialog } from "./PrintDialog";
+import { PropertiesDialog } from "./PropertiesDialog";
 import { RecoveryDialog } from "./RecoveryDialog";
 import { reducer } from "./state";
 
@@ -53,6 +54,12 @@ export interface AppActions {
   save(id: number, asPath?: string): Promise<boolean>;
   closeDoc(id: number): Promise<void>;
   activeId(): number | null;
+  setImmersive(mode: Immersive): void;
+  immersive(): Immersive;
+  /** Boîte Propriétés du document actif : ouverte ou fermée. */
+  setPropertiesOpen(open: boolean): void;
+  /** Recharge les préférences enregistrées (après un import). */
+  reloadPreferences(): Promise<void>;
 }
 
 export function App({ engine }: { engine: EngineClient }) {
@@ -84,6 +91,10 @@ export function App({ engine }: { engine: EngineClient }) {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [immersive, setImmersiveState] = useState<Immersive>(null);
+  const immersiveRef = useRef(immersive);
+  immersiveRef.current = immersive;
+  const [propertiesFor, setPropertiesFor] = useState<number | null>(null);
   const docsRef = useRef(docs);
   docsRef.current = docs;
   const activeRef = useRef(active);
@@ -96,10 +107,9 @@ export function App({ engine }: { engine: EngineClient }) {
   }, [engine, activeDoc]);
 
   // ------------------------------------------------------------ thème
-  useEffect(() => {
-    engine
-      .preferences()
-      .then((p) => {
+  const loadPreferences = useCallback(
+    () =>
+      engine.preferences().then((p) => {
         setPrefs(parsePrefs(p));
         setPrefsLoaded(true);
         setPrintSettings(parsePrintSettings(p.print));
@@ -119,9 +129,31 @@ export function App({ engine }: { engine: EngineClient }) {
             return next;
           });
         }
-      })
-      .catch(() => undefined);
-  }, [engine]);
+      }),
+    [engine],
+  );
+  useEffect(() => {
+    loadPreferences().catch(() => undefined);
+  }, [loadPreferences]);
+  const importPreferences = useCallback(async () => {
+    try {
+      const n = await engine.importPreferences();
+      if (n === null) return;
+      await loadPreferences();
+      setAuthor(await engine.author().catch(() => ""));
+      toast({ tone: "success", message: t("{count} réglages importés.", { count: n }) });
+    } catch (e) {
+      toast({ tone: "error", message: String(e).includes("invalid_file") ? t("Ce fichier ne contient pas de préférences PDFReader.") : t("L'import a échoué : {detail}", { detail: String(e) }) });
+    }
+  }, [engine, loadPreferences, toast]);
+  const exportPreferences = useCallback(async () => {
+    try {
+      const n = await engine.exportPreferences();
+      if (n !== null) toast({ tone: "success", message: t("Préférences exportées ({count} réglages).", { count: n }) });
+    } catch (e) {
+      toast({ tone: "error", message: t("L'export a échoué : {detail}", { detail: String(e) }) });
+    }
+  }, [engine, toast]);
   useEffect(() => applyTheme(engine, theme), [engine, theme]);
   useEffect(() => applyScale(prefs.uiScale), [prefs.uiScale]);
   const setPref = useCallback(
@@ -401,6 +433,25 @@ export function App({ engine }: { engine: EngineClient }) {
       .catch(() => undefined); // hors ligne : on réessaiera demain
   }, [prefsLoaded, e2eMode, prefs.updates, prefs.updatesLastCheck, engine, setPref]);
 
+  const setImmersive = useCallback(
+    (mode: Immersive) => {
+      setImmersiveState((cur) => {
+        if ((cur === "fullscreen") !== (mode === "fullscreen")) void engine.setFullscreen(mode === "fullscreen").catch(() => undefined);
+        return mode;
+      });
+    },
+    [engine],
+  );
+  // Changer d'onglet ou fermer le document quitte ces modes.
+  useEffect(() => {
+    if (immersiveRef.current && !docs.some((d) => String(d.info.id) === active)) setImmersive(null);
+  }, [active, docs, setImmersive]);
+  const lastActive = useRef(active);
+  useEffect(() => {
+    if (lastActive.current !== active && immersiveRef.current) setImmersive(null);
+    lastActive.current = active;
+  }, [active, setImmersive]);
+
   const openPrint = useCallback(() => {
     const id = Number(activeRef.current);
     if (id) setPrintFor(id);
@@ -439,6 +490,10 @@ export function App({ engine }: { engine: EngineClient }) {
           save,
           closeDoc: async (id) => reallyClose(id),
           activeId: () => Number(activeRef.current) || null,
+          setImmersive,
+          immersive: () => immersiveRef.current,
+          setPropertiesOpen: (open) => setPropertiesFor(open ? Number(activeRef.current) || null : null),
+          reloadPreferences: () => loadPreferences(),
         };
         const stage = await engine.e2eStage();
         const report = stage ? await runStage(stage, engine, actions, first) : await runE2E(engine, actions, first, launch[0] ?? null);
@@ -498,7 +553,7 @@ export function App({ engine }: { engine: EngineClient }) {
 
   return (
     <div className="flex h-screen flex-col bg-bg text-fg">
-      <div className="flex items-end gap-2 bg-surface px-2">
+      <div className="flex items-end gap-2 bg-surface px-2" hidden={!!immersive}>
         <DocumentTabs
           selectedKey={active}
           onSelectionChange={(k) => setActive(String(k))}
@@ -510,7 +565,7 @@ export function App({ engine }: { engine: EngineClient }) {
         />
         {opening && (
           <span className="mb-2 flex shrink-0 items-center gap-2 text-sm text-muted" role="status">
-            <Spinner label="" /> Ouverture de {opening}…
+            <Spinner label="" /> {t("Ouverture de {name}…", { name: opening })}
           </span>
         )}
         <div className="mb-1 ml-auto flex shrink-0 items-center gap-0.5">
@@ -562,6 +617,9 @@ export function App({ engine }: { engine: EngineClient }) {
           externalChange={external.has(d.info.id)}
           onReload={() => void reload(d.info.id)}
           onSaveAs={() => void saveAs(d.info.id)}
+          immersive={active === String(d.info.id) ? immersive : null}
+          onImmersive={setImmersive}
+          onProperties={() => setPropertiesFor(d.info.id)}
         />
       ))}
 
@@ -580,6 +638,11 @@ export function App({ engine }: { engine: EngineClient }) {
             />
           );
         })()}
+      {propertiesFor !== null &&
+        (() => {
+          const d = docs.find((x) => x.info.id === propertiesFor);
+          return d ? <PropertiesDialog engine={engine} info={d.info} onClose={() => setPropertiesFor(null)} /> : null;
+        })()}
       {prefsOpen && (
         <PreferencesDialog
           engine={engine}
@@ -588,6 +651,8 @@ export function App({ engine }: { engine: EngineClient }) {
           onChange={setPref}
           onAuthorChange={(n) => void changeAuthor(n)}
           onReset={resetPrefs}
+          onExport={() => void exportPreferences()}
+          onImport={() => void importPreferences()}
           onClose={() => setPrefsOpen(false)}
         />
       )}
@@ -638,7 +703,7 @@ export function App({ engine }: { engine: EngineClient }) {
               void openPath(password.path, password.value);
             }}
           >
-            <p className="text-base">« {password.path.split(/[\\/]/).pop()} » est protégé par un mot de passe.</p>
+            <p className="text-base">{t("« {name} » est protégé par un mot de passe.", { name: password.path.split(/[\\/]/).pop() ?? "" })}</p>
             <TextField
               label={t("Mot de passe")}
               type="password"

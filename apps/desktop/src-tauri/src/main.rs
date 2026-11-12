@@ -554,6 +554,58 @@ fn view_state_set(fingerprint: String, state: ViewStateIn, db: State<'_, db::Db>
 }
 
 #[tauri::command]
+async fn doc_properties(doc: u32, engine: State<'_, EngineHandle>) -> Result<pdfreader_engine::properties::DocProperties, String> {
+    ask(&engine, |reply| Cmd::Properties { doc, reply }).await
+}
+
+/// Préférences non exportées : propres à ce poste.
+const PREFS_NOT_EXPORTED: [&str; 1] = ["updatesLastCheck"];
+const PREFS_FILE_MAX: u64 = 1024 * 1024;
+
+fn valid_pref_key(k: &str) -> bool {
+    !k.is_empty() && k.len() <= 64 && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+}
+
+/// Exporte les préférences dans un fichier JSON (sans les signatures, qui restent sur ce poste).
+#[tauri::command]
+fn pref_export(path: String, db: State<'_, db::Db>) -> Result<usize, String> {
+    if !path.to_ascii_lowercase().ends_with(".json") {
+        return Err("fichier .json attendu".into());
+    }
+    let mut prefs = db.preferences().map_err(|e| e.to_string())?;
+    prefs.retain(|k, _| !PREFS_NOT_EXPORTED.contains(&k.as_str()));
+    let n = prefs.len();
+    let out = serde_json::json!({ "app": "PDFReader", "kind": "preferences", "version": 1, "preferences": prefs });
+    std::fs::write(&path, serde_json::to_string_pretty(&out).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(n)
+}
+
+/// Importe un fichier exporté par `pref_export` : les clés présentes remplacent les réglages
+/// actuels. Fichier refusé s'il n'en vient pas, ou s'il est démesuré.
+#[tauri::command]
+fn pref_import(path: String, db: State<'_, db::Db>) -> Result<usize, String> {
+    let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    if size > PREFS_FILE_MAX {
+        return Err("invalid_file".into());
+    }
+    let text = std::fs::read_to_string(&path).map_err(|_| "invalid_file".to_string())?;
+    let v: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).map_err(|_| "invalid_file".to_string())?;
+    if v.get("app").and_then(|a| a.as_str()) != Some("PDFReader") || v.get("kind").and_then(|a| a.as_str()) != Some("preferences") {
+        return Err("invalid_file".into());
+    }
+    let prefs = v.get("preferences").and_then(|p| p.as_object()).ok_or("invalid_file")?;
+    let mut n = 0;
+    for (k, val) in prefs {
+        if !valid_pref_key(k) || PREFS_NOT_EXPORTED.contains(&k.as_str()) || val.to_string().len() > 64 * 1024 {
+            continue;
+        }
+        db.set_preference(k, val).map_err(|e| e.to_string())?;
+        n += 1;
+    }
+    Ok(n)
+}
+
+#[tauri::command]
 fn pref_all(db: State<'_, db::Db>) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     db.preferences().map_err(|e| e.to_string())
 }
@@ -810,6 +862,9 @@ fn main() {
             doc_save,
             doc_links,
             doc_bookmarks,
+            doc_properties,
+            pref_export,
+            pref_import,
             doc_search,
             view_state_set,
             pref_all,

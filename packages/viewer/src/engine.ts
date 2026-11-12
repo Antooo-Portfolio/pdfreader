@@ -251,6 +251,29 @@ export interface RecentFile {
   exists: boolean;
 }
 
+/** Propriétés du document (S15). Dates PDF brutes. */
+export interface DocProperties {
+  title: string;
+  author: string;
+  subject: string;
+  keywords: string;
+  creator: string;
+  producer: string;
+  created: string;
+  modified: string;
+  version: string | null;
+  pageCount: number;
+  pageSize: [number, number] | null;
+  fileSize: number;
+  tagged: boolean;
+  linearized: boolean;
+  /** Révision du chiffrement, null si le document n'est pas protégé. */
+  securityRevision: number | null;
+  fonts: { name: string; embedded: boolean; subset: boolean }[];
+  /** Pages parcourues pour lister les polices. */
+  fontsPages: number;
+}
+
 export interface SaveResult {
   path: string;
   bytes: number;
@@ -290,6 +313,7 @@ export interface EngineClient {
   countHighlights(doc: number, page: number): Promise<number>;
   links(doc: number, page: number): Promise<PageLink[]>;
   bookmarks(doc: number): Promise<Bookmark[]>;
+  properties(doc: number): Promise<DocProperties>;
   /** Cherche dans les pages from..from+count (lots courts : le rendu passe entre deux lots). */
   search(doc: number, from: number, count: number, query: string, matchCase: boolean, wholeWord: boolean): Promise<SearchBatch>;
   setViewState(fingerprint: string, state: ViewState): Promise<void>;
@@ -297,6 +321,12 @@ export interface EngineClient {
   setPreference(key: string, value: unknown): Promise<void>;
   /** Ouvre une adresse http(s) ou mailto dans le navigateur par défaut. */
   openUrl(url: string): Promise<void>;
+  /** Plein écran de la fenêtre. */
+  setFullscreen(on: boolean): Promise<void>;
+  /** Exporte les préférences (fichier choisi par l'utilisateur, ou `path`) ; null si annulé. */
+  exportPreferences(path?: string): Promise<number | null>;
+  /** Importe des préférences exportées ; null si annulé. Rejette avec « invalid_file ». */
+  importPreferences(path?: string): Promise<number | null>;
   /** Thème de la barre de titre de la fenêtre (null : celui du système). */
   setWindowTheme(theme: "light" | "dark" | null): Promise<void>;
   /** Rejette avec "file_changed" ou "file_locked" dans ces deux cas. */
