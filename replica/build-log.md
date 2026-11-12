@@ -194,7 +194,7 @@ orientation automatique portrait / paysage / portrait.
   n'a aucune autre commande : l'affichage reste fluide pendant une longue impression, et
   l'annulation est prise en compte entre deux pages (`AbortDoc`).
 - Copies de récupération : enregistrement incrémental du document en mémoire dans
-  `%APPDATA%\…ecovery\`, une seule par document (la précédente est supprimée), table
+  `%APPDATA%\app.pdfreader.desktop\recovery\`, une seule par document (la précédente est supprimée), table
   `recovery_snapshots`. Effacées à l'enregistrement, à la fermeture voulue (y compris « Ne pas
   enregistrer ») et au rechargement. Les fichiers orphelins sont supprimés au démarrage.
 - Fichier modifié ailleurs : date de modification comparée toutes les 5 s et au retour sur la
