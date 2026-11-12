@@ -57,7 +57,7 @@ export function AnnotLayer(p: LayerProps) {
     }
   };
 
-  const placing = p.tool === "note" || p.tool === "text" || p.tool === "check" || p.tool === "sign";
+  const placing = p.tool === "note" || p.tool === "text" || p.tool === "textbox" || p.tool === "callout" || p.tool === "check" || p.tool === "sign";
   const active = placing || p.tool === "ink" || p.tool === "eraser";
   const cssW = pw * p.k;
   const cssH = ph * p.k;
@@ -86,7 +86,7 @@ export function AnnotLayer(p: LayerProps) {
       {active && (
         <div
           className="absolute inset-0 touch-none"
-          style={{ cursor: p.tool === "text" ? "text" : placing ? "copy" : p.tool === "ink" ? "crosshair" : "cell" }}
+          style={{ cursor: p.tool === "text" || p.tool === "textbox" ? "text" : p.tool === "callout" ? "crosshair" : placing ? "copy" : p.tool === "ink" ? "crosshair" : "cell" }}
           onPointerDown={(e) => {
             if (e.button !== 0) return;
             e.preventDefault();

@@ -450,3 +450,174 @@ pub fn add_image(doc: &PdfDocument, page: &mut PdfPage, rect: [f32; 4], png: &[u
     }
     Ok(name)
 }
+
+/* ------------------------------------------------------------------ zone de texte et légende */
+
+/// Largeur d'un texte en Helvetica à la taille donnée (objet de mesure jeté aussitôt).
+fn text_width(b: &dyn PdfiumLibraryBindings, doc: &PdfDocument, text: &str, size: f32) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+    unsafe {
+        let h = b.FPDFPageObj_NewTextObj(doc.raw_handle(), "Helvetica", size);
+        if h.is_null() {
+            return text.chars().count() as f32 * size * 0.5;
+        }
+        let w = wide(text);
+        b.FPDFText_SetText(h, w.as_ptr() as _);
+        let (mut l, mut bt, mut r, mut t) = (0f32, 0f32, 0f32, 0f32);
+        b.FPDFPageObj_GetBounds(h, &mut l, &mut bt, &mut r, &mut t);
+        b.FPDFPageObj_Destroy(h);
+        (r - l).max(0.0)
+    }
+}
+
+/// Coupe le texte en lignes qui tiennent dans `width` (mots entiers ; un mot trop long est coupé).
+pub fn wrap(b: &dyn PdfiumLibraryBindings, doc: &PdfDocument, text: &str, size: f32, width: f32) -> Vec<String> {
+    let mut out = Vec::new();
+    for para in text.lines() {
+        let mut line = String::new();
+        for word in para.split_whitespace() {
+            let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+            if text_width(b, doc, &candidate, size) <= width {
+                line = candidate;
+                continue;
+            }
+            if !line.is_empty() {
+                out.push(std::mem::take(&mut line));
+            }
+            if text_width(b, doc, word, size) <= width {
+                line = word.to_string();
+                continue;
+            }
+            // Mot plus large que la zone : coupé caractère par caractère.
+            let mut piece = String::new();
+            for ch in word.chars() {
+                let next = format!("{piece}{ch}");
+                if !piece.is_empty() && text_width(b, doc, &next, size) > width {
+                    out.push(std::mem::take(&mut piece));
+                    piece.push(ch);
+                } else {
+                    piece = next;
+                }
+            }
+            line = piece;
+        }
+        out.push(line);
+    }
+    out
+}
+
+fn new_path(b: &dyn PdfiumLibraryBindings, pts: &[(f32, f32)], close: bool, stroke: Option<([u8; 3], f32)>, fill: Option<[u8; 3]>) -> Result<FPDF_PAGEOBJECT> {
+    unsafe {
+        let (x0, y0) = pts[0];
+        let h = b.FPDFPageObj_CreateNewPath(x0, y0);
+        if h.is_null() {
+            bail!("tracé impossible");
+        }
+        for &(x, y) in &pts[1..] {
+            b.FPDFPath_LineTo(h, x, y);
+        }
+        if close {
+            b.FPDFPath_Close(h);
+        }
+        if let Some((c, w)) = stroke {
+            b.FPDFPageObj_SetStrokeColor(h, c[0] as u32, c[1] as u32, c[2] as u32, 255);
+            b.FPDFPageObj_SetStrokeWidth(h, w);
+            b.FPDFPageObj_SetLineJoin(h, 1);
+            b.FPDFPageObj_SetLineCap(h, 1);
+        }
+        if let Some(c) = fill {
+            b.FPDFPageObj_SetFillColor(h, c[0] as u32, c[1] as u32, c[2] as u32, 255);
+        }
+        // Remplissage : 0 aucun, 1 pair-impair ; contour : oui ou non.
+        b.FPDFPath_SetDrawMode(h, if fill.is_some() { 1 } else { 0 }, stroke.is_some() as i32);
+        Ok(h)
+    }
+}
+
+/// Zone de texte encadrée ; avec `anchor`, légende : une flèche relie la zone au point désigné.
+/// `rect` : [x, y, largeur, hauteur minimale] depuis le haut ; la hauteur grandit pour tout le
+/// texte. `fill` : fond (blanc conseillé pour la lisibilité), sinon transparent.
+#[allow(clippy::too_many_arguments)]
+pub fn add_textbox(
+    doc: &PdfDocument,
+    page: &mut PdfPage,
+    rect: [f32; 4],
+    text: &str,
+    size: f32,
+    rgb: [u8; 3],
+    fill: Option<[u8; 3]>,
+    anchor: Option<[f32; 2]>,
+    author: &str,
+) -> Result<String> {
+    if text.trim().is_empty() {
+        bail!("texte vide");
+    }
+    let b = raw_bindings();
+    let size = size.clamp(4.0, 144.0);
+    let page_h = page.height().value;
+    let pad = (size * 0.4).max(3.0);
+    let [x, y, w, min_h] = rect;
+    let w = w.max(size * 3.0);
+    let lines = wrap(b, doc, text, size, w - pad * 2.0);
+    let h = min_h.max(lines.len() as f32 * size * 1.2 + pad * 2.0 - size * 0.2);
+    // Coordonnées PDF (origine en bas).
+    let (l, r, t, bt) = (x, x + w, page_h - y, page_h - y - h);
+    let border = 1.0f32;
+    let mut objs = Vec::new();
+    objs.push(new_path(b, &[(l, bt), (r, bt), (r, t), (l, t)], true, Some((rgb, border)), fill)?);
+    let (mut ul, mut ub, mut ur, mut ut) = (l - border, bt - border, r + border, t + border);
+    if let Some([ax, ay]) = anchor {
+        let ay = page_h - ay;
+        // Départ au milieu du côté de la zone le plus proche du point.
+        let (sx, sy) = if ax < l || ax > r { (ax.clamp(l, r), (bt + t) / 2.0) } else { ((l + r) / 2.0, ay.clamp(bt, t)) };
+        let (dx, dy) = (ax - sx, ay - sy);
+        let len = (dx * dx + dy * dy).sqrt();
+        if len > 2.0 {
+            objs.push(new_path(b, &[(sx, sy), (ax, ay)], false, Some((rgb, border)), None)?);
+            let (ux, uy) = (dx / len, dy / len);
+            let head = (size * 0.7).max(6.0);
+            let (bx, by) = (ax - ux * head, ay - uy * head);
+            let (px, py) = (-uy * head * 0.45, ux * head * 0.45);
+            objs.push(new_path(b, &[(ax, ay), (bx + px, by + py), (bx - px, by - py)], true, Some((rgb, border)), Some(rgb))?);
+            ul = ul.min(ax - head);
+            ur = ur.max(ax + head);
+            ub = ub.min(ay - head);
+            ut = ut.max(ay + head);
+        }
+    }
+    for (i, line) in lines.iter().enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        let hobj = unsafe { b.FPDFPageObj_NewTextObj(doc.raw_handle(), "Helvetica", size) };
+        if hobj.is_null() {
+            bail!("police indisponible");
+        }
+        let wtxt = wide(line);
+        unsafe {
+            b.FPDFText_SetText(hobj, wtxt.as_ptr() as _);
+            b.FPDFPageObj_SetFillColor(hobj, rgb[0] as u32, rgb[1] as u32, rgb[2] as u32, 255);
+            b.FPDFPageObj_Transform(hobj, 1.0, 0.0, 0.0, 1.0, (l + pad) as f64, (t - pad - size * 0.8 - size * 1.2 * i as f32) as f64);
+        }
+        objs.push(hobj);
+    }
+    let a = new_stamp(b, page)?;
+    let kind = if anchor.is_some() { "callout" } else { "textbox" };
+    let name = finish_stamp(&a, kind, text, author, (ul, ub, ur, ut))?;
+    unsafe {
+        b.FPDFAnnot_SetStringValue_str(a.h, "PDFReaderSize", &format!("{size}"));
+        b.FPDFAnnot_SetStringValue_str(a.h, "PDFReaderBox", &format!("{x} {y} {w} {min_h}"));
+        if let Some([ax, ay]) = anchor {
+            b.FPDFAnnot_SetStringValue_str(a.h, "PDFReaderAnchor", &format!("{ax} {ay}"));
+        }
+        if fill.is_some() {
+            b.FPDFAnnot_SetStringValue_str(a.h, "PDFReaderFill", "1");
+        }
+    }
+    for h in objs {
+        append(&a, Obj { b, h })?;
+    }
+    Ok(name)
+}

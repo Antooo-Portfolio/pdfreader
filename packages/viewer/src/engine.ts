@@ -139,6 +139,8 @@ export type AnnotKind =
   | "text"
   | "mark"
   | "signature"
+  | "textbox"
+  | "callout"
   | "other";
 
 export type Rgb = [number, number, number];
@@ -166,6 +168,10 @@ export interface Annot {
   locked: boolean;
   /** Taille du texte d'un tampon « texte ». */
   fontSize: number | null;
+  /** Zone de texte ou légende : cadre [x, y, largeur, hauteur minimale] et point désigné. */
+  textBox: Box | null;
+  anchor: [number, number] | null;
+  filled: boolean;
 }
 
 export type FieldKind = "text" | "checkbox" | "radio" | "combo" | "list" | "button" | "signature" | "unknown";
@@ -273,6 +279,8 @@ export interface EngineClient {
   /** Texte posé sur la page (formulaire plat), coin haut gauche en (x, y). */
   addText(doc: number, page: number, x: number, y: number, text: string, size: number, color: Rgb): Promise<AnnotResult>;
   addMark(doc: number, page: number, x: number, y: number, size: number, cross: boolean, color: Rgb): Promise<AnnotResult>;
+  /** Zone de texte encadrée [x, y, largeur, hauteur minimale] ; avec `anchor`, légende. */
+  addTextBox(doc: number, page: number, rect: Box, text: string, size: number, color: Rgb, filled: boolean, anchor: [number, number] | null): Promise<AnnotResult>;
   /** Pose la signature mémorisée dans le rectangle [x, y, largeur, hauteur]. */
   addSignature(doc: number, page: number, rect: Box, kind: SignatureKind): Promise<AnnotResult>;
   signature(kind: SignatureKind): Promise<SavedSignature | null>;

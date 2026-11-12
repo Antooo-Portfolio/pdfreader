@@ -44,7 +44,7 @@ interface Props {
   onSetField: (page: number, index: number, input: FieldInput) => void;
   onSignField: (f: Field) => void;
   /** Texte libre en cours de saisie sur cette page. */
-  textDraft: { x: number; y: number; size: number; color: string } | null;
+  textDraft: { x: number; y: number; size: number; color: string; boxWidth?: number } | null;
   onCommitText: (page: number, x: number, y: number, text: string) => void;
   onCancelText: () => void;
   onCreateInk: (page: number, strokes: [number, number][][]) => void;
@@ -207,6 +207,7 @@ export const PageView = memo(function PageView(p: Props) {
           at={p.textDraft}
           size={p.textDraft.size}
           color={p.textDraft.color}
+          boxWidth={p.textDraft.boxWidth}
           k={k}
           rotation={rotation}
           pageSize={size}
@@ -285,7 +286,7 @@ function Links({ links, k, onLink }: { links: PageLink[]; k: number; onLink: (a:
 /** Mots placés au-dessus de l'image, texte transparent : la sélection et le copier sont natifs. */
 function TextLayer({ lines, k }: { lines: TextWord[][]; k: number }) {
   const words = useMemo(() => {
-    const out: { key: string; text: string; left: number; top: number; fontSize: number; sx: number; br: boolean }[] = [];
+    const out: { key: string; text: string; left: number; top: number; fontSize: number; sx: number; br: boolean; line: number }[] = [];
     lines.forEach((line, li) =>
       line.forEach((w, wi) => {
         const fontSize = w.h * k * 0.92;
@@ -295,7 +296,7 @@ function TextLayer({ lines, k }: { lines: TextWord[][]; k: number }) {
           const m = measureCtx.measureText(w.t.trimEnd()).width;
           if (m > 0) sx = (w.w * k) / m;
         }
-        out.push({ key: `${li}-${wi}`, text: w.t, left: w.x * k, top: w.y * k, fontSize, sx, br: wi === line.length - 1 });
+        out.push({ key: `${li}-${wi}`, text: w.t, left: w.x * k, top: w.y * k, fontSize, sx, br: wi === line.length - 1, line: li });
       }),
     );
     return out;
@@ -305,6 +306,9 @@ function TextLayer({ lines, k }: { lines: TextWord[][]; k: number }) {
       {words.map((w) => (
         <span key={w.key}>
           <span
+            data-w=""
+            data-l={w.line}
+            data-x={Math.round(w.left)}
             className="absolute origin-top-left whitespace-pre leading-none text-transparent"
             style={{ left: w.left, top: w.top, fontSize: w.fontSize, transform: `scaleX(${w.sx})`, fontFamily: "sans-serif" }}
           >

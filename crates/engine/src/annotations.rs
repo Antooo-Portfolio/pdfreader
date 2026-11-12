@@ -96,6 +96,11 @@ pub struct Annot {
     pub locked: bool,
     /// Taille du texte d'un tampon « texte » (pour le recréer à l'identique).
     pub font_size: Option<f32>,
+    /// Zone de texte ou légende : cadre [x, y, largeur, hauteur minimale] et point désigné.
+    pub text_box: Option<[f32; 4]>,
+    pub anchor: Option<[f32; 2]>,
+    /// Zone de texte avec un fond blanc.
+    pub filled: bool,
 }
 
 struct Raw<'a> {
@@ -259,6 +264,8 @@ fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
     // Nos tampons « Remplir et signer » portent leur nature dans une clé privée.
     let kind = match (subtype, raw.string(crate::fill::KIND_KEY).as_deref()) {
         (STAMP, Some("text")) => "text",
+        (STAMP, Some("textbox")) => "textbox",
+        (STAMP, Some("callout")) => "callout",
         (STAMP, Some("check" | "cross")) => "mark",
         (STAMP, Some("signature" | "initials")) => "signature",
         _ => kind_name(subtype),
@@ -281,7 +288,15 @@ fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
         // Verrouillé (/F bit 8) ou en lecture seule (bit 7).
         locked: flags & (128 | 64) != 0,
         font_size: raw.string("PDFReaderSize").and_then(|s| s.parse().ok()),
+        text_box: raw.string("PDFReaderBox").and_then(|s| floats::<4>(&s)),
+        anchor: raw.string("PDFReaderAnchor").and_then(|s| floats::<2>(&s)),
+        filled: raw.string("PDFReaderFill").is_some(),
     })
+}
+
+fn floats<const N: usize>(s: &str) -> Option<[f32; N]> {
+    let v: Vec<f32> = s.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+    v.try_into().ok()
 }
 
 /// Commentaires d'une page.

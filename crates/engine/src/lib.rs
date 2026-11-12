@@ -16,7 +16,10 @@ use pdfium_render::prelude::*;
 pub fn load_pdfium(lib_dir: &Path) -> Result<Pdfium> {
     let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(lib_dir))
         .with_context(|| format!("impossible de charger PDFium depuis {}", lib_dir.display()))?;
-    Ok(Pdfium::new(bindings))
+    let pdfium = Pdfium::new(bindings);
+    // Japonais, chinois et coréen non embarqués : police installée de la bonne écriture.
+    fonts::install_cjk_fallback();
+    Ok(pdfium)
 }
 
 /// Compteurs de lecture : prouvent que l'ouverture lit par blocs et non tout le fichier.
@@ -213,6 +216,7 @@ pub fn process_memory() -> u64 {
 pub mod reading;
 pub use reading::*;
 pub mod annotations;
+pub mod fonts;
 pub mod fill;
 
 #[cfg(windows)]

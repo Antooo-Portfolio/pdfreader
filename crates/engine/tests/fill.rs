@@ -128,3 +128,54 @@ fn stamps_text_mark_signature() {
     assert_eq!(list.iter().filter(|a| matches!(a.kind, "text" | "mark" | "signature")).count(), 3, "{list:#?}");
     assert!(pixel(&page, 450.0, 615.0)[0] < 60, "signature après relecture");
 }
+
+#[test]
+fn textbox_and_callout() {
+    let Some(src) = corpus("01-texte-10p.pdf") else {
+        eprintln!("corpus absent : test ignoré");
+        return;
+    };
+    let path = tmp("textbox.pdf", &src);
+    let pdfium = pdfium();
+    {
+        let doc = eng::open_typed(&pdfium, &path, None).unwrap();
+        let mut page = doc.pages().get(1).unwrap();
+        // Texte long dans une zone étroite : renvoyé à la ligne, la zone grandit.
+        let long = "Merci de relire ce paragraphe et de confirmer les montants avant vendredi.";
+        let tb = fill::add_textbox(&doc, &mut page, [300.0, 60.0, 150.0, 20.0], long, 10.0, [200, 0, 0], Some([255, 255, 255]), None, "Élodie").unwrap();
+        let co = fill::add_textbox(&doc, &mut page, [380.0, 700.0, 140.0, 20.0], "Signature ici", 11.0, [0, 0, 200], None, Some([200.0, 780.0]), "Élodie").unwrap();
+        let list = eng::annotations::list(&page, 1);
+        let a = list.iter().find(|x| x.id == tb).unwrap();
+        assert_eq!(a.kind, "textbox");
+        assert_eq!(a.contents, long);
+        assert!(a.filled);
+        assert_eq!(a.text_box, Some([300.0, 60.0, 150.0, 20.0]));
+        // Plusieurs lignes : plus haute que la hauteur minimale demandée.
+        assert!(a.rect[3] > 40.0, "zone agrandie attendue : {:?}", a.rect);
+        let c = list.iter().find(|x| x.id == co).unwrap();
+        assert_eq!(c.kind, "callout");
+        assert_eq!(c.anchor, Some([200.0, 780.0]));
+        // Le rectangle de la légende englobe le point désigné.
+        assert!(c.rect[0] <= 195.0 && c.rect[1] + c.rect[3] >= 784.0, "{:?}", c.rect);
+
+        let t = eng::render_page(&page, 1.0).unwrap();
+        let px = |x: i32, y: i32| {
+            let i = ((y * t.width + x) * 4) as usize;
+            [t.rgba[i], t.rgba[i + 1], t.rgba[i + 2]]
+        };
+        // Cadre rouge (bord gauche de la zone) et fond blanc par-dessus le texte de la page.
+        // Le trait d'un point est lissé sur deux colonnes de pixels.
+        let red = (60..90).filter(|&y| (298..=301).any(|x| { let p = px(x, y); p[0] > 150 && p[1] < 140 && p[2] < 140 })).count();
+        assert!(red > 10, "cadre rouge attendu ({red})");
+        let inside = (302..448).flat_map(|x| (62..90).map(move |y| (x, y))).filter(|&(x, y)| { let p = px(x, y); p[0] > 150 && p[1] < 90 }).count();
+        assert!(inside > 30, "texte rouge dans la zone ({inside})");
+        // Pointe de la flèche (bleue) au point désigné.
+        let tip = (196..206).flat_map(|x| (774..786).map(move |y| (x, y))).filter(|&(x, y)| { let p = px(x, y); p[2] > 150 && p[0] < 90 }).count();
+        assert!(tip > 5, "pointe de flèche attendue ({tip})");
+        eng::save(&doc, &path, true).unwrap();
+    }
+    let doc = eng::open_typed(&pdfium, &path, None).unwrap();
+    let page = doc.pages().get(1).unwrap();
+    let list = eng::annotations::list(&page, 1);
+    assert_eq!(list.iter().filter(|a| a.kind == "textbox" || a.kind == "callout").count(), 2);
+}

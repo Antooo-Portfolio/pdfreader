@@ -22,6 +22,7 @@ export const tauriEngine: EngineClient = {
   setField: (doc, page, index, input) => invoke<Field[]>("field_set", { doc, page, index, input }),
   addText: (doc, page, x, y, text, size, color) => invoke<AnnotResult>("fill_add_text", { doc, page, x, y, text, size, color }),
   addMark: (doc, page, x, y, size, cross, color) => invoke<AnnotResult>("fill_add_mark", { doc, page, x, y, size, cross, color }),
+  addTextBox: (doc, page, rect, text, size, color, filled, anchor) => invoke<AnnotResult>("fill_add_textbox", { doc, page, rect, text, size, color, filled, anchor }),
   addSignature: (doc, page, rect, kind) => invoke<AnnotResult>("fill_add_signature", { doc, page, rect, kind }),
   signature: (kind) => invoke<SavedSignature | null>("signature_get", { kind }),
   setSignature: (kind, method, data, font) => invoke("signature_set", { kind, method, data, font }),

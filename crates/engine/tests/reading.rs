@@ -105,3 +105,36 @@ fn encrypted_permissions_are_read() {
     let p = eng::permissions(&doc);
     assert!(p.print && !p.print_high_quality && !p.copy, "{p:?}");
 }
+
+/// Texte japonais (HeiseiMin-W3) et chinois (STSong-Light) non embarqués : une police installée
+/// de la bonne écriture prend le relais (constat 5 du spike M0 : le japonais était invisible).
+#[test]
+fn cjk_fonts_not_embedded_are_drawn() {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/generated/05-cjk-non-embarque.pdf");
+    if !p.exists() {
+        eprintln!("corpus absent : test ignoré");
+        return;
+    }
+    let pdfium = pdfium();
+    let doc = eng::open_typed(&pdfium, &p, None).unwrap();
+    let page = doc.pages().get(0).unwrap();
+    let t = eng::render_page(&page, 1.0).unwrap();
+    // Pixels sombres dans une bande horizontale (en points depuis le haut).
+    let dark = |y0: i32, y1: i32| {
+        let mut n = 0;
+        for y in y0..y1 {
+            for x in 50..500 {
+                let i = ((y * t.width + x) * 4) as usize;
+                if t.rgba[i] < 128 {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    let (ja, zh, latin) = (dark(62, 84), dark(102, 124), dark(146, 164));
+    eprintln!("pixels sombres : japonais {ja}, chinois {zh}, latin {latin}");
+    assert!(latin > 200, "la ligne latine sert de témoin");
+    assert!(ja > 400, "le japonais doit s'afficher ({ja})");
+    assert!(zh > 400, "le chinois doit s'afficher ({zh})");
+}

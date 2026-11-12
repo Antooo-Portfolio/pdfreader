@@ -156,10 +156,13 @@ export function TextDraft({
   rotation,
   pageSize,
   color,
+  boxWidth,
   onCommit,
   onCancel,
 }: {
   at: { x: number; y: number };
+  /** Zone de texte : largeur en points ; le texte revient à la ligne dans le cadre. */
+  boxWidth?: number;
   size: number;
   k: number;
   rotation: Rotation;
@@ -181,6 +184,14 @@ export function TextDraft({
   };
   const lines = Math.max(1, text.split("\n").length);
   const longest = Math.max(4, ...text.split("\n").map((l) => l.length));
+  const ref2 = ref;
+  // Zone de texte : hauteur qui suit le contenu renvoyé à la ligne.
+  useEffect(() => {
+    const el = ref2.current;
+    if (!boxWidth || !el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text, boxWidth, ref2]);
   return (
     <textarea
       ref={ref}
@@ -202,8 +213,16 @@ export function TextDraft({
         }
       }}
       rows={lines}
-      className="absolute z-(--z-popover) resize-none overflow-hidden rounded-[2px] border border-dashed border-accent bg-transparent p-0 leading-[1.2] outline-none select-text"
-      style={{ left: dx * k, top: dy * k, fontSize: size * k, fontFamily: fieldFont, color, width: `${longest * 0.6 + 1}em`, minWidth: 40 }}
+      className={
+        boxWidth
+          ? "absolute z-(--z-popover) resize-none overflow-hidden rounded-[1px] border bg-page leading-[1.2] outline-2 outline-offset-2 outline-accent outline-dashed select-text"
+          : "absolute z-(--z-popover) resize-none overflow-hidden rounded-[2px] border border-dashed border-accent bg-transparent p-0 leading-[1.2] outline-none select-text"
+      }
+      style={
+        boxWidth
+          ? { left: dx * k, top: dy * k, width: boxWidth * k, fontSize: size * k, fontFamily: fieldFont, color, borderColor: color, padding: Math.max(3, size * 0.4) * k }
+          : { left: dx * k, top: dy * k, fontSize: size * k, fontFamily: fieldFont, color, width: `${longest * 0.6 + 1}em`, minWidth: 40 }
+      }
     />
   );
 }

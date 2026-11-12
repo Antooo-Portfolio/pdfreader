@@ -129,7 +129,7 @@ async function runM2(engine: EngineClient, actions: AppActions, doc: DocInfo, pa
     await waitFor(() => page0()?.querySelector(".pdf-text-layer"));
     if (!selectWord(page0()!, /\w{5,}/)) throw new Error("aucun mot");
     const before = selectionToPageRects(root).get(0)?.[0];
-    key("ArrowRight", { ctrlKey: true, shiftKey: true });
+    key("ArrowRight", { ctrlKey: true, altKey: true });
     await waitFor(() => (page0()?.dataset.rot === "90" ? page0() : null));
     await waitFor(() => page0()?.querySelector(".pdf-text-layer"));
     const box = page0()!.getBoundingClientRect();
@@ -139,7 +139,7 @@ async function runM2(engine: EngineClient, actions: AppActions, doc: DocInfo, pa
     r.rotation = { landscape: box.width > box.height, before, after, maxDiffPt: Math.round(diff * 10) / 10 };
     checks.push(box.width > box.height && diff < 2);
     window.getSelection()?.removeAllRanges();
-    key("ArrowLeft", { ctrlKey: true, shiftKey: true });
+    key("ArrowLeft", { ctrlKey: true, altKey: true });
     await sleep(100);
 
     // Fichier chiffré AES-256 à côté du fichier de test : mot de passe demandé, puis droits lus.
@@ -459,6 +459,54 @@ async function runSettings(engine: EngineClient, actions: AppActions, path: stri
       r.print = "imprimante « Microsoft Print to PDF » absente : vérification sautée";
     }
 
+    // Zone de texte et légende (page 2).
+    {
+      const cur = await waitFor(() => actions.doc());
+      const tb = await cur.addTextBox(1, [300, 60, 150, 20], "Merci de relire ce paragraphe avant vendredi.", null);
+      const co = await cur.addTextBox(1, [380, 700, 140, 20], "Signature ici", [200, 780]);
+      const list = await cur.annots(1);
+      r.textBoxes = list.filter((x) => x.kind === "textbox" || x.kind === "callout").map((x) => `${x.kind}:${x.contents}`);
+      checks.textBoxes = !!tb && !!co && list.some((x) => x.id === tb && x.kind === "textbox") && list.some((x) => x.id === co && x.kind === "callout" && x.anchor?.[0] === 200);
+    }
+
+    // Sélection du texte au clavier puis surlignage avec la touche U.
+    {
+      const cur = await waitFor(() => actions.doc());
+      cur.openPanel(null);
+      window.getSelection()?.removeAllRanges();
+      const root = document.querySelector<HTMLElement>('[role="document"]');
+      root?.scrollTo({ top: 0 });
+      await waitFor(() => root?.querySelector('[data-page-index="0"] .pdf-text-layer'), 5000);
+      root?.focus();
+      for (let i = 0; i < 5; i++) key("ArrowRight", { shiftKey: true });
+      const chars = window.getSelection()?.toString().length ?? 0;
+      key("ArrowRight", { ctrlKey: true, shiftKey: true });
+      const words = window.getSelection()?.toString().length ?? 0;
+      key("a", { ctrlKey: true });
+      const all = window.getSelection()?.toString().length ?? 0;
+      // Retour à quelques mots, puis U : l'outil Surligner s'applique au texte sélectionné.
+      window.getSelection()?.removeAllRanges();
+      const steps3: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        key("ArrowRight", { ctrlKey: true, shiftKey: true });
+        steps3.push(window.getSelection()?.toString() ?? "");
+      }
+      r.wordSteps = steps3;
+      const before = (await cur.annots(0)).filter((x) => x.kind === "highlight").length;
+      const selBeforeU = window.getSelection()?.toString() ?? "";
+      key("u");
+      await sleep(100);
+      const toolBarAfterU = !!document.querySelector('[role="toolbar"][aria-label="Surligner"]');
+      const after = await until(async () => {
+        const n = (await cur.annots(0)).filter((x) => x.kind === "highlight").length;
+        return n > before ? n : null;
+      }, 4000);
+      key("v");
+      r.keyboardSelection = { chars, words, all, selBeforeU, toolBarAfterU, highlightsBefore: before, highlightsAfter: after };
+      const ws = r.wordSteps as string[];
+      checks.keyboardSelection = chars === 5 && words > chars && all > 300 && !!after && ws.length === 3 && (ws[0] ?? "") !== "" && (ws[1] ?? "").length > (ws[0] ?? "").length && (ws[2] ?? "").length > (ws[1] ?? "").length;
+    }
+
     // Préférences (Ctrl+K) : catégories, taille de l'interface, raccourcis à une touche.
     key("k", { ctrlKey: true });
     const pd = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((d) => d.textContent?.includes("Affichage des pages")), 4000);
@@ -516,8 +564,12 @@ async function runSettings(engine: EngineClient, actions: AppActions, path: stri
     const cur = await waitFor(() => actions.doc());
     await cur.addMark(0, 300, 300);
     // L'état « modifié » arrive au rendu suivant.
-    const made = (await until(async () => (await actions.snapshotNow()) || null)) ?? 0;
-    const listed = (await engine.recoveryList()).some((x) => x.name === "ext-a.pdf");
+    // D'autres documents modifiés peuvent passer avant : on attend la copie de celui-ci.
+    let made = 0;
+    const listed = !!(await until(async () => {
+      made += await actions.snapshotNow();
+      return (await engine.recoveryList()).some((x) => x.name === "ext-a.pdf") || null;
+    }));
     await actions.save(a.id);
     const cleared = !(await engine.recoveryList()).some((x) => x.name === "ext-a.pdf");
     r.recovery = { made, listed, cleared };
@@ -527,7 +579,7 @@ async function runSettings(engine: EngineClient, actions: AppActions, path: stri
     checks.error = false;
   }
   r.checks = checks;
-  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 8;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 12;
   return r;
 }
 

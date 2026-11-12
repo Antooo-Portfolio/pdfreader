@@ -178,6 +178,25 @@ async fn fill_add_mark(
     ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Mark { x, y, size, cross, color, author }, reply }).await
 }
 
+/// Zone de texte encadrée ; avec `anchor`, légende reliée au point désigné.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn fill_add_textbox(
+    doc: u32,
+    page: i32,
+    rect: [f32; 4],
+    text: String,
+    size: f32,
+    color: [u8; 3],
+    filled: bool,
+    anchor: Option<[f32; 2]>,
+    engine: State<'_, EngineHandle>,
+    db: State<'_, db::Db>,
+) -> Result<AnnotResult, String> {
+    let author = comment_author(&db);
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::TextBox { rect, text, size, color, filled, anchor, author }, reply }).await
+}
+
 /// Pose la signature (ou les initiales) mémorisée dans le rectangle donné.
 #[tauri::command]
 async fn fill_add_signature(doc: u32, page: i32, rect: [f32; 4], kind: String, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<AnnotResult, String> {
@@ -666,6 +685,7 @@ fn main() {
             field_set,
             fill_add_text,
             fill_add_mark,
+            fill_add_textbox,
             fill_add_signature,
             signature_get,
             signature_set,

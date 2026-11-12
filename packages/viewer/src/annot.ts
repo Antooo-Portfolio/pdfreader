@@ -2,7 +2,7 @@
  *  détection du commentaire sous le pointeur). */
 import type { Annot, AnnotKind, MarkupKind, Rgb } from "./engine";
 
-export type Tool = "select" | MarkupKind | "note" | "ink" | "eraser" | "text" | "check" | "sign";
+export type Tool = "select" | MarkupKind | "note" | "ink" | "eraser" | "text" | "textbox" | "callout" | "check" | "sign";
 export const MARKUP_TOOLS: MarkupKind[] = ["highlight", "underline", "strikeout"];
 export const isMarkupTool = (t: Tool): t is MarkupKind => (MARKUP_TOOLS as string[]).includes(t);
 
@@ -43,6 +43,8 @@ export const KIND_LABELS: Record<AnnotKind, string> = {
   text: "Texte",
   mark: "Coche",
   signature: "Signature",
+  textbox: "Zone de texte",
+  callout: "Légende",
   other: "Annotation",
 };
 

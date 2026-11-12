@@ -68,6 +68,7 @@ pub enum AnnotOp {
     Update { id: String, patch: eng::annotations::AnnotPatch },
     Text { x: f32, y: f32, text: String, size: f32, color: [u8; 3], author: String },
     Mark { x: f32, y: f32, size: f32, cross: bool, color: [u8; 3], author: String },
+    TextBox { rect: [f32; 4], text: String, size: f32, color: [u8; 3], filled: bool, anchor: Option<[f32; 2]>, author: String },
     Image { rect: [f32; 4], png: Vec<u8>, kind: String, author: String },
     Delete { id: String },
 }
@@ -325,6 +326,9 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                         AnnotOp::Ink { strokes, color, opacity, width, author } => Some(an::add_ink(&mut p, &strokes, color, opacity, width, &author)),
                         AnnotOp::Text { x, y, text, size, color, author } => Some(eng::fill::add_text(&e.doc, &mut p, x, y, &text, size, color, &author)),
                         AnnotOp::Mark { x, y, size, cross, color, author } => Some(eng::fill::add_mark(&mut p, x, y, size, cross, color, &author)),
+                        AnnotOp::TextBox { rect, text, size, color, filled, anchor, author } => {
+                            Some(eng::fill::add_textbox(&e.doc, &mut p, rect, &text, size, color, filled.then_some([255, 255, 255]), anchor, &author))
+                        }
                         AnnotOp::Image { rect, png, kind, author } => Some(eng::fill::add_image(&e.doc, &mut p, rect, &png, &kind, &author)),
                         AnnotOp::Update { id, patch } => {
                             an::update(&mut p, &id, &patch).map_err(|e| e.to_string())?;

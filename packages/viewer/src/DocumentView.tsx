@@ -1,6 +1,7 @@
 import {
   Banner,
   Button,
+  Checkbox,
   Dialog,
   FindBar,
   isModalOpen,
@@ -29,6 +30,8 @@ import {
   Highlighter,
   Printer,
   MessageSquare,
+  MessageSquareText,
+  SquarePen,
   MousePointer2,
   PenLine,
   RotateCcw,
@@ -52,6 +55,7 @@ import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
 import { PageView } from "./PageView";
 import { BookmarksPanel, ThumbnailsPanel } from "./Panels";
+import { type Direction, extendSelection as extendTextSelection, type Granularity } from "./kbselect";
 import { selectionToPageRects } from "./selection";
 import type { OpenDoc } from "./state";
 
@@ -88,6 +92,7 @@ export interface DocActions {
   setField: (page: number, index: number, input: FieldInput) => Promise<Field[] | null>;
   addText: (page: number, x: number, y: number, text: string) => Promise<string | null>;
   addMark: (page: number, x: number, y: number) => Promise<string | null>;
+  addTextBox: (page: number, rect: Box, text: string, anchor: [number, number] | null) => Promise<string | null>;
   saveSignature: (kind: SignatureKind, data: string) => Promise<void>;
   placeSignature: (page: number, x: number, y: number, kind: SignatureKind) => Promise<string | null>;
   createNote: (page: number, x: number, y: number, text: string) => Promise<string | null>;
@@ -133,10 +138,14 @@ const TOOL_LABELS: Record<Exclude<Tool, "select" | "eraser">, string> = {
   note: "Note",
   ink: "Dessin",
   text: "Texte",
+  textbox: "Zone de texte",
+  callout: "Légende",
   check: "Coche",
   sign: "Signer",
 };
-const STAMP_KINDS = new Set(["text", "mark", "signature", "stamp"]);
+const STAMP_KINDS = new Set(["text", "mark", "signature", "stamp", "textbox", "callout"]);
+/** Largeur d'une nouvelle zone de texte, en points. */
+const TEXTBOX_WIDTH = 180;
 
 export function DocumentView({
   engine,
@@ -710,10 +719,16 @@ export function DocumentView({
    *  recrée au même endroit, à la même taille. */
   const saveComment = useCallback(
     async (a: Annot, text: string) => {
-      if (a.kind !== "text") return void updateAnnot(a.page, a.id, { contents: text });
+      const box = (a.kind === "textbox" || a.kind === "callout") && a.textBox;
+      if (a.kind !== "text" && !box) return void updateAnnot(a.page, a.id, { contents: text });
       if (!text.trim()) return void deleteAnnot(a.page, a.id);
       const st = stylesRef.current.text;
-      const r = await attempt(() => engine.addText(info.id, a.page, a.rect[0] + 1, a.rect[1] + 1, text, a.fontSize ?? st.width, a.color ?? st.color), "Le texte n'a pas pu être modifié");
+      const size = a.fontSize ?? st.width;
+      const color = a.color ?? st.color;
+      const r = await attempt(
+        () => (box ? engine.addTextBox(info.id, a.page, box, text, size, color, a.filled, a.anchor) : engine.addText(info.id, a.page, a.rect[0] + 1, a.rect[1] + 1, text, size, color)),
+        "Le texte n'a pas pu être modifié",
+      );
       if (r) {
         apply(a.page, r);
         await deleteAnnot(a.page, a.id);
@@ -752,7 +767,9 @@ export function DocumentView({
   const loadingFields = useRef(new Map<number, Promise<Field[]>>());
   const [highlightFields, setHighlightFields] = useState(true);
   const [formBannerClosed, setFormBannerClosed] = useState(false);
-  const [textDraft, setTextDraft] = useState<{ page: number; x: number; y: number } | null>(null);
+  /** Texte en cours de saisie : texte libre, ou zone de texte (et point désigné d'une légende). */
+  const [textDraft, setTextDraft] = useState<{ page: number; x: number; y: number; box?: boolean; anchor?: [number, number] } | null>(null);
+  const [boxFilled, setBoxFilled] = useState(true);
   const [markCross, setMarkCross] = useState(false);
   const [sigKind, setSigKind] = useState<SignatureKind>("signature");
   const [sigs, setSigs] = useState<Partial<Record<SignatureKind, SavedSignature | null>>>({});
@@ -800,6 +817,19 @@ export function DocumentView({
     async (p: number, x: number, y: number, text: string): Promise<string | null> => {
       const st = stylesRef.current.text;
       const r = await attempt(() => engine.addText(info.id, p, x, y, text, st.width, st.color), "Le texte n'a pas pu être ajouté");
+      if (!r) return null;
+      apply(p, r);
+      return r.id;
+    },
+    [attempt, engine, info.id, apply],
+  );
+
+  const boxFilledRef = useRef(boxFilled);
+  boxFilledRef.current = boxFilled;
+  const addTextBox = useCallback(
+    async (p: number, rect: Box, text: string, anchor: [number, number] | null): Promise<string | null> => {
+      const st = stylesRef.current.text;
+      const r = await attempt(() => engine.addTextBox(info.id, p, rect, text, st.width, st.color, boxFilledRef.current, anchor), "La zone de texte n'a pas pu être ajoutée");
       if (!r) return null;
       apply(p, r);
       return r.id;
@@ -895,10 +925,19 @@ export function DocumentView({
     (p: number, t: Tool, x: number, y: number) => {
       if (t === "note") void createNote(p, Math.max(0, x - 10), Math.max(0, y - 10));
       else if (t === "text") setTextDraft({ page: p, x, y });
+      else if (t === "textbox") setTextDraft({ page: p, x, y, box: true });
+      else if (t === "callout") {
+        // Le point cliqué est la pointe de la flèche ; la zone se place au-dessus à droite,
+        // ou de l'autre côté si la page manque de place.
+        const [pw] = info.pages[p] ?? [612, 792];
+        const bx = x + 40 + TEXTBOX_WIDTH <= pw ? x + 40 : Math.max(0, x - 40 - TEXTBOX_WIDTH);
+        const by = y - 80 >= 0 ? y - 80 : y + 40;
+        setTextDraft({ page: p, x: bx, y: by, box: true, anchor: [x, y] });
+      }
       else if (t === "check") void addMark(p, x, y);
       else if (t === "sign") void signAt(p, x, y, sigKind);
     },
-    [createNote, addMark, signAt, sigKind],
+    [createNote, addMark, signAt, sigKind, info.pages],
   );
 
   /** Clic sur la page avec l'outil de sélection : sélectionne le commentaire sous le pointeur. */
@@ -936,6 +975,7 @@ export function DocumentView({
       setField,
       addText,
       addMark,
+      addTextBox,
       saveSignature: (kind, data) => saveSignature(kind, data, "drawn"),
       placeSignature: (p, x, y, kind) => placeSignature(p, x, y, kind),
       markupSelection,
@@ -949,8 +989,26 @@ export function DocumentView({
       },
       openPanel: setPanel,
     });
-  }, [register, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, saveSignature, placeSignature]);
+  }, [register, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, addTextBox, saveSignature, placeSignature]);
   useEffect(() => () => register?.(null), [register]);
+
+  // ------------------------------------------------------------ sélection du texte au clavier
+  /** Étend la sélection (caractère, mot, ligne) ; sans sélection, elle commence au début du
+   *  texte de la page courante. */
+  const extendSelection = (dir: Direction, gran: Granularity): boolean => {
+    const root = scroller.current;
+    return !!root && extendTextSelection(root, pageRef.current - 1, dir, gran);
+  };
+  /** Ctrl+A dans le document : tout le texte de la page courante. */
+  const selectPageText = (p: number) => {
+    const layer = scroller.current?.querySelector(`[data-page-index="${p - 1}"] .pdf-text-layer`);
+    const sel = window.getSelection();
+    if (!layer || !sel) return;
+    const range = document.createRange();
+    range.selectNodeContents(layer);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  };
 
   // ------------------------------------------------------------ clavier
   const ctx = useRef({ zoom, zoomTo, fit, rotate, goTo, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange });
@@ -964,11 +1022,21 @@ export function DocumentView({
       const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
       const inDoc = !t || t === document.body || !!scroller.current?.contains(t);
       const key = e.key;
-      if (e.ctrlKey && !e.altKey) {
+      // Ctrl+Alt+flèche : pivoter la vue (Ctrl+Maj+flèche sert à la sélection).
+      if (e.ctrlKey && e.altKey && !e.shiftKey && (key === "ArrowRight" || key === "ArrowLeft")) {
+        e.preventDefault();
+        c.rotate(key === "ArrowRight" ? 1 : -1);
+        return;
+      }
+      if (e.ctrlKey) {
         const k = key.toLowerCase();
         let handled = true;
-        if (e.shiftKey && key === "ArrowRight") c.rotate(1);
-        else if (e.shiftKey && key === "ArrowLeft") c.rotate(-1);
+        if (e.altKey) return;
+        if (e.shiftKey && inDoc && !typing && (key === "ArrowRight" || key === "ArrowLeft")) {
+          // Ctrl+Maj+flèche : étendre la sélection d'un mot.
+          if (extendSelection(key === "ArrowRight" ? "forward" : "backward", "word")) e.preventDefault();
+          return;
+        } else if (k === "a" && inDoc && !typing) selectPageText(c.page);
         else if (key === "=" || key === "+") c.zoomTo(c.zoom * 1.25);
         else if (key === "-") c.zoomTo(c.zoom / 1.25);
         else if (key === "1") c.zoomTo(1);
@@ -1005,6 +1073,13 @@ export function DocumentView({
         return;
       }
       if (!inDoc) return;
+      // Sélection du texte au clavier : Maj+flèches, Maj+Début / Fin.
+      if (e.shiftKey && (key === "ArrowRight" || key === "ArrowLeft" || key === "ArrowUp" || key === "ArrowDown" || key === "Home" || key === "End")) {
+        const dir = key === "ArrowRight" || key === "ArrowDown" || key === "End" ? "forward" : "backward";
+        const gran = key === "ArrowUp" || key === "ArrowDown" ? "line" : key === "Home" || key === "End" ? "lineboundary" : "character";
+        if (extendSelection(dir, gran)) e.preventDefault();
+        return;
+      }
       const el = scroller.current;
       if (!el) return;
       const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
@@ -1102,6 +1177,8 @@ export function DocumentView({
           <ToolButton id="ink" label="Dessiner à main levée" shortcut="D" icon={<PenLine size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="eraser" label="Gomme (efface les dessins)" shortcut="E" icon={<Eraser size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="text" label="Ajouter du texte (cliquez sur la page)" shortcut="T" icon={<Type size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="textbox" label="Zone de texte encadrée" icon={<SquarePen size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="callout" label="Légende (cliquez sur le point à désigner)" icon={<MessageSquareText size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="check" label="Ajouter une coche ou une croix" icon={<Check size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="sign" label="Signer (cliquez sur la page)" shortcut="S" icon={<SignatureIcon size={18} />} isDisabled={!canAnnotate} />
         </ToolGroup>
@@ -1144,10 +1221,10 @@ export function DocumentView({
               </MenuSection>
               <MenuSeparator />
               <MenuSection>
-                <MenuItem id="rot-r" icon={<RotateCw size={16} />} shortcut="Ctrl+Maj+→" onAction={() => rotate(1)}>
+                <MenuItem id="rot-r" icon={<RotateCw size={16} />} shortcut="Ctrl+Alt+→" onAction={() => rotate(1)}>
                   Pivoter à droite
                 </MenuItem>
-                <MenuItem id="rot-l" icon={<RotateCcw size={16} />} shortcut="Ctrl+Maj+←" onAction={() => rotate(-1)}>
+                <MenuItem id="rot-l" icon={<RotateCcw size={16} />} shortcut="Ctrl+Alt+←" onAction={() => rotate(-1)}>
                   Pivoter à gauche
                 </MenuItem>
               </MenuSection>
@@ -1219,14 +1296,18 @@ export function DocumentView({
         ) : (
           <PropertyBar
             title={TOOL_LABELS[styleTool]}
-            style={styles[styleTool]}
-            showOpacity={styleTool !== "note" && styleTool !== "text" && styleTool !== "check"}
-            showWidth={styleTool === "ink" || styleTool === "text" || styleTool === "check"}
+            style={styles[styleTool === "textbox" || styleTool === "callout" ? "text" : styleTool]}
+            showOpacity={!["note", "text", "check", "textbox", "callout"].includes(styleTool)}
+            showWidth={["ink", "text", "check", "textbox", "callout"].includes(styleTool)}
             widthLabel={styleTool === "ink" ? "Épaisseur" : "Taille"}
             widthRange={styleTool === "ink" ? [0.5, 12, 0.5] : [6, 48, 1]}
-            onChange={(patch) => onStyleChange(styleTool, patch)}
+            onChange={(patch) => onStyleChange(styleTool === "textbox" || styleTool === "callout" ? "text" : styleTool, patch)}
             extra={
-              styleTool === "check" ? (
+              styleTool === "textbox" || styleTool === "callout" ? (
+                <Checkbox isSelected={boxFilled} onChange={setBoxFilled}>
+                  Fond blanc
+                </Checkbox>
+              ) : styleTool === "check" ? (
                 <ToolGroup
                   aria-label="Forme"
                   selectionMode="single"
@@ -1359,10 +1440,16 @@ export function DocumentView({
                       highlightFields={highlightFields}
                       onSetField={(pg, idx, input) => void setField(pg, idx, input)}
                       onSignField={(f) => void signAt(f.page, 0, 0, "signature", f)}
-                      textDraft={textDraft?.page === i ? { x: textDraft.x, y: textDraft.y, size: styles.text.width, color: toHex(styles.text.color) } : null}
+                      textDraft={
+                        textDraft?.page === i
+                          ? { x: textDraft.x, y: textDraft.y, size: styles.text.width, color: toHex(styles.text.color), boxWidth: textDraft.box ? TEXTBOX_WIDTH : undefined }
+                          : null
+                      }
                       onCommitText={(pg, x, y, t) => {
+                        const d = textDraft;
                         setTextDraft(null);
-                        void addText(pg, x, y, t);
+                        if (d?.box) void addTextBox(pg, [x, y, TEXTBOX_WIDTH, 20], t, d.anchor ?? null);
+                        else void addText(pg, x, y, t);
                       }}
                       onCancelText={() => setTextDraft(null)}
                       onCreateInk={createInk}
