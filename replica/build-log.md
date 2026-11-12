@@ -292,7 +292,7 @@ désinstallation et réinstallation, dossier de données sauvegardé avant) :
 - Le setup construit par la CI passe le même test de signature (`PDFREADER_SETUP=chemin`).
 - Étape e2e `PDFREADER_E2E_STAGE=update` : l'application réelle interroge le flux publié. Construite
   en 0.2.0 : « à jour » (aucune proposition, aucune erreur) ; construite en 0.1.9 : 0.2.0 proposée.
-- Publier une version : monter la version dans `tauri.conf.json`, construire avec la clé (ou
-  prendre l'artefact « setup » de la CI), `python tools/release/prepare.py --notes "…"`, puis
+- Publier une version : monter la version dans `tauri.conf.json`, `python tools/release/build.py`
+  (clé lue dans le dossier de l'utilisateur ; ou prendre l'artefact « setup » de la CI), `python tools/release/prepare.py --notes "…"`, puis
   `gh release create vX.Y.Z -R Antooo-Portfolio/pdfreader` avec les trois fichiers de
   `target/release-upload/`.

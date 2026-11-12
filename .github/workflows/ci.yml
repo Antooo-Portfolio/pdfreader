@@ -80,14 +80,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          cd apps/desktop
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            # Sans clé : setup non signé pour l'updater (artefacts de contrôle seulement).
-            npx tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
-          else
-            npx tauri build
-            cd ../.. && python tools/release/prepare.py
-          fi
+          # Sans clé : setup non signé pour l'updater (artefacts de contrôle seulement).
+          python tools/release/build.py
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then python tools/release/prepare.py; fi
 
       - uses: actions/upload-artifact@v6
         with:

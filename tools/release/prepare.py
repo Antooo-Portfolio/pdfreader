@@ -7,7 +7,7 @@
     latest.json                      lu par l'updater de l'application
   site/  licence.html, THIRD-PARTY-NOTICES.txt à jour
 
-À lancer après `npx tauri build` avec TAURI_SIGNING_PRIVATE_KEY_PATH (clé privée gardée hors du
+À lancer après `python tools/release/build.py` (clé privée gardée hors du
 dépôt, %USERPROFILE%\\.tauri\\pdfreader-updater.key). La publication (Release GitHub du dépôt
 Antooo-Portfolio/pdfreader) se fait ensuite avec gh ; le site est déployé par la CI (pages.yml).
 

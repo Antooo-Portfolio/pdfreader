@@ -344,7 +344,9 @@ fn legal_document(name: String, app: AppHandle) -> Result<String, String> {
         candidates.push(r.join(file));
     }
     // Développement : fichiers du dépôt.
-    candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("legal").join(file));
+    if let Some(root) = repo_root() {
+        candidates.push(root.join("apps").join("desktop").join("src-tauri").join("legal").join(file));
+    }
     let path = candidates.into_iter().find(|p| p.exists()).ok_or("document introuvable")?;
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     Ok(text.trim_start_matches('\u{feff}').to_string())
@@ -675,12 +677,27 @@ fn pdfium_dir(app: &AppHandle) -> PathBuf {
         candidates.push(exe_dir);
     }
     if cfg!(debug_assertions) || std::env::var("PDFREADER_DEV").is_ok() {
-        candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../vendor/pdfium-win-x64/bin"));
+        if let Some(root) = repo_root() {
+            candidates.push(root.join("vendor").join("pdfium-win-x64").join("bin"));
+        }
     }
-    candidates
-        .into_iter()
-        .find(|d| d.join("pdfium.dll").exists())
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../vendor/pdfium-win-x64/bin"))
+    let first = candidates.first().cloned().unwrap_or_else(|| PathBuf::from("."));
+    candidates.into_iter().find(|d| d.join("pdfium.dll").exists()).unwrap_or(first)
+}
+
+/// Racine du dépôt, pour le développement. En version publiée, déduite de l'emplacement de
+/// l'exécutable (target/release/PDFReader.exe) : aucun chemin de la machine de compilation
+/// n'est inscrit dans le binaire.
+fn repo_root() -> Option<PathBuf> {
+    #[cfg(debug_assertions)]
+    {
+        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join(".."))
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let exe = std::env::current_exe().ok()?;
+        exe.parent()?.parent()?.parent().map(Path::to_path_buf)
+    }
 }
 
 /// `pdfpage://localhost/tile/<doc>/<gen>/<ver>/<page>/<scale>/<x>/<y>` (WebP) et `/thumb/<id>` (PNG).
