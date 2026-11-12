@@ -1,7 +1,8 @@
 //! Chaîne de signature des mises à jour : le setup construit (avec la clé privée gardée hors du
 //! dépôt) est accepté par la clé publique de tauri.conf.json, exactement comme le fait l'updater
 //! de Tauri avant d'installer ; un setup modifié d'un seul octet est refusé.
-//! Ignoré si le setup signé n'a pas été construit.
+//! Ignoré si le setup signé n'a pas été construit. PDFREADER_SETUP=chemin vérifie un autre setup
+//! (artefact de la CI, fichier téléchargé de la Release), avec son .sig à côté.
 
 use std::path::Path;
 
@@ -17,7 +18,10 @@ fn built_setup_is_accepted_and_tampering_is_refused() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let conf: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(manifest.join("tauri.conf.json")).unwrap()).unwrap();
     let version = conf["version"].as_str().unwrap();
-    let setup = manifest.join(format!("../../../target/release/bundle/nsis/PDFReader_{version}_x64-setup.exe"));
+    let setup = match std::env::var_os("PDFREADER_SETUP") {
+        Some(p) => std::path::PathBuf::from(p),
+        None => manifest.join(format!("../../../target/release/bundle/nsis/PDFReader_{version}_x64-setup.exe")),
+    };
     let sig = setup.with_extension("exe.sig");
     if !setup.exists() || !sig.exists() {
         eprintln!("setup signé absent : test ignoré");

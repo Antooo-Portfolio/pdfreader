@@ -284,6 +284,7 @@ désinstallation et réinstallation, dossier de données sauvegardé avant) :
   construits ; signature acceptée par le test Rust ; adresse du flux présente dans l'exécutable.
 - Étape e2e `PDFREADER_E2E_STAGE=update` : l'application réelle interroge le flux publié. Construite
   en 0.2.0 : « à jour » (aucune proposition, aucune erreur) ; construite en 0.1.9 : 0.2.0 proposée.
+- Le setup construit par la CI passe le même test de signature (`PDFREADER_SETUP=chemin`).
 - Le setup publié est installé sur ce poste (l'ancienne installation pointait vers l'ancienne
   adresse).
 - Publier une version : monter la version dans `tauri.conf.json`, construire avec la clé (ou
