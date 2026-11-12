@@ -8,8 +8,8 @@
   site/  licence.html, THIRD-PARTY-NOTICES.txt à jour
 
 À lancer après `npx tauri build` avec TAURI_SIGNING_PRIVATE_KEY_PATH (clé privée gardée hors du
-dépôt, %USERPROFILE%\\.tauri\\pdfreader-updater.key). La publication (Release GitHub du dépôt public
-Antooo-Portfolio/pdfreader-releases, GitHub Pages pour site/) se fait ensuite avec gh.
+dépôt, %USERPROFILE%\\.tauri\\pdfreader-updater.key). La publication (Release GitHub du dépôt
+Antooo-Portfolio/pdfreader) se fait ensuite avec gh ; le site est déployé par la CI (pages.yml).
 
     python tools/release/prepare.py [--notes "texte"] [--base-url URL]
 """
@@ -33,7 +33,7 @@ OUT = os.path.join(ROOT, "target", "release-upload")
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--notes", default="")
-    ap.add_argument("--base-url", default="https://github.com/Antooo-Portfolio/pdfreader-releases/releases/download")
+    ap.add_argument("--base-url", default="https://github.com/Antooo-Portfolio/pdfreader/releases/download")
     a = ap.parse_args()
     version = json.load(open(CONF, encoding="utf-8"))["version"]
     setup = os.path.join(NSIS, f"PDFReader_{version}_x64-setup.exe")

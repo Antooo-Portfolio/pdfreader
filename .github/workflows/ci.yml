@@ -1,4 +1,4 @@
-# Intégration continue (dépôt privé du code). Forfait gratuit de GitHub Actions.
+# Intégration continue (dépôt public : minutes GitHub Actions gratuites).
 # Contrôles : types, traductions, licences (npm et Rust), tests du moteur, construction du setup.
 # Si le secret TAURI_SIGNING_PRIVATE_KEY est défini, le setup est signé pour l'updater et les
 # fichiers d'une version (setup, .sig, latest.json) sont joints aux artefacts.

@@ -275,19 +275,24 @@ désinstallation et réinstallation, dossier de données sauvegardé avant) :
 
 ### Publication (2026-11-12)
 
-- Code : dépôt privé `Antooo-Portfolio/pdfreader` ; secret `TAURI_SIGNING_PRIVATE_KEY` défini,
-  la CI construit donc un setup signé et les fichiers de version (artefact « setup »).
-- Versions et site : dépôt public `Antooo-Portfolio/pdfreader-releases` ; Release v0.2.0 (setup,
-  `.sig`, `latest.json`) ; GitHub Pages sur `main` à la racine, servi à
-  https://portfolio.antonyrodrigues.fr/pdfreader-releases/ (domaine de l'organisation).
+- Un seul dépôt public, `Antooo-Portfolio/pdfreader` : code, versions (Releases) et site. Il
+  s'appelait d'abord `pdfreader-releases` (versions et site seulement, code dans un dépôt privé) ;
+  à la demande de l'utilisateur, le dépôt privé a été supprimé et le dépôt public renommé. GitHub
+  redirige les anciennes adresses : la 0.2.0, qui interroge
+  `…/pdfreader-releases/releases/latest/download/latest.json`, trouve toujours le flux (ne jamais
+  recréer un dépôt nommé `pdfreader-releases`, la redirection cesserait). Le contrat de licence
+  reste propriétaire : le code est visible, pas libre.
+- Secret `TAURI_SIGNING_PRIVATE_KEY` : la CI construit un setup signé et les fichiers de version
+  (artefact « setup »).
+- Release v0.2.0 (setup, `.sig`, `latest.json`) ; étiquette sur le commit qui a construit le setup.
+- Site : `site/` déployé sur GitHub Pages par `.github/workflows/pages.yml`, servi à
+  https://portfolio.antonyrodrigues.fr/pdfreader/ (domaine de l'organisation).
 - Vérifié : `latest.json` et le setup téléchargés depuis la Release sont identiques aux fichiers
   construits ; signature acceptée par le test Rust ; adresse du flux présente dans l'exécutable.
+- Le setup construit par la CI passe le même test de signature (`PDFREADER_SETUP=chemin`).
 - Étape e2e `PDFREADER_E2E_STAGE=update` : l'application réelle interroge le flux publié. Construite
   en 0.2.0 : « à jour » (aucune proposition, aucune erreur) ; construite en 0.1.9 : 0.2.0 proposée.
-- Le setup construit par la CI passe le même test de signature (`PDFREADER_SETUP=chemin`).
-- Le setup publié est installé sur ce poste (l'ancienne installation pointait vers l'ancienne
-  adresse).
 - Publier une version : monter la version dans `tauri.conf.json`, construire avec la clé (ou
   prendre l'artefact « setup » de la CI), `python tools/release/prepare.py --notes "…"`, puis
-  `gh release create vX.Y.Z -R Antooo-Portfolio/pdfreader-releases` avec les trois fichiers de
-  `target/release-upload/`, et copier `site/` dans le dépôt public si le site a changé.
+  `gh release create vX.Y.Z -R Antooo-Portfolio/pdfreader` avec les trois fichiers de
+  `target/release-upload/`.
