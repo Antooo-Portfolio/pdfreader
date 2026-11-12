@@ -345,6 +345,15 @@ export interface EngineClient {
   recoveryDiscard(id: string): Promise<void>;
 
   resetPreferences(): Promise<void>;
+  /** Contrat de licence, mentions des composants tiers (texte) ou leur résumé (JSON). */
+  legalDocument(name: "licence" | "notices" | "summary"): Promise<string>;
+  appInfo(): Promise<{ name: string; version: string; pdfium: string; dataDir: string }>;
+  /** Recherche une mise à jour (seulement avec l'accord de l'utilisateur). null : à jour. */
+  updateCheck(): Promise<{ version: string; notes: string | null; date: string | null } | null>;
+  /** Télécharge, vérifie, installe et redémarre. */
+  updateInstall(): Promise<void>;
+  onUpdateProgress(cb: (done: number, total: number | null) => void): Promise<() => void>;
+
   /** Ouvre une page des Paramètres de Windows. */
   openSettings(page: "defaultapps" | "printers"): Promise<void>;
 }

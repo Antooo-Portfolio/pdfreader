@@ -117,6 +117,9 @@ export function PreferencesDialog({
             onSelectionChange={(k) => onChange("theme", k as Theme)}
             className="max-w-72"
           />
+          <Switch isSelected={prefs.updates === "auto"} onChange={(v) => onChange("updates", v ? "auto" : "off")}>
+            {t("Rechercher automatiquement les mises à jour (une fois par jour)")}
+          </Switch>
           <section className="flex flex-col gap-2">
             <h3 className="text-base font-semibold">{t("Lecteur PDF par défaut")}</h3>
             <p className="text-sm text-muted">

@@ -6,3 +6,5 @@
 *.icns binary
 *.pdf binary
 *.dll binary
+# Contrat de licence affiché par l'installeur Windows (Bloc-notes, NSIS) : fins de ligne CRLF.
+apps/desktop/src-tauri/legal/LICENCE.txt text eol=crlf

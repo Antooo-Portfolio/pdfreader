@@ -507,6 +507,26 @@ async function runSettings(engine: EngineClient, actions: AppActions, path: stri
       checks.keyboardSelection = chars === 5 && words > chars && all > 300 && !!after && ws.length === 3 && (ws[0] ?? "") !== "" && (ws[1] ?? "").length > (ws[0] ?? "").length && (ws[2] ?? "").length > (ws[1] ?? "").length;
     }
 
+    // À propos : version, composants tiers.
+    {
+      const btn = document.querySelector<HTMLElement>('button[aria-label="À propos de PDFReader"]');
+      btn?.click();
+      const dlg = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((d) => d.textContent?.includes("moteur PDFium")), 5000);
+      const tab = Array.from(dlg.querySelectorAll('[role="tab"]')).find((x) => x.textContent === "Composants tiers") as HTMLElement | undefined;
+      tab?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
+      tab?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "mouse", button: 0 }));
+      tab?.click();
+      const rows = await until(async () => {
+        const n = dlg.querySelectorAll("tbody tr").length;
+        return n > 100 ? n : null;
+      }, 5000);
+      r.about = { version: dlg.textContent?.match(/Version ([\d.]+)/)?.[1], thirdParty: rows };
+      checks.about = !!rows && !!dlg.textContent?.includes("PDFium");
+      if (pauseMs) await sleep(pauseMs);
+      Array.from(dlg.querySelectorAll("button")).find((x) => x.textContent === "Fermer")?.click();
+      await sleep(200);
+    }
+
     // Préférences (Ctrl+K) : catégories, taille de l'interface, raccourcis à une touche.
     key("k", { ctrlKey: true });
     const pd = await waitFor(() => Array.from(document.querySelectorAll('[role="dialog"]')).find((d) => d.textContent?.includes("Affichage des pages")), 4000);
@@ -579,7 +599,7 @@ async function runSettings(engine: EngineClient, actions: AppActions, path: stri
     checks.error = false;
   }
   r.checks = checks;
-  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 12;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 13;
   return r;
 }
 

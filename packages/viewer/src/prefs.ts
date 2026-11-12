@@ -20,6 +20,10 @@ export interface Prefs {
   recoveryMinutes: number;
   /** Rouvrir chaque document à la page, au zoom et au mode où on l'a laissé. */
   restoreView: boolean;
+  /** Mises à jour : « ask » tant que l'utilisateur n'a pas répondu ; aucune connexion sans « auto ». */
+  updates: "ask" | "auto" | "off";
+  /** Dernière vérification automatique (ms). */
+  updatesLastCheck: number;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -32,6 +36,8 @@ export const DEFAULT_PREFS: Prefs = {
   recovery: true,
   recoveryMinutes: 2,
   restoreView: true,
+  updates: "ask",
+  updatesLastCheck: 0,
 };
 
 export const UI_SCALES = [87.5, 100, 112.5, 125, 150, 175, 200];
@@ -50,6 +56,8 @@ export function parsePrefs(raw: Record<string, unknown>): Prefs {
   if (typeof raw.recovery === "boolean") p.recovery = raw.recovery;
   if (typeof raw.recoveryMinutes === "number" && RECOVERY_MINUTES.includes(raw.recoveryMinutes)) p.recoveryMinutes = raw.recoveryMinutes;
   if (typeof raw.restoreView === "boolean") p.restoreView = raw.restoreView;
+  if (raw.updates === "ask" || raw.updates === "auto" || raw.updates === "off") p.updates = raw.updates;
+  if (typeof raw.updatesLastCheck === "number") p.updatesLastCheck = raw.updatesLastCheck;
   return p;
 }
 

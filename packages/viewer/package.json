@@ -17,5 +17,6 @@
     "clsx": "*",
     "react-aria-components": "*",
     "lucide-react": "*"
-  }
+  },
+  "license": "UNLICENSED"
 }

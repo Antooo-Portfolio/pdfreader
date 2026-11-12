@@ -329,6 +329,47 @@ async fn printer_sheet(name: String) -> Result<Option<[f32; 2]>, String> {
     tauri::async_runtime::spawn_blocking(move || pdfreader_engine::print_win::sheet_size(&name)).await.map_err(|e| e.to_string())
 }
 
+/// Documents légaux installés avec l'application : contrat de licence, mentions des composants
+/// tiers (texte complet ou résumé JSON). Liste fermée de fichiers.
+#[tauri::command]
+fn legal_document(name: String, app: AppHandle) -> Result<String, String> {
+    let file = match name.as_str() {
+        "licence" => "LICENCE.txt",
+        "notices" => "THIRD-PARTY-NOTICES.txt",
+        "summary" => "third-party.json",
+        _ => return Err("document inconnu".into()),
+    };
+    let mut candidates = Vec::new();
+    if let Ok(r) = app.path().resource_dir() {
+        candidates.push(r.join(file));
+    }
+    // Développement : fichiers du dépôt.
+    candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("legal").join(file));
+    let path = candidates.into_iter().find(|p| p.exists()).ok_or("document introuvable")?;
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    Ok(text.trim_start_matches('\u{feff}').to_string())
+}
+
+#[derive(serde::Serialize)]
+struct AppInfo {
+    name: String,
+    version: String,
+    pdfium: String,
+    data_dir: String,
+}
+
+#[tauri::command]
+fn app_info(app: AppHandle, data: State<'_, DataDir>) -> AppInfo {
+    let build = env!("PDFIUM_BUILD");
+    let pdfium_version = if build.is_empty() { "intégré".to_string() } else { format!("chromium/{build}") };
+    AppInfo {
+        name: app.package_info().name.clone(),
+        version: app.package_info().version.to_string(),
+        pdfium: pdfium_version,
+        data_dir: data.0.display().to_string(),
+    }
+}
+
 /// Ouvre une page des Paramètres de Windows (liste fermée : applications par défaut, imprimantes).
 #[tauri::command]
 fn open_settings(page: String) -> Result<(), String> {
@@ -338,6 +379,58 @@ fn open_settings(page: String) -> Result<(), String> {
         _ => return Err("page inconnue".into()),
     };
     shell_open(uri)
+}
+
+// ------------------------------------------------------------------ mises à jour (sur consentement)
+//
+// Aucune connexion n'a lieu sans l'accord de l'utilisateur : l'interface n'appelle `update_check`
+// que s'il a accepté la vérification automatique ou s'il clique « Rechercher des mises à jour ».
+// Le fichier téléchargé est vérifié avec la clé publique Ed25519 de tauri.conf.json avant d'être
+// lancé (signature Tauri, indépendante de la signature Authenticode, que nous n'avons pas).
+
+/// Mise à jour trouvée, en attente d'installation.
+#[derive(Default)]
+struct PendingUpdate(Mutex<Option<tauri_plugin_updater::Update>>);
+
+#[derive(serde::Serialize)]
+struct UpdateInfo {
+    version: String,
+    notes: Option<String>,
+    date: Option<String>,
+}
+
+fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let b = app.updater_builder().timeout(std::time::Duration::from_secs(30));
+    b.build().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn update_check(app: AppHandle, pending: State<'_, PendingUpdate>) -> Result<Option<UpdateInfo>, String> {
+    let found = updater(&app)?.check().await.map_err(|e| e.to_string())?;
+    let info = found.as_ref().map(|u| UpdateInfo { version: u.version.clone(), notes: u.body.clone(), date: u.date.map(|d| d.to_string()) });
+    *pending.0.lock().unwrap() = found;
+    Ok(info)
+}
+
+/// Télécharge, vérifie la signature et lance l'installeur (mode passif), puis redémarre.
+/// Émet « update-progress » { done, total }.
+#[tauri::command]
+async fn update_install(app: AppHandle, pending: State<'_, PendingUpdate>) -> Result<(), String> {
+    let update = pending.0.lock().unwrap().take().ok_or("aucune mise à jour en attente")?;
+    let mut done = 0u64;
+    let progress = app.clone();
+    update
+        .download_and_install(
+            move |chunk, total| {
+                done += chunk as u64;
+                let _ = progress.emit("update-progress", serde_json::json!({ "done": done, "total": total }));
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
 }
 
 /// Drapeau d'annulation de l'impression en cours.
@@ -634,6 +727,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(engine::start(pdfium_dir(&handle)));
@@ -651,6 +745,7 @@ fn main() {
             app.manage(db);
             app.manage(DataDir(dir));
             app.manage(PrintState::default());
+            app.manage(PendingUpdate::default());
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("pdfpage", |ctx, request, responder| {
@@ -670,6 +765,10 @@ fn main() {
             printers,
             printer_sheet,
             open_settings,
+            legal_document,
+            update_check,
+            update_install,
+            app_info,
             pref_reset,
             recovery_snapshot,
             recovery_clear,

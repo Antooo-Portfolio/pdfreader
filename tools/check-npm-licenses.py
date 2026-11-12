@@ -57,6 +57,8 @@ def main():
     while todo:
         name, base = todo.pop()
         path = find_pkg(name, base)
+        if name.startswith("@pdfreader/"):
+            continue  # nos paquets (code fermé, licence propriétaire)
         if not path or path in seen:
             continue
         pj = read(path)

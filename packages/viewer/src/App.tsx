@@ -1,6 +1,7 @@
 import { t, Button, Dialog, DocumentTabs, IconButton, isModalOpen, Menu, MenuItem, MenuSection, MenuTrigger, Spinner, useToast, TextField, msg, getLanguage, type Language, setLanguage, systemLanguage } from "@pdfreader/ui";
-import { Home, Palette, Settings } from "lucide-react";
+import { Home, Info, Palette, Settings } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { AboutDialog, UpdateConsentDialog, UpdateDialog, type UpdateInfo } from "./AboutDialog";
 import { DEFAULT_STYLES, type Tool, type ToolStyle, type ToolStyles } from "./annot";
 import { type DocActions, DocumentView } from "./DocumentView";
 import { runE2E, runStage } from "./e2e";
@@ -80,6 +81,9 @@ export function App({ engine }: { engine: EngineClient }) {
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [recovery, setRecovery] = useState<RecoveryItem[] | null>(null);
   const [external, setExternal] = useState<Set<number>>(() => new Set());
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
   const docsRef = useRef(docs);
   docsRef.current = docs;
   const activeRef = useRef(active);
@@ -97,6 +101,7 @@ export function App({ engine }: { engine: EngineClient }) {
       .preferences()
       .then((p) => {
         setPrefs(parsePrefs(p));
+        setPrefsLoaded(true);
         setPrintSettings(parsePrintSettings(p.print));
         // Styles des outils mémorisés : on ne garde que les entrées valides.
         const saved = p.toolStyles as Partial<Record<keyof ToolStyles, Partial<ToolStyle>>> | undefined;
@@ -383,6 +388,19 @@ export function App({ engine }: { engine: EngineClient }) {
     [engine, toast],
   );
 
+  // ------------------------------------------------------------ mises à jour (sur consentement)
+  // Vérification automatique : seulement si l'utilisateur l'a acceptée, au plus une fois par jour,
+  // jamais pendant les tests de bout en bout.
+  useEffect(() => {
+    if (!prefsLoaded || e2eMode || prefs.updates !== "auto") return;
+    if (Date.now() - prefs.updatesLastCheck < 24 * 3600_000) return;
+    setPref("updatesLastCheck", Date.now());
+    engine
+      .updateCheck()
+      .then((u) => u && setUpdate(u))
+      .catch(() => undefined); // hors ligne : on réessaiera demain
+  }, [prefsLoaded, e2eMode, prefs.updates, prefs.updatesLastCheck, engine, setPref]);
+
   const openPrint = useCallback(() => {
     const id = Number(activeRef.current);
     if (id) setPrintFor(id);
@@ -496,6 +514,7 @@ export function App({ engine }: { engine: EngineClient }) {
           </span>
         )}
         <div className="mb-1 ml-auto flex shrink-0 items-center gap-0.5">
+          <IconButton label={t("À propos de PDFReader")} icon={<Info size={18} />} onPress={() => setAboutOpen(true)} />
           <IconButton label={t("Préférences")} shortcut="Ctrl+K" icon={<Settings size={18} />} onPress={() => setPrefsOpen(true)} />
           <MenuTrigger>
             <IconButton label={t("Apparence")} icon={<Palette size={18} />} />
@@ -571,6 +590,20 @@ export function App({ engine }: { engine: EngineClient }) {
           onReset={resetPrefs}
           onClose={() => setPrefsOpen(false)}
         />
+      )}
+      {aboutOpen && (
+        <AboutDialog
+          engine={engine}
+          onUpdateFound={(u) => {
+            setAboutOpen(false);
+            setUpdate(u);
+          }}
+          onClose={() => setAboutOpen(false)}
+        />
+      )}
+      {update && !aboutOpen && <UpdateDialog engine={engine} update={update} onClose={() => setUpdate(null)} />}
+      {prefsLoaded && !e2eMode && prefs.updates === "ask" && !recovery?.length && !prefsOpen && !aboutOpen && (
+        <UpdateConsentDialog onAnswer={(auto) => setPref("updates", auto ? "auto" : "off")} />
       )}
       {recovery && recovery.length > 0 && (
         <RecoveryDialog

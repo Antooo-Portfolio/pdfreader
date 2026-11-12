@@ -201,3 +201,58 @@ orientation automatique portrait / paysage / portrait.
   fenêtre ; bandeau « Recharger » ou « Enregistrer mes modifications sous… ».
 - Tests du moteur : une seule instance de PDFium par binaire de test (`tests/common`), PDFium ne
   se rechargeant pas après libération dans un même processus.
+
+## M2 — fin du jalon (2026-11-12)
+
+Dernier lot de M2 : polices CJK, sélection au clavier, zone de texte et légende, interface en
+anglais, installation et légal, mises à jour sur consentement, site de téléchargement,
+intégration continue. Version 0.2.0. Validé par le scénario de bout en bout complet (toutes
+les parties, dont « À propos » : 340 composants), le plantage simulé puis la récupération, les 12
+tests Rust (moteur et application), le contrôle des traductions et les deux contrôles de
+licences ; la base réelle de l'utilisateur est inchangée après tous les essais.
+
+**Installation, vérifiée sur ce poste** (installation silencieuse du setup 0.2.0, puis
+désinstallation et réinstallation, dossier de données sauvegardé avant) :
+- identifiant `PDFReader.Document`, PDFReader proposé dans « Ouvrir avec » et dans Paramètres >
+  Applications par défaut (Capabilities + RegisteredApplications) ;
+- le lecteur choisi par l'utilisateur (ici Acrobat, UserChoice) n'est jamais touché, et la valeur
+  par défaut de `.pdf` est remise telle qu'elle était : la macro APP_ASSOCIATE de Tauri la
+  remplaçait, un script NSIS (`installer-hooks.nsh`) la restaure après l'installation ;
+- migration depuis la 0.1.0 : son identifiant générique « PDF », posé comme lecteur par défaut,
+  est retiré (seulement s'il lance PDFReader), sauvegarde comprise ;
+- désinstallation : toutes nos clés retirées, données conservées ;
+- contrat de licence FR / EN affiché par l'installeur ; LICENCE.txt, THIRD-PARTY-NOTICES.txt et
+  third-party.json installés avec l'application.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| S35 À propos | 2026-11-12 | fait | — | la version de PDFium venait d'un fichier absent de l'installation : inscrite à la compilation (build.rs) |
+| Mises à jour | 2026-11-12 | fait, sauf essai réel | essai contre le vrai serveur (dépôt public `pdfreader-releases` à créer) | l'essai de bout en bout avec un serveur local exige une version de test qui accepte le HTTP non chiffré : construction refusée par le contrôle de sécurité de l'environnement, essai abandonné ; la chaîne de signature est vérifiée par un test Rust (même vérificateur que l'updater : setup construit accepté, setup modifié d'un octet refusé) |
+| Site | 2026-11-12 | écrit, pas publié | dépôt public + GitHub Pages | — |
+| CI | 2026-11-12 | écrit, pas exécuté | dépôt GitHub du code | — |
+| Polices CJK | 2026-11-12 | fait | — | le correspondant de Windows rend toujours « une » police (latine) : il faut vérifier le nom de la police obtenue avant de l'accepter |
+| Sélection au clavier | 2026-11-12 | fait | — | `Selection.modify` se perd dans la couche de texte (mots en position absolue) : navigation écrite à la main sur la liste des mots |
+| Zone de texte, légende | 2026-11-12 | fait | — | — |
+| Anglais | 2026-11-12 | fait | — | des variables locales nommées `t` masquaient la fonction de traduction (boucles, minuteries) : renommées |
+
+### Ce qui reste à faire par l'utilisateur
+
+- **Clé de signature des mises à jour** : `%USERPROFILE%\.tauri\pdfreader-updater.key` (sans mot
+  de passe). À sauvegarder hors de l'ordinateur : sans elle, plus aucune mise à jour ne pourra
+  être publiée pour les versions déjà installées. À mettre dans les secrets du dépôt
+  (TAURI_SIGNING_PRIVATE_KEY) pour la CI.
+- Créer le dépôt public `pdfreader-releases` (Release v0.2.0 avec les fichiers de
+  `target/release-upload/`, GitHub Pages avec `site/`) ; l'adresse de l'updater et du site
+  suppose le compte GitHub `AntoooVVE`.
+- Pousser le code sur un dépôt privé pour que la CI tourne.
+- Tester avec NVDA, et avec le mode contraste élevé de Windows activé.
+- Une impression papier, recto verso compris, sur l'imprimante réelle.
+
+### Notes techniques
+
+- `tools/licenses/notices.py` : composants livrés (dépendances Rust normales pour Windows, paquets
+  npm de production, PDFium et ses bibliothèques, polices) et texte de chaque licence, sans doublon.
+- `tools/release/prepare.py` : `latest.json` (signature et adresse de la Release), copie des
+  fichiers, pages du site à jour.
+- `tools/i18n/` : extraction des clés, traductions anglaises, contrôle (`npm run i18n:check`).
+- Rotation de la vue déplacée sur Ctrl+Alt+flèches (Ctrl+Maj+flèche étend la sélection).

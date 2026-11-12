@@ -1,0 +1,95 @@
+# Intégration continue (dépôt privé du code). Forfait gratuit de GitHub Actions.
+# Contrôles : types, traductions, licences (npm et Rust), tests du moteur, construction du setup.
+# Si le secret TAURI_SIGNING_PRIVATE_KEY est défini, le setup est signé pour l'updater et les
+# fichiers d'une version (setup, .sig, latest.json) sont joints aux artefacts.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PDFIUM_BUILD: "8138"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: PDFium (bblanchon/pdfium-binaries, BSD-3-Clause)
+        shell: bash
+        run: |
+          mkdir -p vendor/pdfium-win-x64
+          curl -fsSL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F${PDFIUM_BUILD}/pdfium-win-x64.tgz" | tar -xz -C vendor/pdfium-win-x64
+          cat vendor/pdfium-win-x64/VERSION
+
+      - name: Dépendances npm
+        run: npm ci
+
+      - name: Types
+        run: npm run typecheck
+
+      - name: Traductions complètes
+        run: npm run i18n:check
+
+      - name: Licences npm (permissives seulement)
+        run: python tools/check-npm-licenses.py
+
+      - name: Licences Rust (cargo-deny)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+
+      - name: Corpus de test
+        run: |
+          pip install reportlab pypdf pikepdf pillow
+          python tools/corpus/make_corpus.py --skip-big
+
+      - name: Tests du moteur
+        run: cargo test -p pdfreader-engine -- --test-threads=1
+
+      - name: Mentions des composants tiers
+        run: python tools/licenses/notices.py
+
+      - name: Setup Windows (NSIS)
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          cd apps/desktop
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            # Sans clé : setup non signé pour l'updater (artefacts de contrôle seulement).
+            npx tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          else
+            npx tauri build
+            cd ../.. && python tools/release/prepare.py
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: setup
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release-upload/
+          if-no-files-found: ignore

@@ -83,6 +83,14 @@ export const tauriEngine: EngineClient = {
   recoveryRestore: (id, password) => invoke<DocInfo>("recovery_restore", { id, password: password ?? null }),
   recoveryDiscard: (id) => invoke("recovery_discard", { id }),
   resetPreferences: () => invoke("pref_reset"),
+  legalDocument: (name) => invoke<string>("legal_document", { name }),
+  updateCheck: () => invoke<{ version: string; notes: string | null; date: string | null } | null>("update_check"),
+  updateInstall: () => invoke("update_install"),
+  onUpdateProgress: (cb) => listen<{ done: number; total: number | null }>("update-progress", (e) => cb(e.payload.done, e.payload.total)),
+  appInfo: async () => {
+    const i = await invoke<{ name: string; version: string; pdfium: string; data_dir: string }>("app_info");
+    return { name: i.name, version: i.version, pdfium: i.pdfium, dataDir: i.data_dir };
+  },
   openSettings: (page) => invoke("open_settings", { page }),
   e2eReport: (report) => invoke("e2e_report", { report: JSON.stringify(report, null, 2) }),
 };

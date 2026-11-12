@@ -1,0 +1,103 @@
+﻿CONTRAT DE LICENCE UTILISATEUR FINAL — PDFReader
+(English version below)
+
+Version du 12 novembre 2026. « PDFReader » est un nom de code provisoire.
+
+1. Objet. Le présent contrat vous accorde le droit d'installer et d'utiliser le logiciel
+PDFReader (le « Logiciel ») sur les ordinateurs dont vous disposez, aux conditions ci-dessous.
+En installant le Logiciel, vous acceptez ce contrat. Si vous ne l'acceptez pas, n'installez pas
+le Logiciel.
+
+2. Gratuité. Le Logiciel est fourni gratuitement, sans abonnement, sans publicité et sans
+fonctions payantes. Vous pouvez l'utiliser à titre personnel ou professionnel, sans limite de
+durée ni de nombre de postes.
+
+3. Ce que vous pouvez faire. Installer le Logiciel, l'utiliser, et redistribuer sans
+modification le fichier d'installation officiel, gratuitement.
+
+4. Ce que vous ne pouvez pas faire. Vendre le Logiciel ou son fichier d'installation ;
+le distribuer modifié ; le décompiler, le désassembler ou en extraire le code source, sauf dans
+la mesure où la loi applicable l'autorise malgré cette restriction ; retirer ou modifier les
+mentions de droits d'auteur et de licences tierces.
+
+5. Composants tiers. Le Logiciel contient des composants libres (PDFium, Tauri, React et
+d'autres) distribués sous leurs propres licences (BSD, MIT, Apache 2.0, OFL…). Ces licences
+s'appliquent à ces composants et figurent dans l'écran « À propos » du Logiciel et dans le
+fichier THIRD-PARTY-NOTICES.txt installé avec lui. Rien dans ce contrat ne limite les droits
+qu'elles vous accordent.
+
+6. Vos données. Le Logiciel fonctionne entièrement sur votre ordinateur. Vos documents, vos
+commentaires, votre signature et vos réglages ne sont envoyés nulle part. Aucune télémétrie
+n'est collectée. La seule connexion possible est la recherche de mises à jour, qui n'a lieu
+que si vous l'avez acceptée ou si vous la demandez ; elle ne transmet que la version du
+Logiciel et le type de système, avec l'adresse IP que tout serveur voit.
+
+7. Mises à jour. Les mises à jour sont gratuites et vous sont proposées ; vous restez libre de
+les installer ou non.
+
+8. Absence de garantie. Le Logiciel est fourni « tel quel ». Dans toute la mesure permise par
+la loi, aucune garantie n'est donnée, expresse ou implicite, notamment d'adéquation à un usage
+particulier. Conservez une copie de vos documents importants. Les présentes dispositions ne
+privent pas les consommateurs des garanties légales impératives dont ils bénéficient.
+
+9. Limitation de responsabilité. Dans toute la mesure permise par la loi, l'éditeur ne pourra
+être tenu responsable des dommages indirects (perte de données, de chiffre d'affaires ou
+d'exploitation) résultant de l'utilisation ou de l'impossibilité d'utiliser le Logiciel.
+Cette limitation ne s'applique pas en cas de faute lourde ou intentionnelle, ni aux dommages
+corporels.
+
+10. Fin. Ce contrat prend fin si vous n'en respectez pas les conditions ; vous devez alors
+désinstaller le Logiciel. Vous pouvez y mettre fin à tout moment en le désinstallant.
+
+11. Droit applicable. Ce contrat est soumis au droit français. Les consommateurs conservent la
+protection des règles impératives du pays où ils résident.
+
+------------------------------------------------------------------------------------------------
+
+END USER LICENCE AGREEMENT — PDFReader
+
+Version of 12 November 2026. "PDFReader" is a provisional code name.
+
+1. Purpose. This agreement grants you the right to install and use the PDFReader software (the
+"Software") on the computers you use, under the terms below. By installing the Software, you
+accept this agreement. If you do not accept it, do not install the Software.
+
+2. Free of charge. The Software is provided free of charge, with no subscription, no
+advertising and no paid features. You may use it for personal or professional purposes, on any
+number of computers, for an unlimited time.
+
+3. What you may do. Install and use the Software, and redistribute the official installer
+unmodified and free of charge.
+
+4. What you may not do. Sell the Software or its installer; distribute it modified; decompile,
+disassemble or extract its source code, except to the extent applicable law allows this despite
+this restriction; remove or change copyright and third-party licence notices.
+
+5. Third-party components. The Software contains open-source components (PDFium, Tauri, React
+and others) distributed under their own licences (BSD, MIT, Apache 2.0, OFL…). Those licences
+apply to those components and are listed in the Software's "About" screen and in the
+THIRD-PARTY-NOTICES.txt file installed with it. Nothing in this agreement limits the rights
+they grant you.
+
+6. Your data. The Software works entirely on your computer. Your documents, comments, signature
+and settings are not sent anywhere. No telemetry is collected. The only possible connection is
+the update check, which only happens if you accepted it or ask for it; it only sends the
+Software version and the type of system, with the IP address that any server sees.
+
+7. Updates. Updates are free and offered to you; you remain free to install them or not.
+
+8. No warranty. The Software is provided "as is". To the fullest extent permitted by law, no
+warranty is given, express or implied, including fitness for a particular purpose. Keep a copy
+of your important documents. These provisions do not deprive consumers of the mandatory legal
+guarantees they are entitled to.
+
+9. Limitation of liability. To the fullest extent permitted by law, the publisher shall not be
+liable for indirect damages (loss of data, revenue or business) arising from the use of, or
+inability to use, the Software. This limitation does not apply in case of gross negligence or
+wilful misconduct, nor to personal injury.
+
+10. Termination. This agreement ends if you do not comply with its terms; you must then
+uninstall the Software. You may end it at any time by uninstalling the Software.
+
+11. Governing law. This agreement is governed by French law. Consumers keep the protection of
+the mandatory rules of the country where they live.

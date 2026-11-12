@@ -1,8 +1,8 @@
 feature,area,priority,original,clone,notes
 Ouvrir un PDF local (dialogue / glisser-déposer / double-clic),lecture,must,yes,yes,"M1 : dialogue, glisser-déposer, argument de lancement, instance unique"
-Associer l'app aux fichiers .pdf (desktop),lecture,must,yes,partial,"M1 : l'installeur déclare l'association ; ProgID générique « PDF » à renommer, et il écrit HKCU .pdf par défaut (UserChoice reste prioritaire)"
+Associer l'app aux fichiers .pdf (desktop),lecture,must,yes,yes,"M2 : identifiant PDFReader.Document ; « Ouvrir avec » et Paramètres > Applications par défaut ; le lecteur choisi n'est jamais remplacé (vérifié : choix Acrobat intact, valeur par défaut restaurée) ; migration qui retire l'ancien identifiant « PDF » de la 0.1.0 ; désinstallation propre ; bouton vers les applications par défaut dans les Préférences"
 Onglets multi-documents,lecture,must,yes,yes,"M1 : onglets, Ctrl+Tab, Ctrl+W, point « modifié »"
-Rendu fidèle des pages (polices / images / transparence),lecture,must,yes,partial,PDFium natif ; japonais non embarqué invisible (table de polices en M2)
+Rendu fidèle des pages (polices / images / transparence),lecture,must,yes,yes,M2 : polices CJK non embarquées remplacées par une police installée de la bonne écriture (japonais : 0 → 607 pixels dessinés sur le corpus)
 Rendu progressif et virtualisé des gros PDF,lecture,must,yes,yes,M2 : seules les rangées proches de l'écran existent dans la page ; aperçu flou (image de la vignette) affiché tout de suite puis recouvert par les tuiles ; pas encore d'annulation des tuiles devenues invisibles
 Zoom (+/- / % / ajuster page / largeur),lecture,must,yes,yes,"M2 : +/-, %, menu Page entière (Ctrl+0) / Pleine largeur (Ctrl+2) / 100 % (Ctrl+1), Ctrl+molette centré sur la souris, ajustement conservé au redimensionnement"
 Modes d'affichage (une page / deux pages / défilement continu),lecture,must,yes,yes,"M2 : une page, continu, deux pages, deux pages en continu, couverture seule ; mémorisé par document"
@@ -17,7 +17,7 @@ Respect des permissions (impression / copie interdites),lecture,must,yes,yes,"M2
 Rechercher dans le document (Ctrl+F),recherche,must,yes,yes,"M2 : S05 : Ctrl+F, Entrée / Maj+Entrée / F3, casse, mot entier, résultats surlignés, recherche par lots de 10 pages (1000 pages sans bloquer le rendu), message pour un document sans texte"
 Recherche avancée (casse / mot entier / commentaires / signets),recherche,should,yes,no,
 Recherche dans plusieurs PDF d'un dossier,recherche,could,yes,no,
-Sélectionner et copier du texte,lecture,must,yes,partial,"M1 : couche de texte DOM, sélection souris et copier ; pas de sélection au clavier"
+Sélectionner et copier du texte,lecture,must,yes,yes,"M2 : souris et clavier (Maj+flèches, Ctrl+Maj+flèches, Maj+Début / Fin, Ctrl+A), copie bloquée si interdite"
 Panneau Vignettes,navigation,must,yes,yes,"M2 : S06 : vignettes virtualisées, page courante suivie, clavier (flèches, Pg préc./suiv., Début / Fin) ; menu contextuel d'organisation avec les outils de pages (phase 2)"
 Panneau Signets (lecture),navigation,must,yes,yes,"M2 : S07 : arbre, tout déplier / replier, aller à la page et à la position, signets web confirmés ; vide « Aucun signet »"
 Créer / renommer / supprimer des signets,navigation,should,yes,no,
@@ -31,7 +31,7 @@ Accueil avec récents et favoris,accueil,must,yes,yes,"M2 : onglets Récents / F
 Restaurer la dernière page et le zoom à la réouverture,accueil,should,yes,yes,"M2 : page, zoom, mode, rotation et panneau mémorisés par document (conservés après enregistrement) ; désactivable dans les Préférences"
 Surligner / souligner / barrer du texte,annotation,must,yes,yes,"M2 : trois outils, appliqués à la sélection (ou au texte déjà sélectionné quand on choisit l'outil), couleur et opacité par outil, mémorisées"
 Note (commentaire épinglé),annotation,must,yes,yes,"M2 : clic sur la page, éditeur qui s'ouvre à la création, modification et suppression ; icône générée par PDFium"
-Zone de texte et légende,annotation,must,yes,partial,"M2 : texte libre posé sur la page (outil Texte, tampon) ; pas encore de vraie zone de texte /FreeText avec cadre ni de légende fléchée"
+Zone de texte et légende,annotation,must,yes,yes,"M2 : zone de texte encadrée (texte renvoyé à la ligne, fond blanc facultatif) et légende fléchée, posées comme tampons ; texte modifiable depuis le panneau Commentaires"
 Formes (rectangle / ellipse / ligne / flèche / polygone / nuage),annotation,should,yes,no,
 Dessin à main levée et gomme,annotation,must,yes,yes,"M2 : tracé à la souris ou au stylet (couleur, opacité, épaisseur), gomme qui efface les tracés touchés"
 Tampons prédéfinis,annotation,should,yes,no,
@@ -55,9 +55,9 @@ Propriétés du document (lecture),fichier,should,yes,no,S15
 Modifier les métadonnées,fichier,could,yes,no,payant chez Adobe
 Préférences,interface,must,yes,yes,"M2 : S14 : Général (thème, lecteur par défaut), Affichage (zoom et mode à l'ouverture, reprise de la dernière vue), Commentaires (auteur), Documents (copies de récupération), Accessibilité (taille de l'interface, raccourcis à une touche) ; rétablir les réglages par défaut ; Ctrl+K"
 Vue protégée / bac à sable pour PDF non fiables,sécurité,should,yes,no,bandeau + JS désactivé par défaut
-Mises à jour automatiques (desktop),distribution,must,yes,no,S35 ; tauri-plugin-updater ; vérification sur consentement uniquement
-Interface en français et anglais,interface,must,yes,partial,M1 : français seulement (Lingui en M2)
-Accessibilité (lecteur d'écran / navigation clavier / contraste),interface,must,yes,partial,"M1 : couche de texte lisible, région document nommée, focus visible ; NVDA pas encore testé à la main"
+Mises à jour automatiques (desktop),distribution,must,yes,yes,"M2 : tauri-plugin-updater, accord demandé au premier lancement (aucune connexion sans), une vérification par jour au plus, recherche manuelle dans À propos, installation passive et redémarrage ; signature Ed25519 vérifiée par test (setup construit accepté, setup modifié refusé). Pas encore testé contre un vrai serveur : le dépôt public pdfreader-releases n'existe pas encore"
+Interface en français et anglais,interface,must,yes,yes,"M2 : 385 phrases traduites, langue de Windows ou choisie dans les Préférences, contrôle des manques (npm run i18n:check)"
+Accessibilité (lecteur d'écran / navigation clavier / contraste),interface,must,yes,partial,"M2 : tout au clavier (dont la sélection du texte), aria-keyshortcuts au format ARIA, aucun raccourci global derrière une boîte modale, taille de l'interface ; test manuel avec NVDA encore à faire"
 Lecture à voix haute,accessibilité,should,yes,no,synthèse vocale du système
 Organiser les pages (réordonner / pivoter / supprimer),pages,must,yes,no,S16 F07 ; payant
 Insérer des pages (autre PDF / page blanche),pages,must,yes,no,
@@ -112,19 +112,19 @@ Ouvrir depuis Google Drive / OneDrive / Dropbox,cloud,could,yes,skip,les applis 
 Fonctionne sans compte et sans connexion,accessibilité,must,no,yes,M1 : aucun appel réseau
 Aucune publicité ni télémétrie,accessibilité,must,no,yes,M1
 PWA installable et utilisable hors ligne,web,must,no,skip,appli desktop uniquement : pas de version navigateur
-Thème contraste élevé et respect du mode contraste élevé de Windows,accessibilité,must,yes,partial,M2 : thème Contraste élevé choisissable ; forced-colors dans les jetons ; pas encore vérifié avec le mode de Windows
+Thème contraste élevé et respect du mode contraste élevé de Windows,accessibilité,must,yes,partial,M2 : thème Contraste élevé ; forced-colors dans les jetons ; pas vérifié avec le mode contraste élevé de Windows activé (réglage système à basculer à la main)
 Zoom de l'interface indépendant du document,accessibilité,should,yes,no,
 Ordre de lecture des PDF balisés pour les lecteurs d'écran,accessibilité,should,yes,no,StructTreeRoot
 Export / import des préférences en JSON,interface,should,no,no,remplace la synchro par compte
 Installeur setup.exe (NSIS) téléchargeable,distribution,must,no,yes,"M1 : PDFReader_0.1.0_x64-setup.exe, 6,2 Mo, installation utilisateur sans admin, désinstalleur"
 Signature de code de l'installeur,distribution,should,no,skip,choix zéro coût pour l'éditeur : setup non signé ; page de téléchargement qui explique l'avertissement SmartScreen
-Page de téléchargement statique,distribution,must,no,no,GitHub Pages d'un dépôt public de versions (sans le code) : Télécharger + marche à suivre SmartScreen + notes + EULA + confidentialité + licences
+Page de téléchargement statique,distribution,must,no,partial,"M2 : site/ (FR, EN) avec téléchargement, marche à suivre SmartScreen, confidentialité, contrat de licence, composants tiers ; tools/release/prepare.py prépare setup, .sig et latest.json. Pas encore publié (dépôt public et GitHub Pages à créer)"
 Fiche Microsoft Store gratuite (installation sans avertissement),distribution,could,no,no,"facultatif, en plus du setup ; MSIX signé gratuitement par le Store"
 Moteur PDF dans un processus séparé et redémarrable,sécurité,should,no,no,un PDF piégé ne fait tomber que son onglet
 Setup « hors ligne » avec WebView2 embarqué,distribution,could,no,no,postes sans Internet
-Écran Licences tierces (mentions MIT / BSD / Apache / OFL),distribution,must,no,no,obligatoire en code fermé ; dans À propos (S35)
-Contrôle des licences des dépendances en CI,distribution,must,no,partial,cargo-deny + tools/check-npm-licenses.py ; pas encore de CI
-EULA et politique de confidentialité,distribution,must,no,no,EULA affiché dans l'installeur ; pages sur le site de téléchargement
+Écran Licences tierces (mentions MIT / BSD / Apache / OFL),distribution,must,no,yes,"M2 : À propos > Composants tiers (340 composants, recherche, texte complet) ; THIRD-PARTY-NOTICES.txt installé avec l'app, généré par tools/licenses/notices.py"
+Contrôle des licences des dépendances en CI,distribution,must,no,partial,M2 : cargo-deny et tools/check-npm-licenses.py passent ; workflow .github/workflows/ci.yml écrit mais pas encore exécuté (pas de dépôt GitHub)
+EULA et politique de confidentialité,distribution,must,no,yes,M2 : contrat de licence FR / EN affiché par l'installeur et dans À propos ; politique de confidentialité dans À propos et sur le site
 Partager un lien de lecture / relecture,collaboration,should,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur
 Relecteur commente sans compte,collaboration,should,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur
 Suivi des vues d'un partage,collaboration,could,yes,skip,nécessite un serveur et un compte : contraire au principe gratuit sans serveur
