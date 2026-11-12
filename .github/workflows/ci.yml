@@ -21,9 +21,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -32,7 +32,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -55,10 +55,13 @@ jobs:
       - name: Licences npm (permissives seulement)
         run: python tools/check-npm-licenses.py
 
-      - name: Licences Rust (cargo-deny)
-        uses: EmbarkStudios/cargo-deny-action@v2
+      # L'action cargo-deny est un conteneur Linux : sur Windows, on installe l'outil.
+      - uses: taiki-e/install-action@v2
         with:
-          command: check licenses
+          tool: cargo-deny
+
+      - name: Licences Rust (cargo-deny)
+        run: cargo deny check licenses
 
       - name: Corpus de test
         run: |
@@ -86,7 +89,7 @@ jobs:
             cd ../.. && python tools/release/prepare.py
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: setup
           path: |
