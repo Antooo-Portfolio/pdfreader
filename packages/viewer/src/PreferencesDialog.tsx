@@ -200,6 +200,9 @@ export function PreferencesDialog({
         </TabPanel>
 
         <TabPanel id="documents" className="flex flex-1 flex-col gap-5 outline-none">
+          <Switch isSelected={prefs.protectedView} onChange={(v) => onChange("protectedView", v)}>
+            {t("Ouvrir en vue protégée les fichiers venus d'Internet (lecture seule)")}
+          </Switch>
           <Switch isSelected={prefs.recovery} onChange={(v) => onChange("recovery", v)}>
             {t("Garder une copie de récupération des modifications non enregistrées")}
           </Switch>

@@ -31,6 +31,10 @@ pub struct DocInfo {
     pub has_form: bool,
     pub is_xfa: bool,
     pub permissions: eng::Permissions,
+    /// Nombre de pièces jointes (panneau affiché seulement s'il y en a).
+    pub attachment_count: u16,
+    /// Le fichier porte la « marque du Web » (téléchargé) : vue protégée.
+    pub from_internet: bool,
     /// Empreinte du fichier (clé des récents et de l'état de vue).
     pub fingerprint: String,
     /// Dernier état de vue mémorisé, rempli par la commande `doc_open`.
@@ -101,6 +105,9 @@ pub enum Cmd {
     Links { doc: u32, page: i32, reply: Reply<Vec<eng::PageLink>> },
     Bookmarks { doc: u32, reply: Reply<Vec<eng::Bookmark>> },
     Properties { doc: u32, reply: Reply<eng::properties::DocProperties> },
+    Attachments { doc: u32, reply: Reply<Vec<eng::navigation::Attachment>> },
+    AttachmentBytes { doc: u32, index: u16, reply: Reply<Vec<u8>> },
+    SearchSnippets { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool, already: usize, reply: Reply<eng::navigation::SnippetBatch> },
     Search { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool, reply: Reply<eng::SearchBatch> },
     Close { doc: u32 },
     Tile { doc: u32, page: i32, scale: f32, x: i32, y: i32, size: i32, responder: UriSchemeResponder },
@@ -160,6 +167,8 @@ fn info_of(id: u32, e: &Entry) -> DocInfo {
         has_form: doc.form().is_some(),
         is_xfa: doc.form().map(|f| matches!(f.form_type(), PdfFormType::XfaFull | PdfFormType::XfaForeground)).unwrap_or(false),
         permissions: eng::permissions(doc),
+        attachment_count: doc.attachments().len(),
+        from_internet: eng::navigation::from_internet(&e.path),
         fingerprint: e.fingerprint.clone(),
         view_state: None,
         generation: e.generation,
@@ -378,6 +387,21 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                 let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::bookmarks(&e.doc));
                 let _ = reply.send(r);
             }
+            Cmd::Attachments { doc, reply } => {
+                let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::navigation::attachments(&e.doc));
+                let _ = reply.send(r);
+            }
+            Cmd::AttachmentBytes { doc, index, reply } => {
+                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| eng::navigation::attachment_bytes(&e.doc, index).map_err(|e| e.to_string()));
+                let _ = reply.send(r);
+            }
+            Cmd::SearchSnippets { doc, from, count, query, match_case, whole_word, already, reply } => {
+                let r = docs
+                    .get(&doc)
+                    .ok_or("document fermé".to_string())
+                    .and_then(|e| eng::navigation::search_snippets(&e.doc, from, count, &query, match_case, whole_word, already).map_err(|e| e.to_string()));
+                let _ = reply.send(r);
+            }
             Cmd::Properties { doc, reply } => {
                 let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::properties::properties(&e.doc, &e.path));
                 let _ = reply.send(r);
@@ -468,6 +492,15 @@ fn fail(cmd: Cmd, msg: &str) {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Properties { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::Attachments { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::AttachmentBytes { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::SearchSnippets { reply, .. } => {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Fields { reply, .. } | Cmd::SetField { reply, .. } => {

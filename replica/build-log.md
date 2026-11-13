@@ -317,3 +317,22 @@ Corrigé au passage : quatre phrases de l'interface échappaient à la traductio
 « Recharger », bandeau des droits du document, « Ouverture de… », demande de mot de passe) ;
 le test du formulaire attend chaque saisie avant la suivante (une exécution sur quatre perdait le
 bouton radio et la liste, cliqués dans la même milliseconde).
+
+## M3 — lot « navigation » (2026-11-13)
+
+Branche `m3-navigation` (partie de `m3-lecture`). Pièces jointes (S09), recherche avancée, lecture
+à voix haute, vue protégée. Partie `m3navigation` du scénario : liste des pièces jointes (nom
+piégé nettoyé), enregistrement d'une pièce jointe, ouverture de l'annexe PDF dans un onglet,
+refus d'ouvrir un `.exe` ; 85 résultats avec extraits pour « contrat », saut à la page 4, note
+retrouvée par la recherche dans les commentaires ; lecture à voix haute démarrée (6 voix
+installées) puis arrêtée au clavier ; fichier marqué « venu d'Internet » ouvert en vue protégée,
+outils verrouillés, puis déverrouillés. Test du moteur `attachments_snippets_and_internet_mark`.
+Corpus : `12-pieces-jointes.pdf` (texte, PDF, nom piégé `..\..\danger.exe`).
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| S09 Pièces jointes | 2026-11-13 | fait | pièces jointes des commentaires /FileAttachment (could) | — |
+| Recherche avancée | 2026-11-13 | fait | recherche dans plusieurs PDF d'un dossier (could) | rouvrir le panneau avec une nouvelle requête gardait l'ancienne (état initialisé une seule fois) : la requête transmise est reprise à chaque ouverture |
+| Lecture à voix haute | 2026-11-13 | fait | choix de la voix et de la vitesse | les voix de Windows coupent les textes longs : lecture par morceaux de 240 caractères, aux fins de phrase |
+| Vue protégée | 2026-11-13 | fait | — | — |
+| Modifier les signets | — | reporté | créer, renommer, supprimer | PDFium ne sait pas écrire de signets : il faudra écrire le dictionnaire /Outlines nous-mêmes (mise à jour incrémentale) |

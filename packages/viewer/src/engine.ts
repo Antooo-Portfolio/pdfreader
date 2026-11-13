@@ -24,6 +24,10 @@ export interface DocInfo {
   hasForm: boolean;
   isXfa: boolean;
   permissions: Permissions;
+  /** Nombre de pièces jointes. */
+  attachmentCount: number;
+  /** Fichier téléchargé (marque du Web) : ouvert en vue protégée si la préférence est active. */
+  fromInternet: boolean;
   /** Clé du document dans les récents et l'état de vue. */
   fingerprint: string;
   /** Dernière vue mémorisée (page, zoom, mode, rotation, panneau), s'il y en a une. */
@@ -45,7 +49,7 @@ export interface Permissions {
 export type ZoomMode = "fit-page" | "fit-width" | "custom";
 export type Layout = "continuous" | "single" | "double" | "continuous-double";
 export type Rotation = 0 | 90 | 180 | 270;
-export type PanelId = "thumbnails" | "bookmarks" | "comments";
+export type PanelId = "thumbnails" | "bookmarks" | "comments" | "attachments" | "search";
 
 export interface ViewState {
   page: number;
@@ -251,6 +255,22 @@ export interface RecentFile {
   exists: boolean;
 }
 
+/** Pièce jointe du document (nom déjà nettoyé : jamais de chemin). */
+export interface Attachment {
+  index: number;
+  name: string;
+  size: number;
+}
+
+/** Résultat de la recherche avancée : page (index 0), rectangles en points depuis le haut, extrait. */
+export interface SnippetHit {
+  page: number;
+  rects: Box[];
+  before: string;
+  matched: string;
+  after: string;
+}
+
 /** Propriétés du document (S15). Dates PDF brutes. */
 export interface DocProperties {
   title: string;
@@ -314,6 +334,14 @@ export interface EngineClient {
   links(doc: number, page: number): Promise<PageLink[]>;
   bookmarks(doc: number): Promise<Bookmark[]>;
   properties(doc: number): Promise<DocProperties>;
+  attachments(doc: number): Promise<Attachment[]>;
+  /** Enregistre une pièce jointe (emplacement choisi par l'utilisateur, ou `path`) ; null si annulé. */
+  saveAttachment(doc: number, index: number, name: string, path?: string): Promise<number | null>;
+  /** Copie une pièce jointe PDF pour l'ouvrir dans PDFReader ; renvoie son chemin. Rejette avec
+   *  « not_pdf » pour tout autre fichier. */
+  attachmentPdfPath(doc: number, index: number): Promise<string>;
+  /** Recherche avec extraits, pages from..from+count ; `already` : résultats déjà trouvés. */
+  searchSnippets(doc: number, from: number, count: number, query: string, matchCase: boolean, wholeWord: boolean, already: number): Promise<{ hits: SnippetHit[]; truncated: boolean }>;
   /** Cherche dans les pages from..from+count (lots courts : le rendu passe entre deux lots). */
   search(doc: number, from: number, count: number, query: string, matchCase: boolean, wholeWord: boolean): Promise<SearchBatch>;
   setViewState(fingerprint: string, state: ViewState): Promise<void>;

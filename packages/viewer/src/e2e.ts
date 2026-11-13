@@ -1,6 +1,7 @@
 import type { AppActions } from "./App";
 import { type Annot, type DocInfo, type EngineClient, isOpenError } from "./engine";
 import { parseRange, subset } from "./prefs";
+import { matcher } from "./SearchPanel";
 import { selectionToPageRects } from "./selection";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -68,13 +69,15 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.fill = await runFill(actions, path.replace(/[^\\/]+$/, "08-formulaire-acroform.pdf"), await engine.e2ePause());
     steps.settings = await runSettings(engine, actions, path, await engine.e2ePause());
     steps.m3reading = await runM3Reading(engine, actions, path);
+    steps.m3navigation = await runM3Navigation(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
       (annot.report.ok as boolean) &&
       (steps.fill as { ok: boolean }).ok &&
       (steps.settings as { ok: boolean }).ok &&
-      (steps.m3reading as { ok: boolean }).ok;
+      (steps.m3reading as { ok: boolean }).ok &&
+      (steps.m3navigation as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -727,6 +730,108 @@ async function runM3Reading(engine: EngineClient, actions: AppActions, path: str
   return r;
 }
 
+/** M3, lot « navigation » : pièces jointes, recherche avancée, lecture à voix haute, vue protégée. */
+async function runM3Navigation(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  const dataDir = (await engine.appInfo()).dataDir.replace(/[\\/]$/, "");
+  try {
+    // Pièces jointes : liste (nom piégé nettoyé), enregistrement, ouverture d'un PDF joint, refus des autres.
+    const doc = await actions.openPath(dir + "12-pieces-jointes.pdf");
+    if (!doc) throw new Error("12-pieces-jointes.pdf introuvable");
+    const a = await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    const railButton = await waitFor(() => Array.from(document.querySelectorAll("[aria-label]")).find((el) => el.getAttribute("aria-label")?.startsWith("Pièces jointes (3)") && !el.closest("[hidden]")), 4000).catch(() => null);
+    a.openPanel("attachments");
+    const items = await waitFor(() => {
+      const ul = Array.from(document.querySelectorAll("[data-attachments]")).find((el) => !el.closest("[hidden]"));
+      return ul && ul.querySelectorAll("li").length === 3 ? Array.from(ul.querySelectorAll("li")).map((li) => li.textContent ?? "") : null;
+    }, 6000);
+    const list = await engine.attachments(doc.id);
+    const notes = list.find((x) => x.name === "notes.txt");
+    const annexe = list.find((x) => x.name === "annexe.pdf");
+    const danger = list.find((x) => x.name === "danger.exe");
+    const saved = notes ? await engine.saveAttachment(doc.id, notes.index, notes.name, dataDir + "\\notes-copie.txt") : null;
+    let refused = "";
+    try {
+      if (danger) await engine.attachmentPdfPath(doc.id, danger.index);
+    } catch (e) {
+      refused = String(e);
+    }
+    const pdfPath = annexe ? await engine.attachmentPdfPath(doc.id, annexe.index) : "";
+    const opened = pdfPath ? await actions.openPath(pdfPath) : null;
+    r.attachments = { items, rail: !!railButton, saved, refused, pdfPath: pdfPath.split(/[\\/]/).pop(), openedPages: opened?.pageCount };
+    checks.attachments =
+      !!railButton && items.some((x) => x.includes("danger.exe")) && saved === notes?.size && refused.includes("not_pdf") && !!opened && (opened?.pageCount ?? 0) > 0;
+    if (opened) await actions.closeDoc(opened.id);
+
+    // Recherche avancée : résultats avec extraits, saut à une page, commentaires, signets.
+    const textDoc = await actions.openPath(dir + "01-texte-10p.pdf");
+    if (!textDoc) throw new Error("01-texte-10p.pdf introuvable");
+    const b = await waitFor(() => (actions.activeId() === textDoc.id ? actions.doc() : null));
+    const panelOf = () => Array.from(document.querySelectorAll("[data-search-panel]")).find((el) => !el.closest("[hidden]")) ?? null;
+    b.advancedSearch("contrat");
+    const textHits = await waitFor(() => {
+      const p = panelOf();
+      const n = p?.querySelectorAll('[data-hit="text"]').length ?? 0;
+      return n > 3 && !p?.textContent?.includes("Recherche…") ? n : null;
+    }, 10000);
+    const later = Array.from(panelOf()?.querySelectorAll<HTMLElement>('[data-hit="text"]') ?? []).find((el) => el.textContent?.startsWith("Page 4"));
+    later?.click();
+    const jumped = await waitFor(() => (b.view().page === 4 ? true : null), 4000).catch(() => false);
+    const snippet = later?.querySelector("mark")?.textContent ?? "";
+    const noteId = await b.createNote(1, 120, 120, "Remarque sur le zèbre bleu");
+    await sleep(200);
+    key("Escape");
+    b.advancedSearch("zèbre");
+    const commentHits = await waitFor(() => {
+      const p = panelOf();
+      const n = p?.querySelectorAll('[data-hit="comment"]').length ?? 0;
+      return n >= 1 && !p?.textContent?.includes("Recherche…") ? n : null;
+    }, 10000).catch(() => 0);
+    const commentText = panelOf()?.querySelectorAll('[data-hit="text"]').length ?? -1;
+    if (noteId) await b.deleteAnnot(1, noteId);
+    // Mêmes règles hors du texte des pages (signets, commentaires).
+    const m = matcher("partie", false, true);
+    const mc = matcher("Partie", true, false);
+    const matching = m("Partie A") && !m("Parties") && !mc("partie b") && mc("Partie B") && matcher("é", false, false)("É");
+    r.search = { textHits, jumped, snippet, commentHits, commentText, matching };
+    checks.search = textHits > 3 && jumped && snippet.toLowerCase() === "contrat" && commentHits >= 1 && commentText === 0 && matching;
+
+    // Lecture à voix haute : démarrage, barre d'état, arrêt par Ctrl+Maj+E.
+    b.readAloud(false);
+    const bar = await waitFor(() => Array.from(document.querySelectorAll("[data-speech]")).find((el) => !el.closest("[hidden]")), 4000).catch(() => null);
+    const speaking = await waitFor(() => (window.speechSynthesis.speaking ? true : null), 5000).catch(() => false);
+    const voices = window.speechSynthesis.getVoices().length;
+    key("e", { ctrlKey: true, shiftKey: true });
+    await sleep(300);
+    const stopped = b.reading() === null && !document.querySelector("[data-speech]") && !window.speechSynthesis.speaking;
+    r.speech = { bar: !!bar, speaking, voices, stopped };
+    checks.speech = !!bar && stopped && (speaking || voices === 0);
+
+    // Vue protégée : fichier marqué « venu d'Internet ».
+    const web = await actions.openPath(dir + "13-internet.pdf");
+    if (!web) throw new Error("13-internet.pdf introuvable");
+    const c = await waitFor(() => (actions.activeId() === web.id ? actions.doc() : null));
+    const banner = await waitFor(() => Array.from(document.querySelectorAll("[data-protected-view]")).find((el) => !el.closest("[hidden]")), 4000).catch(() => null);
+    const wasProtected = c.isProtected() && web.fromInternet;
+    const toolsLocked = Array.from(document.querySelectorAll("[aria-label]")).some((el) => el.getAttribute("aria-label")?.startsWith("Vue protégée : activez") && !el.closest("[hidden]"));
+    const enable = banner?.closest('[role="status"], [role="alert"], div')?.parentElement?.querySelector("button");
+    const btn = Array.from(document.querySelectorAll("button")).find((x) => x.textContent === "Activer la modification" && !x.closest("[hidden]"));
+    (btn ?? enable)?.click();
+    await sleep(200);
+    const unlocked = !c.isProtected() && !Array.from(document.querySelectorAll("[data-protected-view]")).some((el) => !el.closest("[hidden]"));
+    r.protectedView = { banner: !!banner, wasProtected, toolsLocked, unlocked };
+    checks.protectedView = !!banner && wasProtected && toolsLocked && unlocked;
+    await actions.closeDoc(web.id);
+  } catch (e) {
+    r.error = String(e);
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 4;
+  return r;
+}
+
 /** Scénarios en deux lancements : « crash » modifie un document, fait sa copie de récupération et
  *  quitte sans rien nettoyer ; « recover » vérifie qu'au lancement suivant la copie est proposée,
  *  rouverte avec la modification, puis effacée à l'enregistrement. */
@@ -762,13 +867,22 @@ export async function runStage(stage: string, engine: EngineClient, actions: App
       await waitFor(() => actions.doc());
       await waitFor(() => document.querySelector(`[data-page-index="0"] img`), 8000);
       const pause = (await engine.e2ePause()) || 3000;
-      actions.setPropertiesOpen(true);
-      await waitFor(() => document.querySelector("[data-properties]"), 6000);
-      await sleep(pause);
-      actions.setPropertiesOpen(false);
-      actions.setImmersive("reading");
-      await sleep(pause);
-      actions.setImmersive(null);
+      const d = actions.doc()!;
+      // Document avec pièces jointes : recherche avancée puis pièces jointes ; sinon propriétés puis mode lecture.
+      if ((await engine.e2eStage()) === "shots" && first.attachmentCount > 0) {
+        d.advancedSearch("contrat");
+        await sleep(pause);
+        d.openPanel("attachments");
+        await sleep(pause);
+      } else {
+        actions.setPropertiesOpen(true);
+        await waitFor(() => document.querySelector("[data-properties]"), 6000);
+        await sleep(pause);
+        actions.setPropertiesOpen(false);
+        actions.setImmersive("reading");
+        await sleep(pause);
+        actions.setImmersive(null);
+      }
       r.ok = true;
     } else if (stage === "update") {
       // Interroge le vrai flux de mises à jour (latest.json publié) : une erreur réseau ou un

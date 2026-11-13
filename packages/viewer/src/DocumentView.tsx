@@ -6,8 +6,14 @@ import {
   BookOpenText,
   Check,
   BookOpen,
+  FileSearch,
   Info,
   Maximize,
+  Paperclip,
+  Pause,
+  Play,
+  Square,
+  Volume2,
   Bookmark as BookmarkIcon,
   Eraser,
   FolderOpen,
@@ -35,11 +41,13 @@ import { DEFAULT_STYLES, hitTest, isMarkupTool, KIND_LABELS, type Tool, type Too
 import { PropertyBar } from "./AnnotTools";
 import { CommentsPanel } from "./CommentsPanel";
 import { SignatureDialog } from "./FillTools";
-import type { Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
+import type { Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
 import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
 import { PageView } from "./PageView";
-import { BookmarksPanel, ThumbnailsPanel } from "./Panels";
+import { AttachmentsPanel, BookmarksPanel, ThumbnailsPanel } from "./Panels";
+import { SearchPanel } from "./SearchPanel";
+import { pageText, speak, speechAvailable } from "./speech";
 import { type Direction, extendSelection as extendTextSelection, type Granularity } from "./kbselect";
 import { selectionToPageRects } from "./selection";
 import type { OpenDoc } from "./state";
@@ -71,6 +79,10 @@ interface Props {
   immersive: Immersive;
   onImmersive: (mode: Immersive) => void;
   onProperties: () => void;
+  /** Préférence : les fichiers venus d'Internet s'ouvrent en vue protégée. */
+  protectedView: boolean;
+  /** Ouvre un fichier dans un nouvel onglet (pièce jointe PDF). */
+  onOpenPath: (path: string) => void;
 }
 
 export type Immersive = "reading" | "fullscreen" | null;
@@ -106,6 +118,15 @@ export interface DocActions {
   forward: () => void;
   /** Vue effective : page, mode, zoom, longueur de l'historique (arrière, avant). */
   view: () => { page: number; layout: Layout; zoomMode: ZoomMode; back: number; forward: number };
+  /** Recherche avancée : ouvre le panneau avec cette requête. */
+  advancedSearch: (query: string) => void;
+  readAloud: (toEnd: boolean) => void;
+  stopReading: () => void;
+  /** Lecture à voix haute en cours (page lue), sinon null. */
+  reading: () => number | null;
+  /** Vue protégée active. */
+  isProtected: () => boolean;
+  enableEditing: () => void;
 }
 
 /** Point d'ancrage : garde la même portion du document sous les yeux quand le zoom, la rotation
@@ -174,6 +195,8 @@ export function DocumentView({
   immersive,
   onImmersive,
   onProperties,
+  protectedView,
+  onOpenPath,
 }: Props) {
   const toast = useToast();
   const { info } = doc;
@@ -236,6 +259,7 @@ export function DocumentView({
   );
   const LRef = useRef(L);
   LRef.current = L;
+  const protectedRef = useRef(false);
   const layoutModeRef = useRef(layoutMode);
   layoutModeRef.current = layoutMode;
   const zoomModeRef = useRef(zoomMode);
@@ -642,7 +666,10 @@ export function DocumentView({
 
   // ------------------------------------------------------------ commentaires
   const perms = info.permissions;
-  const canAnnotate = perms.annotate;
+  // Vue protégée : fichier venu d'Internet, lecture seule tant que l'utilisateur n'a pas choisi
+  // de le modifier.
+  const [protectedOn, setProtectedOn] = useState(() => info.fromInternet && protectedView);
+  const canAnnotate = perms.annotate && !protectedOn;
   const [annots, setAnnots] = useState<Map<number, Annot[]>>(() => new Map());
   const annotsRef = useRef(annots);
   annotsRef.current = annots;
@@ -869,7 +896,8 @@ export function DocumentView({
   }, [tool]);
 
   // ------------------------------------------------------------ formulaires et signature (S11, S12)
-  const canFill = perms.fillForms;
+  const canFill = perms.fillForms && !protectedOn;
+  protectedRef.current = protectedOn;
   const [fields, setFields] = useState<Map<number, Field[]>>(() => new Map());
   const fieldsRef = useRef(fields);
   fieldsRef.current = fields;
@@ -1083,6 +1111,88 @@ export function DocumentView({
     }
   };
 
+  // ------------------------------------------------------------ recherche avancée et pièces jointes
+  const [searchSeed, setSearchSeed] = useState({ query: "", signal: 0 });
+  const openAdvanced = useCallback((q?: string) => {
+    const sel = window.getSelection()?.toString().trim() ?? "";
+    setSearchSeed((s) => ({ query: q ?? (sel && sel.length < 80 ? sel : s.query), signal: s.signal + 1 }));
+    setPanel("search");
+  }, []);
+  const saveAttachment = useCallback(
+    async (a: Attachment) => {
+      try {
+        const n = await engine.saveAttachment(info.id, a.index, a.name);
+        if (n !== null) toast({ tone: "success", message: t("« {name} » enregistré", { name: a.name }) });
+      } catch (e) {
+        toast({ tone: "error", message: t("La pièce jointe n'a pas pu être enregistrée ({detail}).", { detail: String(e) }) });
+      }
+    },
+    [engine, info.id, toast],
+  );
+  const openAttachment = useCallback(
+    async (a: Attachment) => {
+      try {
+        onOpenPath(await engine.attachmentPdfPath(info.id, a.index));
+      } catch (e) {
+        toast({ tone: "error", message: t("La pièce jointe n'a pas pu être ouverte ({detail}).", { detail: String(e) }) });
+      }
+    },
+    [engine, info.id, onOpenPath, toast],
+  );
+
+  // ------------------------------------------------------------ lecture à voix haute
+  const [speech, setSpeech] = useState<{ page: number; toEnd: boolean; paused: boolean } | null>(null);
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
+  const speechRun = useRef(0);
+  const stopSpeech = useRef<() => void>(() => undefined);
+  const stopReading = useCallback(() => {
+    speechRun.current++;
+    stopSpeech.current();
+    stopSpeech.current = () => undefined;
+    setSpeech(null);
+  }, []);
+  const readPage = useCallback(
+    async (p: number, toEnd: boolean) => {
+      if (!speechAvailable()) {
+        toast({ tone: "error", message: t("La lecture à voix haute n'est pas disponible sur cet ordinateur.") });
+        return;
+      }
+      const run = ++speechRun.current;
+      stopSpeech.current();
+      setSpeech({ page: p, toEnd, paused: false });
+      const lines = await engine.textLayer(info.id, p - 1).catch(() => [] as TextWord[][]);
+      if (run !== speechRun.current) return;
+      const text = pageText(lines);
+      const next = () => {
+        if (run !== speechRun.current) return;
+        if (toEnd && p < info.pageCount) {
+          goTo(p + 1);
+          void readPage(p + 1, true);
+        } else stopReading();
+      };
+      if (!text) {
+        if (!toEnd) toast({ tone: "info", message: t("Cette page ne contient pas de texte à lire.") });
+        next();
+        return;
+      }
+      stopSpeech.current = speak(text, next);
+    },
+    [engine, info.id, info.pageCount, goTo, stopReading, toast],
+  );
+  const togglePause = useCallback(() => {
+    const cur = speechRef.current;
+    if (!cur) return;
+    if (cur.paused) window.speechSynthesis.resume();
+    else window.speechSynthesis.pause();
+    setSpeech({ ...cur, paused: !cur.paused });
+  }, []);
+  // Onglet quitté ou fermé : la lecture s'arrête.
+  useEffect(() => {
+    if (!isActive && speechRef.current) stopReading();
+  }, [isActive, stopReading]);
+  useEffect(() => () => stopReading(), [stopReading]);
+
   useEffect(() => {
     register?.({
       currentPage: () => pageRef.current,
@@ -1107,8 +1217,14 @@ export function DocumentView({
       back: goBack,
       forward: goForward,
       view: () => ({ page: pageRef.current, layout: layoutModeRef.current, zoomMode: zoomModeRef.current, back: history.current.back.length, forward: history.current.fwd.length }),
+      advancedSearch: (q) => openAdvanced(q),
+      readAloud: (toEnd) => void readPage(pageRef.current, toEnd),
+      stopReading,
+      reading: () => speechRef.current?.page ?? null,
+      isProtected: () => protectedRef.current,
+      enableEditing: () => setProtectedOn(false),
     });
-  }, [register, jump, goBack, goForward, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, addTextBox, saveSignature, placeSignature]);
+  }, [register, jump, goBack, goForward, openAdvanced, readPage, stopReading, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, addTextBox, saveSignature, placeSignature]);
   useEffect(() => () => register?.(null), [register]);
 
   // ------------------------------------------------------------ sélection du texte au clavier
@@ -1130,8 +1246,8 @@ export function DocumentView({
   };
 
   // ------------------------------------------------------------ clavier
-  const ctx = useRef({ zoom, zoomTo, fit, rotate, goTo, jump, goBack, goForward, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange, immersive, onImmersive, onProperties });
-  ctx.current = { zoom, zoomTo, fit, rotate, goTo, jump, goBack, goForward, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange, immersive, onImmersive, onProperties };
+  const ctx = useRef({ zoom, zoomTo, fit, rotate, goTo, jump, goBack, goForward, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange, immersive, onImmersive, onProperties, openAdvanced, readPage, togglePause, stopReading });
+  ctx.current = { zoom, zoomTo, fit, rotate, goTo, jump, goBack, goForward, stepRow, page, continuous, openFind, findOpen, stepHit, closeFind, selected, deleteAnnot, tool, onToolChange, immersive, onImmersive, onProperties, openAdvanced, readPage, togglePause, stopReading };
   useEffect(() => {
     if (!isActive) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1166,7 +1282,12 @@ export function DocumentView({
           // Ctrl+Maj+flèche : étendre la sélection d'un mot.
           if (extendSelection(key === "ArrowRight" ? "forward" : "backward", "word")) e.preventDefault();
           return;
-        } else if (k === "a" && inDoc && !typing) selectPageText(c.page);
+        } else if (e.shiftKey && k === "f") c.openAdvanced();
+        else if (e.shiftKey && k === "v") void c.readPage(c.page, false);
+        else if (e.shiftKey && k === "b") void c.readPage(c.page, true);
+        else if (e.shiftKey && k === "c") c.togglePause();
+        else if (e.shiftKey && k === "e") c.stopReading();
+        else if (k === "a" && inDoc && !typing) selectPageText(c.page);
         else if (key === "=" || key === "+") c.zoomTo(c.zoom * 1.25);
         else if (key === "-") c.zoomTo(c.zoom / 1.25);
         else if (key === "1") c.zoomTo(1);
@@ -1311,7 +1432,13 @@ export function DocumentView({
           }}
         >
           <ToolButton id="select" label={t("Sélectionner (texte et commentaires)")} shortcut="V" icon={<MousePointer2 size={18} />} />
-          <ToolButton id="highlight" label={canAnnotate ? t("Surligner du texte") : t("Commentaires désactivés par l'auteur")} shortcut="U" icon={<Highlighter size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton
+            id="highlight"
+            label={canAnnotate ? t("Surligner du texte") : protectedOn ? t("Vue protégée : activez la modification pour commenter") : t("Commentaires désactivés par l'auteur")}
+            shortcut="U"
+            icon={<Highlighter size={18} />}
+            isDisabled={!canAnnotate}
+          />
           <ToolButton id="underline" label={t("Souligner du texte")} icon={<Underline size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="strikeout" label={t("Barrer du texte")} icon={<Strikethrough size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="note" label={t("Ajouter une note (cliquez sur la page)")} shortcut="N" icon={<StickyNote size={18} />} isDisabled={!canAnnotate} />
@@ -1379,6 +1506,18 @@ export function DocumentView({
                 </MenuItem>
                 <MenuItem id="fullscreen" icon={<Maximize size={16} />} shortcut="Ctrl+L" onAction={() => onImmersive("fullscreen")}>
                   {t("Plein écran")}
+                </MenuItem>
+              </MenuSection>
+              <MenuSeparator />
+              <MenuSection title={t("Lecture à voix haute")}>
+                <MenuItem id="read-page" icon={<Volume2 size={16} />} shortcut="Ctrl+Maj+V" onAction={() => void readPage(page, false)}>
+                  {t("Lire cette page")}
+                </MenuItem>
+                <MenuItem id="read-end" shortcut="Ctrl+Maj+B" onAction={() => void readPage(page, true)}>
+                  {t("Lire jusqu'à la fin")}
+                </MenuItem>
+                <MenuItem id="read-stop" icon={<Square size={16} />} shortcut="Ctrl+Maj+E" isDisabled={!speech} onAction={stopReading}>
+                  {t("Arrêter la lecture")}
                 </MenuItem>
               </MenuSection>
             </Menu>
@@ -1496,6 +1635,18 @@ export function DocumentView({
           {t("Ce fichier a été modifié par un autre programme depuis son ouverture.")}
         </Banner>
       )}
+      {protectedOn && !immersive && (
+        <Banner
+          tone="warning"
+          actions={
+            <Button size="sm" onPress={() => setProtectedOn(false)}>
+              {t("Activer la modification")}
+            </Button>
+          }
+        >
+          <span data-protected-view>{t("Vue protégée : ce fichier vient d'Internet. Il s'affiche en lecture seule ; activez la modification seulement si vous faites confiance à sa source.")}</span>
+        </Banner>
+      )}
       {info.isXfa && !immersive && (
         <Banner tone="warning">{t("Ce document utilise des formulaires XFA, qui ne sont pas pris en charge : certaines pages peuvent s'afficher incomplètes.")}</Banner>
       )}
@@ -1520,6 +1671,24 @@ export function DocumentView({
 
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
+          {speech && (
+            <div
+              role="status"
+              data-speech
+              className="absolute top-2 left-1/2 z-(--z-toolbar) flex -translate-x-1/2 items-center gap-1 rounded-lg border border-border bg-bg/95 py-1 pr-1 pl-3 shadow-lg"
+            >
+              <Volume2 size={16} aria-hidden className="text-accent-text" />
+              <span className="mr-1 text-sm">{t("Lecture à voix haute · page {page}", { page: speech.page })}</span>
+              <IconButton
+                label={speech.paused ? t("Reprendre") : t("Pause")}
+                shortcut="Ctrl+Maj+C"
+                size="sm"
+                icon={speech.paused ? <Play size={16} /> : <Pause size={16} />}
+                onPress={togglePause}
+              />
+              <IconButton label={t("Arrêter la lecture")} shortcut="Ctrl+Maj+E" size="sm" icon={<Square size={16} />} onPress={stopReading} />
+            </div>
+          )}
           {findOpen && (
             <div className="absolute top-2 right-4 z-(--z-toolbar)">
               <FindBar
@@ -1656,6 +1825,21 @@ export function DocumentView({
               <ThumbnailsPanel engine={engine} doc={doc} rotation={rotation} page={page} dpr={dpr} onGoTo={(p) => jump(p)} onClose={() => setPanel(null)} />
             ) : panel === "bookmarks" ? (
               <BookmarksPanel engine={engine} docId={info.id} cache={bookmarkCache} onLink={onLink} onClose={() => setPanel(null)} />
+            ) : panel === "attachments" ? (
+              <AttachmentsPanel engine={engine} docId={info.id} onOpenPdf={(a) => void openAttachment(a)} onSave={(a) => void saveAttachment(a)} onClose={() => setPanel(null)} />
+            ) : panel === "search" ? (
+              <SearchPanel
+                engine={engine}
+                docId={info.id}
+                generation={info.generation}
+                pageCount={info.pageCount}
+                initialQuery={searchSeed.query}
+                focusSignal={searchSeed.signal}
+                onJump={(p, top) => jump(p, top)}
+                onLink={onLink}
+                onSelectComment={selectAnnot}
+                onClose={() => setPanel(null)}
+              />
             ) : (
               <CommentsPanel
                 annots={annots}
@@ -1683,6 +1867,16 @@ export function DocumentView({
           />
           <ToolButton label={t("Signets")} icon={<BookmarkIcon size={18} />} isSelected={panel === "bookmarks"} onChange={(on) => setPanel(on ? "bookmarks" : null)} />
           <ToolButton label={t("Commentaires")} icon={<MessageSquare size={18} />} isSelected={panel === "comments"} onChange={(on) => setPanel(on ? "comments" : null)} />
+          {(info.attachmentCount > 0 || panel === "attachments") && (
+            <ToolButton label={t("Pièces jointes ({count})", { count: info.attachmentCount })} icon={<Paperclip size={18} />} isSelected={panel === "attachments"} onChange={(on) => setPanel(on ? "attachments" : null)} />
+          )}
+          <ToolButton
+            label={t("Recherche avancée")}
+            shortcut="Ctrl+Maj+F"
+            icon={<FileSearch size={18} />}
+            isSelected={panel === "search"}
+            onChange={(on) => (on ? openAdvanced() : setPanel(null))}
+          />
         </Toolbar>
         )}
       </div>

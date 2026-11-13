@@ -24,6 +24,8 @@ export interface Prefs {
   updates: "ask" | "auto" | "off";
   /** Dernière vérification automatique (ms). */
   updatesLastCheck: number;
+  /** Fichiers venus d'Internet ouverts en vue protégée (modification désactivée). */
+  protectedView: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -38,6 +40,7 @@ export const DEFAULT_PREFS: Prefs = {
   restoreView: true,
   updates: "ask",
   updatesLastCheck: 0,
+  protectedView: true,
 };
 
 export const UI_SCALES = [87.5, 100, 112.5, 125, 150, 175, 200];
@@ -58,6 +61,7 @@ export function parsePrefs(raw: Record<string, unknown>): Prefs {
   if (typeof raw.restoreView === "boolean") p.restoreView = raw.restoreView;
   if (raw.updates === "ask" || raw.updates === "auto" || raw.updates === "off") p.updates = raw.updates;
   if (typeof raw.updatesLastCheck === "number") p.updatesLastCheck = raw.updatesLastCheck;
+  if (typeof raw.protectedView === "boolean") p.protectedView = raw.protectedView;
   return p;
 }
 

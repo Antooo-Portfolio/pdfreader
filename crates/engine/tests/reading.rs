@@ -171,3 +171,55 @@ fn document_properties() {
     let p = eng::properties::properties(&doc, &enc);
     assert_eq!(p.security_revision, Some(6), "AES-256 (R6)");
 }
+
+#[test]
+fn attachments_snippets_and_internet_mark() {
+    let (Some(att), Some(text)) = (common::corpus("12-pieces-jointes.pdf"), common::corpus("01-texte-10p.pdf")) else {
+        eprintln!("corpus absent : test ignoré");
+        return;
+    };
+    let pdfium = pdfium();
+    let doc = eng::open_typed(&pdfium, &att, None).expect("ouverture");
+    let list = eng::navigation::attachments(&doc);
+    let names: Vec<&str> = list.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names.len(), 3, "{names:?}");
+    assert!(names.contains(&"danger.exe"), "nom piégé ramené à un nom simple : {names:?}");
+    assert!(names.iter().all(|n| !n.contains('\\') &&!n.contains('/') && !n.contains("..")));
+    let notes = list.iter().find(|a| a.name == "notes.txt").expect("notes.txt");
+    let bytes = eng::navigation::attachment_bytes(&doc, notes.index).expect("contenu");
+    assert_eq!(String::from_utf8_lossy(&bytes), "Notes de réunion\n");
+    assert_eq!(notes.size, bytes.len());
+    let annexe = list.iter().find(|a| a.name == "annexe.pdf").expect("annexe.pdf");
+    assert!(eng::navigation::attachment_bytes(&doc, annexe.index).unwrap().starts_with(b"%PDF"));
+    drop(doc);
+    assert_eq!(eng::navigation::safe_file_name("..\\..\\a<b>.exe. "), "a_b_.exe");
+    assert_eq!(eng::navigation::safe_file_name(".."), "piece-jointe");
+
+    // Extraits : le mot trouvé et son contexte, sur plusieurs pages.
+    let doc = eng::open_typed(&pdfium, &text, None).expect("ouverture");
+    let r = eng::navigation::search_snippets(&doc, 0, 10, "contrat", false, false, 0).expect("recherche");
+    assert!(r.hits.len() > 3, "résultats : {}", r.hits.len());
+    let h = &r.hits[0];
+    assert_eq!(h.matched.to_lowercase(), "contrat");
+    assert!(!h.before.is_empty() || !h.after.is_empty(), "contexte");
+    assert!(!h.rects.is_empty() && h.rects[0][2] > 1.0);
+    assert!(r.hits.iter().map(|h| h.page).collect::<std::collections::HashSet<_>>().len() > 1, "plusieurs pages");
+    let capped = eng::navigation::search_snippets(&doc, 0, 10, "e", false, false, eng::navigation::MAX_SNIPPET_HITS - 2).expect("recherche");
+    assert!(capped.truncated && capped.hits.len() == 2, "plafond global");
+    drop(doc);
+
+    // Marque du Web (flux NTFS Zone.Identifier).
+    let dir = std::env::temp_dir().join(format!("pdfreader-motw-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let f = dir.join("venu-du-web.pdf");
+    std::fs::copy(&text, &f).unwrap();
+    assert!(!eng::navigation::from_internet(&f));
+    let mut ads = f.as_os_str().to_owned();
+    ads.push(":Zone.Identifier");
+    if std::fs::write(Path::new(&ads), "[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=https://example.org/\r\n").is_ok() {
+        assert!(eng::navigation::from_internet(&f), "zone 3 reconnue");
+    } else {
+        eprintln!("flux NTFS indisponible ici : vérification de la marque ignorée");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

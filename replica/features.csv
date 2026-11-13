@@ -15,13 +15,13 @@ Thème clair / sombre,lecture,must,yes,yes,"M2 : menu Apparence (Comme Windows /
 Ouvrir un PDF protégé par mot de passe,lecture,must,yes,yes,"M2 : testé de bout en bout (AES-256 : mot de passe demandé, mauvais mot de passe refusé, ouverture)"
 Respect des permissions (impression / copie interdites),lecture,must,yes,yes,"M2 : copie bloquée, commentaires désactivés, impression refusée si interdite, impression en image à 150 ppp si seule la basse qualité est permise"
 Rechercher dans le document (Ctrl+F),recherche,must,yes,yes,"M2 : S05 : Ctrl+F, Entrée / Maj+Entrée / F3, casse, mot entier, résultats surlignés, recherche par lots de 10 pages (1000 pages sans bloquer le rendu), message pour un document sans texte"
-Recherche avancée (casse / mot entier / commentaires / signets),recherche,should,yes,no,
+Recherche avancée (casse / mot entier / commentaires / signets),recherche,should,yes,yes,"M3 : panneau Recherche avancée (Ctrl+Maj+F) ; liste de tous les résultats avec leur contexte, saut à la page, casse et mots entiers, commentaires (texte et auteur) et signets ; 5 000 résultats au plus"
 Recherche dans plusieurs PDF d'un dossier,recherche,could,yes,no,
 Sélectionner et copier du texte,lecture,must,yes,yes,"M2 : souris et clavier (Maj+flèches, Ctrl+Maj+flèches, Maj+Début / Fin, Ctrl+A), copie bloquée si interdite"
 Panneau Vignettes,navigation,must,yes,yes,"M2 : S06 : vignettes virtualisées, page courante suivie, clavier (flèches, Pg préc./suiv., Début / Fin) ; menu contextuel d'organisation avec les outils de pages (phase 2)"
 Panneau Signets (lecture),navigation,must,yes,yes,"M2 : S07 : arbre, tout déplier / replier, aller à la page et à la position, signets web confirmés ; vide « Aucun signet »"
 Créer / renommer / supprimer des signets,navigation,should,yes,no,
-Panneau Pièces jointes (ouvrir / enregistrer),navigation,should,yes,no,S09
+Panneau Pièces jointes (ouvrir / enregistrer),navigation,should,yes,yes,"M3 : liste avec taille ; Enregistrer sous… ; seules les pièces jointes PDF s'ouvrent (dans PDFReader) ; noms nettoyés (aucun chemin, « ..\..\x.exe » devient « x.exe ») ; rien n'est jamais exécuté"
 Panneau Calques (afficher / masquer),navigation,could,yes,no,S09
 Articles (fils de lecture),navigation,could,yes,no,
 Liens internes et externes cliquables,lecture,must,yes,yes,"M2 : liens internes (page et position), adresses web et mailto après confirmation ; autres actions ignorées. Clic dans l'interface non automatisé (extraction testée dans le moteur)"
@@ -54,11 +54,11 @@ Impression livret / plusieurs pages par feuille / affiche,impression,could,yes,n
 Propriétés du document (lecture),fichier,should,yes,yes,"M3 : Ctrl+D ; description (métadonnées, dates), avancé (version, format, taille, balisé, web rapide), sécurité (chiffrement et droits), polices (incorporée, sous-ensemble ; 500 premières pages)"
 Modifier les métadonnées,fichier,could,yes,no,payant chez Adobe
 Préférences,interface,must,yes,yes,"M2 : S14 : Général (thème, lecteur par défaut), Affichage (zoom et mode à l'ouverture, reprise de la dernière vue), Commentaires (auteur), Documents (copies de récupération), Accessibilité (taille de l'interface, raccourcis à une touche) ; rétablir les réglages par défaut ; Ctrl+K"
-Vue protégée / bac à sable pour PDF non fiables,sécurité,should,yes,no,bandeau + JS désactivé par défaut
+Vue protégée / bac à sable pour PDF non fiables,sécurité,should,yes,yes,"M3 : fichier portant la marque du Web (Zone.Identifier, zones 3 et 4) ouvert en lecture seule avec un bandeau « Activer la modification » ; préférence ; le JavaScript des PDF n'est de toute façon jamais exécuté"
 Mises à jour automatiques (desktop),distribution,must,yes,yes,"M2 : tauri-plugin-updater, accord demandé au premier lancement (aucune connexion sans), une vérification par jour au plus, recherche manuelle dans À propos, installation passive et redémarrage ; signature Ed25519 vérifiée par test (setup construit accepté, setup modifié refusé). Testé contre le flux publié (dépôt Antooo-Portfolio/pdfreader) : 0.1.9 se voit proposer 0.2.0, 0.2.0 est à jour"
 Interface en français et anglais,interface,must,yes,yes,"M2 : 385 phrases traduites, langue de Windows ou choisie dans les Préférences, contrôle des manques (npm run i18n:check)"
 Accessibilité (lecteur d'écran / navigation clavier / contraste),interface,must,yes,partial,"M2 : tout au clavier (dont la sélection du texte), aria-keyshortcuts au format ARIA, aucun raccourci global derrière une boîte modale, taille de l'interface ; test manuel avec NVDA encore à faire"
-Lecture à voix haute,accessibilité,should,yes,no,synthèse vocale du système
+Lecture à voix haute,accessibilité,should,yes,yes,"M3 : voix de Windows (synthèse locale) ; lire la page (Ctrl+Maj+V) ou jusqu'à la fin (Ctrl+Maj+B), pause (Ctrl+Maj+C), arrêt (Ctrl+Maj+E) ; barre d'état"
 Organiser les pages (réordonner / pivoter / supprimer),pages,must,yes,no,S16 F07 ; payant
 Insérer des pages (autre PDF / page blanche),pages,must,yes,no,
 Extraire / remplacer des pages,pages,should,yes,no,

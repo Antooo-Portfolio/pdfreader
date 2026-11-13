@@ -219,6 +219,7 @@ pub mod annotations;
 pub mod fonts;
 pub mod fill;
 pub mod properties;
+pub mod navigation;
 
 #[cfg(windows)]
 pub mod print_win;

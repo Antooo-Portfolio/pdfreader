@@ -1,8 +1,9 @@
-import { t, PanelHeader, IconButton, EmptyState, Tree, type TreeNode, Spinner } from "@pdfreader/ui";
+import { t, PanelHeader, IconButton, EmptyState, Tree, type TreeNode, Spinner, Button } from "@pdfreader/ui";
 import { clsx } from "clsx";
-import { Bookmark as BookmarkIcon, ChevronsDownUp, ChevronsUpDown, X } from "lucide-react";
+import { Bookmark as BookmarkIcon, ChevronsDownUp, ChevronsUpDown, Download, FileText, Paperclip, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { type Bookmark, type EngineClient, type LinkAction, type Rotation, THUMB_WIDTH, thumbScale } from "./engine";
+import { type Attachment, type Bookmark, type EngineClient, type LinkAction, type Rotation, THUMB_WIDTH, thumbScale } from "./engine";
+import { formatSize } from "./PropertiesDialog";
 import { displaySize, rotationTransform } from "./layout";
 import type { OpenDoc } from "./state";
 
@@ -249,6 +250,85 @@ export function BookmarksPanel({
               if (a) onLink(a);
             }}
           />
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------- S09 Pièces jointes */
+
+export function AttachmentsPanel({
+  engine,
+  docId,
+  onOpenPdf,
+  onSave,
+  onClose,
+}: {
+  engine: EngineClient;
+  docId: number;
+  /** Ouvre une pièce jointe PDF dans un nouvel onglet. */
+  onOpenPdf: (a: Attachment) => void;
+  onSave: (a: Attachment) => void;
+  onClose: () => void;
+}) {
+  const [list, setList] = useState<Attachment[] | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    engine
+      .attachments(docId)
+      .then((l) => alive && setList(l))
+      .catch(() => alive && setError(true));
+    return () => {
+      alive = false;
+    };
+  }, [engine, docId]);
+
+  return (
+    <section aria-label={t("Pièces jointes")} className="flex min-h-0 flex-1 flex-col">
+      <PanelHeader title={t("Pièces jointes")} actions={<IconButton label={t("Fermer le panneau")} size="sm" icon={<X size={16} />} onPress={onClose} />} />
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {error ? (
+          <p className="p-3 text-sm text-danger">{t("Les pièces jointes n'ont pas pu être lues.")}</p>
+        ) : !list ? (
+          <div className="grid place-items-center p-6">
+            <Spinner label={t("Lecture des pièces jointes")} />
+          </div>
+        ) : list.length === 0 ? (
+          <EmptyState icon={<Paperclip size={24} />} title={t("Aucune pièce jointe")} />
+        ) : (
+          <>
+            <ul className="flex flex-col gap-1" aria-label={t("Pièces jointes du document")} data-attachments>
+              {list.map((a) => {
+                const isPdf = a.name.toLowerCase().endsWith(".pdf");
+                return (
+                  <li key={a.index} className="flex flex-col gap-1 rounded-md border border-border p-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FileText size={16} aria-hidden className="shrink-0 text-muted" />
+                      <span className="min-w-0 flex-1 truncate text-base" title={a.name}>
+                        {a.name}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted tabular-nums">{formatSize(a.size)}</span>
+                    </div>
+                    <div className="flex gap-1">
+                      {isPdf && (
+                        <Button size="sm" onPress={() => onOpenPdf(a)}>
+                          {t("Ouvrir")}
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" icon={<Download size={14} />} onPress={() => onSave(a)}>
+                        {t("Enregistrer sous…")}
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-3 text-xs text-muted">
+              {t("Par sécurité, PDFReader n'ouvre que les pièces jointes PDF. Enregistrez les autres et ouvrez-les vous-même si vous faites confiance à leur auteur.")}
+            </p>
+          </>
         )}
       </div>
     </section>

@@ -620,6 +620,8 @@ export function App({ engine }: { engine: EngineClient }) {
           immersive={active === String(d.info.id) ? immersive : null}
           onImmersive={setImmersive}
           onProperties={() => setPropertiesFor(d.info.id)}
+          protectedView={prefs.protectedView}
+          onOpenPath={(p) => void openPath(p)}
         />
       ))}
 

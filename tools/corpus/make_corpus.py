@@ -162,6 +162,16 @@ def encrypt(src, dst, password):
     pdf.save(dst, encryption=pikepdf.Encryption(owner="owner-" + password, user=password, R=6, allow=pikepdf.Permissions(print_highres=False, extract=False)))
 
 
+def with_attachments(src, dst, pdf_attachment):
+    """Copie de `src` avec trois pièces jointes : un texte, un PDF, et un nom piégé qui vise un
+    autre dossier (l'application doit le ramener à « danger.exe » et ne jamais l'exécuter)."""
+    pdf = pikepdf.open(src)
+    pdf.attachments["notes.txt"] = pikepdf.AttachedFileSpec(pdf, "Notes de réunion\n".encode("utf-8"), mime_type="text/plain")
+    pdf.attachments["annexe.pdf"] = pikepdf.AttachedFileSpec(pdf, open(pdf_attachment, "rb").read(), mime_type="application/pdf")
+    pdf.attachments["..\\..\\danger.exe"] =pikepdf.AttachedFileSpec(pdf, b"MZ fichier de test inoffensif", mime_type="application/octet-stream")
+    pdf.save(dst)
+
+
 def big_with_attachment(path, gb):
     """PDF valide de ~gb Go : 3 pages de texte + une pièce jointe brute énorme, écrit à la main par
     morceaux (jamais en mémoire). Sert à vérifier que l'ouverture lit par blocs."""
@@ -223,6 +233,7 @@ def main():
     form(j("08-formulaire-acroform.pdf"))
     encrypt(j("01-texte-10p.pdf"), j("09-chiffre-aes256.pdf"), "test1234")
     encrypt(j("08-formulaire-acroform.pdf"), j("10-formulaire-chiffre-aes256.pdf"), "test1234")
+    with_attachments(j("01-texte-10p.pdf"), j("12-pieces-jointes.pdf"), j("07-tailles-mixtes-rotation.pdf"))
     if not a.skip_big:
         big_with_attachment(j("11-gros-fichier.pdf"), a.big_gb)
     for n in sorted(os.listdir(OUT)):

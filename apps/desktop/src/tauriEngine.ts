@@ -1,5 +1,5 @@
 import { t } from "@pdfreader/ui";
-import type { AnnotResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Bookmark, DocInfo, DocProperties, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
+import type { AnnotResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Attachment, Bookmark, DocInfo, DocProperties, SnippetHit, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -32,6 +32,14 @@ export const tauriEngine: EngineClient = {
   links: (doc, page) => invoke<PageLink[]>("doc_links", { doc, page }),
   bookmarks: (doc) => invoke<Bookmark[]>("doc_bookmarks", { doc }),
   properties: (doc) => invoke<DocProperties>("doc_properties", { doc }),
+  attachments: (doc) => invoke<Attachment[]>("doc_attachments", { doc }),
+  async saveAttachment(doc, index, name, path) {
+    const target = path ?? (await save({ defaultPath: name }));
+    return target ? invoke<number>("attachment_save", { doc, index, path: target }) : null;
+  },
+  attachmentPdfPath: (doc, index) => invoke<string>("attachment_open_pdf", { doc, index }),
+  searchSnippets: (doc, from, count, query, matchCase, wholeWord, already) =>
+    invoke<{ hits: SnippetHit[]; truncated: boolean }>("doc_search_snippets", { doc, from, count, query, matchCase, wholeWord, already }),
   search: (doc, from, count, query, matchCase, wholeWord) => invoke<SearchBatch>("doc_search", { doc, from, count, query, matchCase, wholeWord }),
   setViewState: (fingerprint, state) => invoke("view_state_set", { fingerprint, state }),
   preferences: () => invoke<Record<string, unknown>>("pref_all"),

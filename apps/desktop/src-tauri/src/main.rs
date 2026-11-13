@@ -558,6 +558,64 @@ async fn doc_properties(doc: u32, engine: State<'_, EngineHandle>) -> Result<pdf
     ask(&engine, |reply| Cmd::Properties { doc, reply }).await
 }
 
+#[tauri::command]
+async fn doc_attachments(doc: u32, engine: State<'_, EngineHandle>) -> Result<Vec<pdfreader_engine::navigation::Attachment>, String> {
+    ask(&engine, |reply| Cmd::Attachments { doc, reply }).await
+}
+
+/// Enregistre une pièce jointe là où l'utilisateur l'a choisi. Jamais exécutée.
+#[tauri::command]
+async fn attachment_save(doc: u32, index: u16, path: String, engine: State<'_, EngineHandle>) -> Result<u64, String> {
+    let bytes = ask(&engine, |reply| Cmd::AttachmentBytes { doc, index, reply }).await?;
+    pdfreader_engine::atomic_write(Path::new(&path), |f| {
+        use std::io::Write;
+        f.write_all(&bytes)?;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(bytes.len() as u64)
+}
+
+/// Pièce jointe PDF : copiée dans le dossier de données de l'application, pour être ouverte dans
+/// PDFReader. Refusé pour tout autre type de fichier.
+#[tauri::command]
+async fn attachment_open_pdf(doc: u32, index: u16, engine: State<'_, EngineHandle>, dir: State<'_, DataDir>) -> Result<String, String> {
+    let list = ask(&engine, |reply| Cmd::Attachments { doc, reply }).await?;
+    let item = list.into_iter().find(|a| a.index == index).ok_or("pièce jointe introuvable")?;
+    let bytes = ask(&engine, |reply| Cmd::AttachmentBytes { doc, index, reply }).await?;
+    if !item.name.to_ascii_lowercase().ends_with(".pdf") || !bytes.starts_with(b"%PDF") {
+        return Err("not_pdf".into());
+    }
+    let folder = dir.0.join("attachments");
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    let stem = item.name[..item.name.len() - 4].to_string();
+    let mut target = folder.join(&item.name);
+    let mut n = 2;
+    while target.exists() && std::fs::read(&target).map(|b| b != bytes).unwrap_or(true) {
+        target = folder.join(format!("{stem} ({n}).pdf"));
+        n += 1;
+    }
+    if !target.exists() {
+        std::fs::write(&target, &bytes).map_err(|e| e.to_string())?;
+    }
+    Ok(target.display().to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn doc_search_snippets(
+    doc: u32,
+    from: i32,
+    count: i32,
+    query: String,
+    match_case: bool,
+    whole_word: bool,
+    already: usize,
+    engine: State<'_, EngineHandle>,
+) -> Result<pdfreader_engine::navigation::SnippetBatch, String> {
+    ask(&engine, |reply| Cmd::SearchSnippets { doc, from, count, query, match_case, whole_word, already, reply }).await
+}
+
 /// Préférences non exportées : propres à ce poste.
 const PREFS_NOT_EXPORTED: [&str; 1] = ["updatesLastCheck"];
 const PREFS_FILE_MAX: u64 = 1024 * 1024;
@@ -863,6 +921,10 @@ fn main() {
             doc_links,
             doc_bookmarks,
             doc_properties,
+            doc_attachments,
+            attachment_save,
+            attachment_open_pdf,
+            doc_search_snippets,
             pref_export,
             pref_import,
             doc_search,
