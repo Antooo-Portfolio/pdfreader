@@ -223,3 +223,76 @@ fn attachments_snippets_and_internet_mark() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn outline_write_and_reload() {
+    use eng::outline::{OutlineItem, write};
+    let (Some(text), Some(enc)) = (common::corpus("01-texte-10p.pdf"), common::corpus("09-chiffre-aes256.pdf")) else {
+        eprintln!("corpus absent : test ignoré");
+        return;
+    };
+    let pdfium = pdfium();
+    let dir = std::env::temp_dir().join(format!("pdfreader-outline-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("signets.pdf");
+    // Comme dans l'application : PDFium enregistre d'abord (mise à jour incrémentale).
+    let heights: Vec<f32> = {
+        let doc = eng::open_typed(&pdfium, &text, None).unwrap();
+        eng::save(&doc, &path, true).unwrap();
+        doc.pages().iter().map(|p| p.height().value).collect()
+    };
+    let items = vec![
+        OutlineItem { title: "Introduction".into(), page: 0, top: None, uri: None, children: vec![] },
+        OutlineItem {
+            title: "Chapitre é — « deux »".into(),
+            page: 3,
+            top: Some(100.0),
+            uri: None,
+            children: vec![OutlineItem { title: "Section 2.1".into(), page: 4, top: Some(0.0), uri: None, children: vec![] }],
+        },
+        OutlineItem { title: "Annexe".into(), page: 9, top: None, uri: None, children: vec![] },
+        OutlineItem { title: "Site".into(), page: -1, top: None, uri: Some("https://example.org/".into()), children: vec![] },
+    ];
+    write(&path, &items, &heights).unwrap();
+    {
+        let doc = eng::open_typed(&pdfium, &path, None).expect("le fichier reste lisible");
+        assert_eq!(doc.pages().len(), 10);
+        let b = eng::bookmarks(&doc);
+        let titles: Vec<&str> = b.iter().map(|x| x.title.as_str()).collect();
+        assert_eq!(titles, ["Introduction", "Chapitre é — « deux »", "Annexe", "Site"]);
+        assert!(matches!(&b[3].action, eng::LinkAction::Uri { uri } if uri == "https://example.org/"), "{:?}", b[3].action);
+        assert_eq!(b[1].children.len(), 1);
+        assert_eq!(b[1].children[0].title, "Section 2.1");
+        match &b[1].action {
+            eng::LinkAction::Goto { page, top } => {
+                assert_eq!(*page, 3);
+                assert!((top.unwrap() - 100.0).abs() < 0.5, "ordonnée : {top:?}");
+            }
+            other => panic!("action inattendue : {other:?}"),
+        }
+        match &b[2].action {
+            eng::LinkAction::Goto { page, .. } => assert_eq!(*page, 9),
+            other => panic!("action inattendue : {other:?}"),
+        }
+    }
+    // Remplacer puis vider.
+    write(&path, &items[..1], &heights).unwrap();
+    assert_eq!(eng::bookmarks(&eng::open_typed(&pdfium, &path, None).unwrap()).len(), 1);
+    write(&path, &[], &heights).unwrap();
+    assert!(eng::bookmarks(&eng::open_typed(&pdfium, &path, None).unwrap()).is_empty());
+    // Un enregistrement PDFium par-dessus reste possible (la chaîne des mises à jour tient).
+    {
+        let doc = eng::open_typed(&pdfium, &path, None).unwrap();
+        let again = dir.join("signets-2.pdf");
+        eng::save(&doc, &again, true).unwrap();
+        assert_eq!(eng::open_typed(&pdfium, &again, None).unwrap().pages().len(), 10);
+    }
+    // Document chiffré : refusé, fichier intact.
+    let enc_copy = dir.join("chiffre.pdf");
+    std::fs::copy(&enc, &enc_copy).unwrap();
+    let before = std::fs::read(&enc_copy).unwrap();
+    let err = write(&enc_copy, &items, &[792.0; 10]).unwrap_err().to_string();
+    assert!(err.contains("encrypted") || err.contains("lecture"), "{err}");
+    assert_eq!(std::fs::read(&enc_copy).unwrap(), before);
+    let _ = std::fs::remove_dir_all(&dir);
+}

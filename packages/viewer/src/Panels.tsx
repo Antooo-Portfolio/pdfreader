@@ -1,8 +1,9 @@
-import { t, PanelHeader, IconButton, EmptyState, Tree, type TreeNode, Spinner, Button } from "@pdfreader/ui";
+import { t, PanelHeader, IconButton, EmptyState, Tree, type TreeNode, Spinner, Button, TextField, Toolbar } from "@pdfreader/ui";
 import { clsx } from "clsx";
-import { Bookmark as BookmarkIcon, ChevronsDownUp, ChevronsUpDown, Download, FileText, Paperclip, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bookmark as BookmarkIcon, BookmarkPlus, ChevronsDownUp, ChevronsUpDown, Download, FileText, IndentDecrease, IndentIncrease, LocateFixed, Paperclip, Pencil, Trash2, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type Attachment, type Bookmark, type EngineClient, type LinkAction, type Rotation, THUMB_WIDTH, thumbScale } from "./engine";
+import { getAt, idOf, indent, insertAfter, move, outdent, type Path, pathOf, remove, update } from "./bookmarks";
 import { formatSize } from "./PropertiesDialog";
 import { displaySize, rotationTransform } from "./layout";
 import type { OpenDoc } from "./state";
@@ -178,6 +179,10 @@ export function BookmarksPanel({
   engine,
   docId,
   cache,
+  editable,
+  currentDest,
+  suggestedTitle,
+  onChange,
   onLink,
   onClose,
 }: {
@@ -185,12 +190,21 @@ export function BookmarksPanel({
   docId: number;
   /** Signets déjà lus (le panneau peut être fermé et rouvert sans relire le document). */
   cache: { current: Bookmark[] | null };
+  /** Modification permise (document non chiffré, commentaires autorisés). */
+  editable: boolean;
+  /** Destination d'un nouveau signet : la vue actuelle (page à partir de 0, haut en points). */
+  currentDest: () => { page: number; top: number | null };
+  /** Titre proposé : le texte sélectionné dans le document, s'il y en a un. */
+  suggestedTitle: () => string;
+  onChange: (list: Bookmark[]) => void;
   onLink: (a: LinkAction) => void;
   onClose: () => void;
 }) {
   const [bookmarks, setBookmarks] = useState<Bookmark[] | null>(cache.current);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string | number>>(new Set());
+  const [selected, setSelected] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
 
   useEffect(() => {
     if (bookmarks) return;
@@ -209,13 +223,60 @@ export function BookmarksPanel({
 
   const idx = useMemo(() => (bookmarks ? index(bookmarks) : null), [bookmarks]);
   const allOpen = !!idx && idx.parents.length > 0 && idx.parents.every((p) => expanded.has(p));
+  const current = bookmarks && selected !== null ? getAt(bookmarks, pathOf(selected)) : null;
+
+  /** Applique une modification : arbre, sélection, parents dépliés pour la garder visible. */
+  const commit = (next: Bookmark[], sel: Path | null) => {
+    cache.current = next;
+    setBookmarks(next);
+    const id = sel ? idOf(sel) : null;
+    setSelected(id);
+    if (sel && sel.length > 1) {
+      setExpanded((e) => {
+        const n = new Set(e);
+        for (let i = 1; i < sel.length; i++) n.add(idOf(sel.slice(0, i)));
+        return n;
+      });
+    }
+    onChange(next);
+  };
+
+  const add = () => {
+    if (!bookmarks) return;
+    const dest = currentDest();
+    const title = suggestedTitle() || t("Page {page}", { page: dest.page + 1 });
+    const [next, path] = insertAfter(bookmarks, selected === null ? null : pathOf(selected), { title, action: { kind: "goto", page: dest.page, top: dest.top }, children: [] });
+    commit(next, path);
+    setRenaming({ id: idOf(path), value: title });
+  };
+  const act = (f: (l: Bookmark[], p: Path) => [Bookmark[], Path]) => {
+    if (!bookmarks || selected === null) return;
+    const [next, path] = f(bookmarks, pathOf(selected));
+    if (next !== bookmarks) commit(next, path);
+  };
+  const removeSelected = () => {
+    if (!bookmarks || selected === null) return;
+    commit(remove(bookmarks, pathOf(selected)), null);
+  };
+  const setDestHere = () => {
+    if (!bookmarks || selected === null) return;
+    const dest = currentDest();
+    commit(update(bookmarks, pathOf(selected), { action: { kind: "goto", page: dest.page, top: dest.top } }), pathOf(selected));
+  };
+  const finishRename = () => {
+    if (!renaming || !bookmarks) return;
+    const v = renaming.value.trim();
+    setRenaming(null);
+    if (v && v !== getAt(bookmarks, pathOf(renaming.id))?.title) commit(update(bookmarks, pathOf(renaming.id), { title: v }), pathOf(renaming.id));
+  };
 
   return (
-    <section aria-label={t("Signets")} className="flex min-h-0 flex-1 flex-col">
+    <section aria-label={t("Signets")} className="flex min-h-0 flex-1 flex-col" data-bookmarks-panel>
       <PanelHeader
         title={t("Signets")}
         actions={
           <>
+            {editable && idx && <IconButton label={t("Ajouter un signet ici")} size="sm" icon={<BookmarkPlus size={16} />} onPress={add} />}
             {idx && idx.parents.length > 0 && (
               <IconButton
                 label={allOpen ? t("Tout replier") : t("Tout déplier")}
@@ -228,7 +289,55 @@ export function BookmarksPanel({
           </>
         }
       />
-      <div className="min-h-0 flex-1 overflow-y-auto p-1">
+      {renaming && (
+        <form
+          className="border-b border-border p-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            finishRename();
+          }}
+        >
+          <TextField
+            label={t("Nom du signet")}
+            size="sm"
+            autoFocus
+            value={renaming.value}
+            maxLength={300}
+            onChange={(value) => setRenaming({ ...renaming, value })}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                setRenaming(null);
+              }
+            }}
+            onBlur={finishRename}
+          />
+        </form>
+      )}
+      <div
+        className="min-h-0 flex-1 overflow-y-auto p-1"
+        onKeyDown={(e) => {
+          if (!editable || renaming || selected === null) return;
+          const stop = () => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.nativeEvent.stopPropagation();
+          };
+          if (e.key === "F2") {
+            stop();
+            setRenaming({ id: selected, value: current?.title ?? "" });
+          } else if (e.key === "Delete") {
+            stop();
+            removeSelected();
+          } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+            stop();
+            act((l, p) => move(l, p, e.key === "ArrowUp" ? -1 : 1));
+          } else if (e.altKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+            stop();
+            act(e.key === "ArrowRight" ? indent : outdent);
+          }
+        }}
+      >
         {error ? (
           <p className="p-3 text-sm text-danger">{t("Les signets n'ont pas pu être lus.")}</p>
         ) : !idx ? (
@@ -237,7 +346,13 @@ export function BookmarksPanel({
           </div>
         ) : idx.nodes.length === 0 ? (
           <EmptyState icon={<BookmarkIcon size={24} />} title={t("Aucun signet")}>
-            {t("Ce document n'a pas de table des matières.")}
+            {editable ? (
+              <Button size="sm" icon={<BookmarkPlus size={14} />} onPress={add}>
+                {t("Ajouter un signet ici")}
+              </Button>
+            ) : (
+              t("Ce document n'a pas de table des matières.")
+            )}
           </EmptyState>
         ) : (
           <Tree
@@ -245,13 +360,36 @@ export function BookmarksPanel({
             nodes={idx.nodes}
             expandedKeys={expanded}
             onExpandedChange={setExpanded}
+            selectionMode="single"
+            selectedKeys={selected === null ? [] : [selected]}
+            onSelectionChange={(keys) => {
+              const k = [...(keys as Set<string | number>)][0];
+              if (k === undefined) return;
+              setSelected(String(k));
+              const a = idx.actions.get(String(k));
+              if (a) onLink(a);
+            }}
             onAction={(key) => {
+              // Clic ou Entrée : aller à la page, et sélectionner le signet pour le modifier.
+              setSelected(String(key));
               const a = idx.actions.get(String(key));
               if (a) onLink(a);
             }}
           />
         )}
       </div>
+      {editable && current && !renaming && (
+        <Toolbar aria-label={t("Modifier le signet")} className="flex flex-wrap gap-0.5 border-t border-border p-1" data-bookmark-tools>
+          <IconButton label={t("Renommer")} shortcut="F2" size="sm" icon={<Pencil size={16} />} onPress={() => setRenaming({ id: selected!, value: current.title })} />
+          <IconButton label={t("Pointer vers la vue actuelle")} size="sm" icon={<LocateFixed size={16} />} onPress={setDestHere} />
+          <IconButton label={t("Monter")} shortcut="Alt+↑" size="sm" icon={<ArrowUp size={16} />} onPress={() => act((l, p) => move(l, p, -1))} />
+          <IconButton label={t("Descendre")} shortcut="Alt+↓" size="sm" icon={<ArrowDown size={16} />} onPress={() => act((l, p) => move(l, p, 1))} />
+          <IconButton label={t("Mettre sous le signet précédent")} shortcut="Alt+→" size="sm" icon={<IndentIncrease size={16} />} onPress={() => act(indent)} />
+          <IconButton label={t("Remonter d'un niveau")} shortcut="Alt+←" size="sm" icon={<IndentDecrease size={16} />} onPress={() => act(outdent)} />
+          <IconButton label={t("Supprimer le signet")} shortcut="Suppr" size="sm" icon={<Trash2 size={16} />} onPress={removeSelected} />
+        </Toolbar>
+      )}
+      {!editable && idx && idx.nodes.length > 0 && <p className="border-t border-border p-2 text-xs text-muted">{t("Document protégé : ses signets ne peuvent pas être modifiés.")}</p>}
     </section>
   );
 }

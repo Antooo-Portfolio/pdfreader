@@ -71,6 +71,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.m3reading = await runM3Reading(engine, actions, path);
     steps.m3navigation = await runM3Navigation(engine, actions, path);
     steps.m3comments = await runM3Comments(actions, path);
+    steps.m3bookmarks = await runM3Bookmarks(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -79,7 +80,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.settings as { ok: boolean }).ok &&
       (steps.m3reading as { ok: boolean }).ok &&
       (steps.m3navigation as { ok: boolean }).ok &&
-      (steps.m3comments as { ok: boolean }).ok;
+      (steps.m3comments as { ok: boolean }).ok &&
+      (steps.m3bookmarks as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -945,6 +947,106 @@ async function runM3Comments(actions: AppActions, path: string) {
   return r;
 }
 
+/** M3, lot « signets » : créer, renommer, réordonner, imbriquer, supprimer des signets, les
+ *  enregistrer dans le fichier ; document chiffré non modifiable ; barre d'outils personnalisée. */
+async function runM3Bookmarks(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  try {
+    const doc = await actions.openPath(dir + "07-tailles-mixtes-rotation.pdf");
+    if (!doc) throw new Error("07-tailles-mixtes-rotation.pdf introuvable");
+    const a = await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    await waitFor(() => Array.from(document.querySelectorAll('[data-page-index="0"] img')).find((el) => !el.closest("[hidden]")), 8000);
+    a.openPanel("bookmarks");
+    const panel = await waitFor(() => Array.from(document.querySelectorAll<HTMLElement>("[data-bookmarks-panel]")).find((el) => !el.closest("[hidden]")), 6000);
+    const addBtn = () => Array.from(panel.querySelectorAll<HTMLElement>('button[aria-label="Ajouter un signet ici"], button')).find((b) => b.getAttribute("aria-label") === "Ajouter un signet ici" || b.textContent === "Ajouter un signet ici");
+    const titles = () => Array.from(panel.querySelectorAll('[role="row"]')).map((x) => x.textContent?.replace(/\d+$/, "").trim());
+    /** Ajoute un signet à la page `p` (vue actuelle) et le nomme. */
+    const addNamed = async (p: number, name: string) => {
+      a.jumpTo(p);
+      await waitFor(() => (a.view().page === p ? true : null), 4000);
+      await sleep(150);
+      (await waitFor(addBtn, 3000)).click();
+      const input = await waitFor(() => panel.querySelector<HTMLInputElement>('input[type="text"], form input'), 3000);
+      setNativeValue(input, name);
+      await sleep(50);
+      input.closest("form")?.requestSubmit();
+      await waitFor(() => (titles().includes(name) ? true : null), 3000);
+    };
+    await addNamed(3, "Chapitre trois");
+    await addNamed(1, "Début");
+    // « Début » a été ajouté après « Chapitre trois » (sélectionné) : on le remonte.
+    const order1 = titles();
+    Array.from(panel.querySelectorAll<HTMLElement>("button")).find((b) => b.getAttribute("aria-label") === "Monter")?.click();
+    await sleep(150);
+    const order2 = titles();
+    // « Annexe » après « Chapitre trois », puis imbriquée sous lui.
+    Array.from(panel.querySelectorAll<HTMLElement>('[role="row"]')).find((x) => x.textContent?.startsWith("Chapitre trois"))?.click();
+    await sleep(150);
+    await addNamed(5, "Annexe");
+    Array.from(panel.querySelectorAll<HTMLElement>("button")).find((b) => b.getAttribute("aria-label") === "Mettre sous le signet précédent")?.click();
+    await sleep(200);
+    const pending = await engine.bookmarks(doc.id);
+    r.editing = { order1, order2, pending: pending.map((b) => `${b.title}[${b.children.map((c) => c.title).join(",")}]`) };
+    checks.editing =
+      order1.join("|") === "Chapitre trois|Début" &&
+      order2.join("|") === "Début|Chapitre trois" &&
+      pending.length === 2 &&
+      pending[1]?.title === "Chapitre trois" &&
+      pending[1]?.children[0]?.title === "Annexe";
+
+    // Enregistrement : relu depuis le fichier, pages justes.
+    const saved = await actions.save(doc.id);
+    const fromFile = await engine.bookmarks(doc.id);
+    const pageOf = (b: { action: { kind: string; page?: number } } | undefined) => (b && b.action.kind === "goto" ? (b.action as { page: number }).page : -1);
+    r.saved = { saved, titles: fromFile.map((b) => b.title), pages: [pageOf(fromFile[0]), pageOf(fromFile[1]), pageOf(fromFile[1]?.children[0])] };
+    checks.saved = saved && fromFile.map((b) => b.title).join("|") === "Début|Chapitre trois" && pageOf(fromFile[0]) === 0 && pageOf(fromFile[1]) === 2 && pageOf(fromFile[1]?.children[0]) === 4;
+
+    // Après relecture : clic sur un signet = navigation ; Suppr retire le signet sélectionné.
+    a.openPanel("bookmarks");
+    const panel2 = await waitFor(() => Array.from(document.querySelectorAll<HTMLElement>("[data-bookmarks-panel]")).find((el) => !el.closest("[hidden]") && el.querySelector('[role="row"]')), 6000);
+    const row = Array.from(panel2.querySelectorAll<HTMLElement>('[role="row"]')).find((x) => x.textContent?.startsWith("Chapitre trois"));
+    a.jumpTo(1);
+    await sleep(150);
+    row?.click();
+    const navigated = await waitFor(() => (a.view().page === 3 ? true : null), 4000).catch(() => false);
+    const first = Array.from(panel2.querySelectorAll<HTMLElement>('[role="row"]')).find((x) => x.textContent?.startsWith("Début"));
+    first?.click();
+    await sleep(150);
+    first?.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }));
+    await sleep(200);
+    const afterDelete = (await engine.bookmarks(doc.id)).map((b) => b.title);
+    r.navigation = { navigated, afterDelete };
+    checks.navigation = navigated && afterDelete.join("|") === "Chapitre trois";
+    await actions.save(doc.id);
+
+    // Document chiffré : signets non modifiables.
+    const enc = await actions.openPath(dir + "09-chiffre-aes256.pdf", "test1234");
+    checks.encrypted = !!enc && enc.bookmarksEditable === false && doc.bookmarksEditable === true;
+    if (enc) await actions.closeDoc(enc.id);
+
+    // Barre d'outils : outils masqués puis réaffichés ; menu de personnalisation présent.
+    await actions.openPath(dir + "07-tailles-mixtes-rotation.pdf");
+    await waitFor(() => (actions.activeId() === doc.id ? true : null), 3000).catch(() => null);
+    const toolShown = (label: string) => Array.from(document.querySelectorAll("[aria-label]")).some((el) => el.getAttribute("aria-label") === label && !el.closest("[hidden]"));
+    actions.setPref("hiddenTools", ["strikeout", "callout"]);
+    await sleep(200);
+    const hidden = !toolShown("Barrer du texte") && !toolShown("Légende (cliquez sur le point à désigner)") && toolShown("Souligner du texte");
+    actions.setPref("hiddenTools", []);
+    await sleep(200);
+    const back = toolShown("Barrer du texte");
+    const menu = toolShown("Personnaliser la barre d'outils");
+    r.toolbar = { hidden, back, menu };
+    checks.toolbar = hidden && back && menu;
+  } catch (e) {
+    r.error = String(e);
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 5;
+  return r;
+}
+
 /** Scénarios en deux lancements : « crash » modifie un document, fait sa copie de récupération et
  *  quitte sans rien nettoyer ; « recover » vérifie qu'au lancement suivant la copie est proposée,
  *  rouverte avec la modification, puis effacée à l'enregistrement. */
@@ -982,7 +1084,19 @@ export async function runStage(stage: string, engine: EngineClient, actions: App
       const pause = (await engine.e2ePause()) || 3000;
       const d = actions.doc()!;
       // Document avec pièces jointes : recherche avancée puis pièces jointes ; sinon propriétés puis mode lecture.
-      if (first.name.includes("courier")) {
+      if (first.name.includes("tailles-mixtes")) {
+        // Signets en cours de modification.
+        await engine.setBookmarks(first.id, [
+          { title: "Introduction", page: 0, top: null, uri: null, children: [] },
+          { title: "Chapitre 1 — Méthode", page: 1, top: 120, uri: null, children: [{ title: "1.1 Données", page: 2, top: null, uri: null, children: [] }] },
+          { title: "Annexes", page: 4, top: null, uri: null, children: [] },
+        ]);
+        d.openPanel("bookmarks");
+        await sleep(400);
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-bookmarks-panel] [role="row"]'));
+        rows.find((x) => x.textContent?.startsWith("Chapitre 1"))?.click();
+        await sleep(pause);
+      } else if (first.name.includes("courier")) {
         // Formes, tampon et fil de réponses.
         await d.createShape(0, "square", [[80, 330], [230, 400]], true);
         await d.createShape(0, "circle", [[260, 330], [380, 400]], false);

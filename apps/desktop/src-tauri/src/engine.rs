@@ -35,6 +35,8 @@ pub struct DocInfo {
     pub attachment_count: u16,
     /// Le fichier porte la « marque du Web » (téléchargé) : vue protégée.
     pub from_internet: bool,
+    /// Les signets peuvent être modifiés (document non chiffré).
+    pub bookmarks_editable: bool,
     /// Empreinte du fichier (clé des récents et de l'état de vue).
     pub fingerprint: String,
     /// Dernier état de vue mémorisé, rempli par la commande `doc_open`.
@@ -109,6 +111,8 @@ pub enum Cmd {
     Links { doc: u32, page: i32, reply: Reply<Vec<eng::PageLink>> },
     Bookmarks { doc: u32, reply: Reply<Vec<eng::Bookmark>> },
     Properties { doc: u32, reply: Reply<eng::properties::DocProperties> },
+    /// Remplace les signets (écrits au prochain enregistrement).
+    SetBookmarks { doc: u32, items: Vec<eng::outline::OutlineItem>, reply: Reply<()> },
     Attachments { doc: u32, reply: Reply<Vec<eng::navigation::Attachment>> },
     AttachmentBytes { doc: u32, index: u16, reply: Reply<Vec<u8>> },
     SearchSnippets { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool, already: usize, reply: Reply<eng::navigation::SnippetBatch> },
@@ -136,6 +140,8 @@ struct Entry {
     mtime: Option<SystemTime>,
     generation: u32,
     fingerprint: String,
+    /// Signets modifiés, écrits au prochain enregistrement (PDFium ne sait pas les écrire).
+    outline: Option<Vec<eng::outline::OutlineItem>>,
 }
 
 #[derive(Clone)]
@@ -173,6 +179,7 @@ fn info_of(id: u32, e: &Entry) -> DocInfo {
         permissions: eng::permissions(doc),
         attachment_count: doc.attachments().len(),
         from_internet: eng::navigation::from_internet(&e.path),
+        bookmarks_editable: !eng::is_encrypted(doc),
         fingerprint: e.fingerprint.clone(),
         view_state: None,
         generation: e.generation,
@@ -284,6 +291,9 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
             Cmd::Snapshot { doc, target, reply } => {
                 let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
                     eng::save(&e.doc, &target, true).map_err(|e| e.to_string())?;
+                    if let Some(items) = &e.outline {
+                        let _ = eng::outline::write(&target, items, &heights(&e.doc));
+                    }
                     Ok(std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0))
                 });
                 let _ = reply.send(r);
@@ -298,7 +308,7 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                     let (path, password, generation) = (e.path.clone(), e.password.clone(), e.generation + 1);
                     let fresh = eng::open_typed(pdfium, &path, password.as_deref()).map_err(|e| e.to_string())?;
                     let fingerprint = eng::fingerprint(&path).map_err(|e| e.to_string())?;
-                    let entry = Entry { doc: fresh, mtime: eng::file_mtime(&path), path, password, generation, fingerprint };
+                    let entry = Entry { doc: fresh, mtime: eng::file_mtime(&path), path, password, generation, fingerprint, outline: None };
                     let info = info_of(doc, &entry);
                     docs.insert(doc, entry);
                     Ok(info)
@@ -313,7 +323,7 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                     // Copie de récupération : empreinte du fichier d'origine s'il existe encore.
                     let fingerprint = eng::fingerprint(&shown).or_else(|_| eng::fingerprint(&path)).map_err(|e| eng::OpenError::Other(e.to_string()))?;
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    let entry = Entry { doc, mtime: eng::file_mtime(&shown), path: shown, password: password.clone(), generation: 1, fingerprint };
+                    let entry = Entry { doc, mtime: eng::file_mtime(&shown), path: shown, password: password.clone(), generation: 1, fingerprint, outline: None };
                     let id = next_id;
                     next_id += 1;
                     let info = info_of(id, &entry);
@@ -397,7 +407,23 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                 let _ = reply.send(r);
             }
             Cmd::Bookmarks { doc, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::bookmarks(&e.doc));
+                let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| match &e.outline {
+                    Some(items) => outline_as_bookmarks(items),
+                    None => eng::bookmarks(&e.doc),
+                });
+                let _ = reply.send(r);
+            }
+            Cmd::SetBookmarks { doc, items, reply } => {
+                let r = docs.get_mut(&doc).ok_or("document fermé".to_string()).and_then(|e| {
+                    if eng::is_encrypted(&e.doc) {
+                        return Err("encrypted".to_string());
+                    }
+                    if eng::outline::count(&items) > eng::outline::MAX_ITEMS {
+                        return Err("trop de signets".to_string());
+                    }
+                    e.outline = Some(items);
+                    Ok(())
+                });
                 let _ = reply.send(r);
             }
             Cmd::Attachments { doc, reply } => {
@@ -466,15 +492,41 @@ fn save(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, target
             err.to_string()
         }
     })?;
+    if let Some(items) = &e.outline {
+        eng::outline::write(&target, items, &heights(&e.doc)).map_err(|err| {
+            let m = err.to_string();
+            if m.contains("encrypted") || m.contains("file_too_big") { m } else { format!("bookmarks_failed: {m}") }
+        })?;
+    }
     let password = e.password.clone();
     let generation = e.generation + 1;
     let old_fingerprint = e.fingerprint.clone();
     let doc = eng::open_typed(pdfium, &target, password.as_deref()).map_err(|e| e.to_string())?;
     let bytes = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
     let fingerprint = eng::fingerprint(&target).map_err(|e| e.to_string())?;
-    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone() };
+    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone(), outline: None };
     docs.insert(id, entry);
     Ok(SaveResult { path: target.display().to_string(), bytes, generation, fingerprint, old_fingerprint })
+}
+
+fn heights(doc: &PdfDocument) -> Vec<f32> {
+    doc.pages().iter().map(|p| p.height().value).collect()
+}
+
+/// Signets en attente, présentés comme ceux lus dans le fichier.
+fn outline_as_bookmarks(items: &[eng::outline::OutlineItem]) -> Vec<eng::Bookmark> {
+    items
+        .iter()
+        .map(|i| eng::Bookmark {
+            title: i.title.clone(),
+            action: match (&i.uri, i.page) {
+                (Some(u), _) => eng::LinkAction::Uri { uri: u.clone() },
+                (None, p) if p >= 0 => eng::LinkAction::Goto { page: p, top: i.top },
+                _ => eng::LinkAction::None,
+            },
+            children: outline_as_bookmarks(&i.children),
+        })
+        .collect()
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -502,6 +554,9 @@ fn fail(cmd: Cmd, msg: &str) {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Bookmarks { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::SetBookmarks { reply, .. } => {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Properties { reply, .. } => {

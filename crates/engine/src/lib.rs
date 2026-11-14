@@ -220,6 +220,7 @@ pub mod fonts;
 pub mod fill;
 pub mod properties;
 pub mod navigation;
+pub mod outline;
 
 #[cfg(windows)]
 pub mod print_win;

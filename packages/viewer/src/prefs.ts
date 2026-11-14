@@ -26,6 +26,8 @@ export interface Prefs {
   updatesLastCheck: number;
   /** Fichiers venus d'Internet ouverts en vue protégée (modification désactivée). */
   protectedView: boolean;
+  /** Outils retirés de la barre d'outils (toujours accessibles au clavier). */
+  hiddenTools: string[];
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -41,6 +43,7 @@ export const DEFAULT_PREFS: Prefs = {
   updates: "ask",
   updatesLastCheck: 0,
   protectedView: true,
+  hiddenTools: [],
 };
 
 export const UI_SCALES = [87.5, 100, 112.5, 125, 150, 175, 200];
@@ -62,6 +65,7 @@ export function parsePrefs(raw: Record<string, unknown>): Prefs {
   if (raw.updates === "ask" || raw.updates === "auto" || raw.updates === "off") p.updates = raw.updates;
   if (typeof raw.updatesLastCheck === "number") p.updatesLastCheck = raw.updatesLastCheck;
   if (typeof raw.protectedView === "boolean") p.protectedView = raw.protectedView;
+  if (Array.isArray(raw.hiddenTools)) p.hiddenTools = raw.hiddenTools.filter((x): x is string => typeof x === "string" && x !== "select").slice(0, 32);
   return p;
 }
 

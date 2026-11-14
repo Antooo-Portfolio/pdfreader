@@ -9,6 +9,7 @@ import {
   MoveUpRight,
   Pentagon,
   Shapes,
+  SlidersHorizontal,
   Spline,
   Square as SquareIcon,
   Stamp as StampIcon,
@@ -56,6 +57,7 @@ import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinu
 import { PageView } from "./PageView";
 import { AttachmentsPanel, BookmarksPanel, ThumbnailsPanel } from "./Panels";
 import { SearchPanel } from "./SearchPanel";
+import { toItems } from "./bookmarks";
 import { pageText, speak, speechAvailable } from "./speech";
 import { type Direction, extendSelection as extendTextSelection, type Granularity } from "./kbselect";
 import { selectionToPageRects } from "./selection";
@@ -92,7 +94,27 @@ interface Props {
   protectedView: boolean;
   /** Ouvre un fichier dans un nouvel onglet (pièce jointe PDF). */
   onOpenPath: (path: string) => void;
+  /** Outils retirés de la barre (préférence) et leur modification. */
+  hiddenTools: string[];
+  onHiddenToolsChange: (tools: string[]) => void;
 }
+
+/** Outils de la barre, dans l'ordre (Sélectionner reste toujours visible). */
+const TOOLBAR_TOOLS: [Exclude<Tool, "select">, string][] = [
+  ["highlight", msg("Surligner")],
+  ["underline", msg("Souligner")],
+  ["strikeout", msg("Barrer")],
+  ["note", msg("Note")],
+  ["ink", msg("Dessin")],
+  ["eraser", msg("Gomme")],
+  ["text", msg("Texte")],
+  ["textbox", msg("Zone de texte")],
+  ["callout", msg("Légende")],
+  ["shape", msg("Formes")],
+  ["stamp", msg("Tampon")],
+  ["check", msg("Coche")],
+  ["sign", msg("Signer")],
+];
 
 export type Immersive = "reading" | "fullscreen" | null;
 
@@ -225,6 +247,8 @@ export function DocumentView({
   onProperties,
   protectedView,
   onOpenPath,
+  hiddenTools,
+  onHiddenToolsChange,
 }: Props) {
   const toast = useToast();
   const { info } = doc;
@@ -1194,6 +1218,37 @@ export function DocumentView({
     }
   };
 
+  /** Outil affiché dans la barre ; l'outil actif reste toujours visible. */
+  const shown = (id: Tool) => id === tool || !hiddenTools.includes(id);
+
+  // ------------------------------------------------------------ signets (modification)
+  // Après un enregistrement, les signets sont relus depuis le fichier.
+  useEffect(() => {
+    bookmarkCache.current = null;
+  }, [info.generation]);
+  /** Vue actuelle comme destination d'un signet (page à partir de 0, haut en points). */
+  const currentDest = useCallback(() => {
+    const pos = currentPos();
+    const h = info.pages[pos.page - 1]?.[1] ?? 0;
+    return { page: pos.page - 1, top: rotation === 0 ? Math.max(0, Math.round(pos.fy * h)) : null };
+  }, [currentPos, info.pages, rotation]);
+  const suggestedTitle = useCallback(() => {
+    const sel = window.getSelection();
+    const text = sel && scroller.current && sel.anchorNode && scroller.current.contains(sel.anchorNode) ? sel.toString().replace(/\s+/g, " ").trim() : "";
+    return text.slice(0, 120);
+  }, []);
+  const changeBookmarks = useCallback(
+    async (list: Bookmark[]) => {
+      try {
+        await engine.setBookmarks(info.id, toItems(list));
+        onAnnotated(-1);
+      } catch (e) {
+        toast({ tone: "error", message: String(e).includes("encrypted") ? t("Document protégé : ses signets ne peuvent pas être modifiés.") : t("Les signets n'ont pas pu être modifiés ({detail}).", { detail: String(e) }) });
+      }
+    },
+    [engine, info.id, onAnnotated, toast],
+  );
+
   // ------------------------------------------------------------ recherche avancée et pièces jointes
   const [searchSeed, setSearchSeed] = useState({ query: "", signal: 0 });
   const openAdvanced = useCallback((q?: string) => {
@@ -1528,6 +1583,7 @@ export function DocumentView({
           }}
         >
           <ToolButton id="select" label={t("Sélectionner (texte et commentaires)")} shortcut="V" icon={<MousePointer2 size={18} />} />
+          {shown("highlight") && (
           <ToolButton
             id="highlight"
             label={canAnnotate ? t("Surligner du texte") : protectedOn ? t("Vue protégée : activez la modification pour commenter") : t("Commentaires désactivés par l'auteur")}
@@ -1535,19 +1591,82 @@ export function DocumentView({
             icon={<Highlighter size={18} />}
             isDisabled={!canAnnotate}
           />
-          <ToolButton id="underline" label={t("Souligner du texte")} icon={<Underline size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="strikeout" label={t("Barrer du texte")} icon={<Strikethrough size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="note" label={t("Ajouter une note (cliquez sur la page)")} shortcut="N" icon={<StickyNote size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="ink" label={t("Dessiner à main levée")} shortcut="D" icon={<PenLine size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="eraser" label={t("Gomme (efface les dessins)")} shortcut="E" icon={<Eraser size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="text" label={t("Ajouter du texte (cliquez sur la page)")} shortcut="T" icon={<Type size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="textbox" label={t("Zone de texte encadrée")} icon={<SquarePen size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="callout" label={t("Légende (cliquez sur le point à désigner)")} icon={<MessageSquareText size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="shape" label={t("Formes (rectangle, ellipse, ligne, flèche, polygone, nuage)")} icon={<Shapes size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="stamp" label={t("Tampon (Approuvé, Brouillon, Confidentiel…)")} icon={<StampIcon size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="check" label={t("Ajouter une coche ou une croix")} icon={<Check size={18} />} isDisabled={!canAnnotate} />
-          <ToolButton id="sign" label={t("Signer (cliquez sur la page)")} shortcut="S" icon={<SignatureIcon size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("underline") && (
+          <ToolButton
+            id="underline" label={t("Souligner du texte")} icon={<Underline size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("strikeout") && (
+          <ToolButton
+            id="strikeout" label={t("Barrer du texte")} icon={<Strikethrough size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("note") && (
+          <ToolButton
+            id="note" label={t("Ajouter une note (cliquez sur la page)")} shortcut="N" icon={<StickyNote size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("ink") && (
+          <ToolButton
+            id="ink" label={t("Dessiner à main levée")} shortcut="D" icon={<PenLine size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("eraser") && (
+          <ToolButton
+            id="eraser" label={t("Gomme (efface les dessins)")} shortcut="E" icon={<Eraser size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("text") && (
+          <ToolButton
+            id="text" label={t("Ajouter du texte (cliquez sur la page)")} shortcut="T" icon={<Type size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("textbox") && (
+          <ToolButton
+            id="textbox" label={t("Zone de texte encadrée")} icon={<SquarePen size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("callout") && (
+          <ToolButton
+            id="callout" label={t("Légende (cliquez sur le point à désigner)")} icon={<MessageSquareText size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("shape") && (
+          <ToolButton
+            id="shape" label={t("Formes (rectangle, ellipse, ligne, flèche, polygone, nuage)")} icon={<Shapes size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("stamp") && (
+          <ToolButton
+            id="stamp" label={t("Tampon (Approuvé, Brouillon, Confidentiel…)")} icon={<StampIcon size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("check") && (
+          <ToolButton
+            id="check" label={t("Ajouter une coche ou une croix")} icon={<Check size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("sign") && (
+          <ToolButton
+            id="sign" label={t("Signer (cliquez sur la page)")} shortcut="S" icon={<SignatureIcon size={18} />} isDisabled={!canAnnotate} />
+          )}
         </ToolGroup>
+        <MenuTrigger>
+          <IconButton label={t("Personnaliser la barre d'outils")} icon={<SlidersHorizontal size={16} />} size="sm" />
+          <Menu aria-label={t("Outils affichés")}>
+            <MenuSection
+              title={t("Outils affichés")}
+              selectionMode="multiple"
+              selectedKeys={TOOLBAR_TOOLS.map(([id]) => id).filter((id) => !hiddenTools.includes(id))}
+              onSelectionChange={(keys) => {
+                const on = keys === "all" ? new Set(TOOLBAR_TOOLS.map(([id]) => id as string)) : new Set([...keys].map(String));
+                onHiddenToolsChange(TOOLBAR_TOOLS.map(([id]) => id as string).filter((id) => !on.has(id)));
+              }}
+            >
+              {TOOLBAR_TOOLS.map(([id, label]) => (
+                <MenuItem key={id} id={id}>
+                  {t(label)}
+                </MenuItem>
+              ))}
+            </MenuSection>
+            <MenuSeparator />
+            <MenuSection>
+              <MenuItem id="show-all" onAction={() => onHiddenToolsChange([])}>
+                {t("Tout afficher")}
+              </MenuItem>
+            </MenuSection>
+          </Menu>
+        </MenuTrigger>
         <div className="ml-auto flex items-center gap-1">
           <IconButton label={t("Imprimer")} shortcut="Ctrl+P" icon={<Printer size={18} />} onPress={onPrint} />
           <IconButton label={t("Rechercher")} shortcut="Ctrl+F" icon={<Search size={18} />} onPress={openFind} />
@@ -1966,7 +2085,18 @@ export function DocumentView({
             {panel === "thumbnails" ? (
               <ThumbnailsPanel engine={engine} doc={doc} rotation={rotation} page={page} dpr={dpr} onGoTo={(p) => jump(p)} onClose={() => setPanel(null)} />
             ) : panel === "bookmarks" ? (
-              <BookmarksPanel engine={engine} docId={info.id} cache={bookmarkCache} onLink={onLink} onClose={() => setPanel(null)} />
+              <BookmarksPanel
+                key={info.generation}
+                engine={engine}
+                docId={info.id}
+                cache={bookmarkCache}
+                editable={info.bookmarksEditable && canAnnotate}
+                currentDest={currentDest}
+                suggestedTitle={suggestedTitle}
+                onChange={(list) => void changeBookmarks(list)}
+                onLink={onLink}
+                onClose={() => setPanel(null)}
+              />
             ) : panel === "attachments" ? (
               <AttachmentsPanel engine={engine} docId={info.id} onOpenPdf={(a) => void openAttachment(a)} onSave={(a) => void saveAttachment(a)} onClose={() => setPanel(null)} />
             ) : panel === "search" ? (

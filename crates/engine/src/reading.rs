@@ -37,6 +37,11 @@ pub fn permissions(doc: &PdfDocument) -> Permissions {
     }
 }
 
+/// Le document est-il chiffré (même sans mot de passe d'ouverture) ?
+pub fn is_encrypted(doc: &PdfDocument) -> bool {
+    unsafe { raw_bindings().FPDF_GetSecurityHandlerRevision(doc.raw_handle()) > 0 }
+}
+
 /// Ce que fait un lien ou un signet : aller à une page (ordonnée du haut de la vue si connue),
 /// ou ouvrir une adresse, après confirmation de l'utilisateur côté interface. Les autres actions
 /// (lancer un programme, JavaScript, autre fichier) sont ignorées volontairement.

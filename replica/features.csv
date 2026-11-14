@@ -20,12 +20,12 @@ Recherche dans plusieurs PDF d'un dossier,recherche,could,yes,no,
 Sélectionner et copier du texte,lecture,must,yes,yes,"M2 : souris et clavier (Maj+flèches, Ctrl+Maj+flèches, Maj+Début / Fin, Ctrl+A), copie bloquée si interdite"
 Panneau Vignettes,navigation,must,yes,yes,"M2 : S06 : vignettes virtualisées, page courante suivie, clavier (flèches, Pg préc./suiv., Début / Fin) ; menu contextuel d'organisation avec les outils de pages (phase 2)"
 Panneau Signets (lecture),navigation,must,yes,yes,"M2 : S07 : arbre, tout déplier / replier, aller à la page et à la position, signets web confirmés ; vide « Aucun signet »"
-Créer / renommer / supprimer des signets,navigation,should,yes,no,
+Créer / renommer / supprimer des signets,navigation,should,yes,yes,"M3 : panneau Signets : ajouter à la vue actuelle (titre = texte sélectionné), renommer (F2), pointer vers la vue actuelle, monter / descendre (Alt+↑↓), imbriquer / remonter (Alt+→←), supprimer (Suppr) ; écrits à l'enregistrement par une mise à jour incrémentale (lopdf), le reste du fichier intact ; documents chiffrés : lecture seule"
 Panneau Pièces jointes (ouvrir / enregistrer),navigation,should,yes,yes,"M3 : liste avec taille ; Enregistrer sous… ; seules les pièces jointes PDF s'ouvrent (dans PDFReader) ; noms nettoyés (aucun chemin, « ..\..\x.exe » devient « x.exe ») ; rien n'est jamais exécuté"
 Panneau Calques (afficher / masquer),navigation,could,yes,no,S09
 Articles (fils de lecture),navigation,could,yes,no,
 Liens internes et externes cliquables,lecture,must,yes,yes,"M2 : liens internes (page et position), adresses web et mailto après confirmation ; autres actions ignorées. Clic dans l'interface non automatisé (extraction testée dans le moteur)"
-Barre d'actions rapides personnalisable,interface,should,yes,no,S03 QuickActionToolbar
+Barre d'actions rapides personnalisable,interface,should,yes,yes,"M3 : menu « Personnaliser la barre d'outils » : chaque outil s'affiche ou se masque (préférence, exportable) ; l'outil actif reste visible ; raccourcis inchangés"
 Raccourcis clavier (navigation / outils),interface,must,yes,yes,"M2 : Ctrl+O/S/Maj+S/W/Tab/P/K/F, F3, Ctrl+0/1/2, Ctrl+=/-, Ctrl+Maj+flèches, Début / Fin, flèches, Suppr ; raccourcis à une touche désactivables ; aucun raccourci global quand une boîte de dialogue est ouverte"
 Accueil avec récents et favoris,accueil,must,yes,yes,"M2 : onglets Récents / Favoris, étoile, recherche par nom ou dossier, liste ou vignettes (mémorisé), fichier introuvable, retirer"
 Restaurer la dernière page et le zoom à la réouverture,accueil,should,yes,yes,"M2 : page, zoom, mode, rotation et panneau mémorisés par document (conservés après enregistrement) ; désactivable dans les Préférences"

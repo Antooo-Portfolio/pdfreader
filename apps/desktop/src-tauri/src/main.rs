@@ -600,6 +600,11 @@ fn view_state_set(fingerprint: String, state: ViewStateIn, db: State<'_, db::Db>
 }
 
 #[tauri::command]
+async fn doc_set_bookmarks(doc: u32, items: Vec<pdfreader_engine::outline::OutlineItem>, engine: State<'_, EngineHandle>) -> Result<(), String> {
+    ask(&engine, |reply| Cmd::SetBookmarks { doc, items, reply }).await
+}
+
+#[tauri::command]
 async fn doc_properties(doc: u32, engine: State<'_, EngineHandle>) -> Result<pdfreader_engine::properties::DocProperties, String> {
     ask(&engine, |reply| Cmd::Properties { doc, reply }).await
 }
@@ -971,6 +976,7 @@ fn main() {
             doc_links,
             doc_bookmarks,
             doc_properties,
+            doc_set_bookmarks,
             doc_attachments,
             attachment_save,
             attachment_open_pdf,

@@ -28,6 +28,8 @@ export interface DocInfo {
   attachmentCount: number;
   /** Fichier téléchargé (marque du Web) : ouvert en vue protégée si la préférence est active. */
   fromInternet: boolean;
+  /** Les signets peuvent être modifiés (document non chiffré). */
+  bookmarksEditable: boolean;
   /** Clé du document dans les récents et l'état de vue. */
   fingerprint: string;
   /** Dernière vue mémorisée (page, zoom, mode, rotation, panneau), s'il y en a une. */
@@ -77,6 +79,15 @@ export interface Bookmark {
   title: string;
   action: LinkAction;
   children: Bookmark[];
+}
+
+/** Signet à écrire : page (index 0, -1 : aucune), haut de la vue en points depuis le haut. */
+export interface OutlineItem {
+  title: string;
+  page: number;
+  top: number | null;
+  uri: string | null;
+  children: OutlineItem[];
 }
 
 /** [x, y, largeur, hauteur] en points depuis le haut à gauche. */
@@ -352,6 +363,8 @@ export interface EngineClient {
   countHighlights(doc: number, page: number): Promise<number>;
   links(doc: number, page: number): Promise<PageLink[]>;
   bookmarks(doc: number): Promise<Bookmark[]>;
+  /** Remplace les signets ; écrits au prochain enregistrement. Rejette avec « encrypted ». */
+  setBookmarks(doc: number, items: OutlineItem[]): Promise<void>;
   properties(doc: number): Promise<DocProperties>;
   attachments(doc: number): Promise<Attachment[]>;
   /** Enregistre une pièce jointe (emplacement choisi par l'utilisateur, ou `path`) ; null si annulé. */

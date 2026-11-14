@@ -622,6 +622,8 @@ export function App({ engine }: { engine: EngineClient }) {
           onProperties={() => setPropertiesFor(d.info.id)}
           protectedView={prefs.protectedView}
           onOpenPath={(p) => void openPath(p)}
+          hiddenTools={prefs.hiddenTools}
+          onHiddenToolsChange={(tools) => setPref("hiddenTools", tools)}
         />
       ))}
 

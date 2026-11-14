@@ -360,3 +360,22 @@ d'une zone de texte (M2) passait par le mauvais chemin (texte du commentaire cha
 inchangé). Corrigé dans la sérialisation. Corrigé aussi : la pastille de couleur des rectangles
 et ellipses montrait le remplissage au lieu du contour ; trois textes du panneau Commentaires
 n'étaient pas traduits.
+
+## M3 — lot « signets et barre d'outils » (2026-11-14)
+
+Branche `m3-signets`. Partie `m3bookmarks` du scénario : deux signets créés depuis le panneau à
+la vue actuelle et renommés, remontée, troisième imbriqué sous le précédent ; enregistrés, relus
+depuis le fichier avec leurs pages (1, 3, 5) ; clic sur un signet = navigation, Suppr le retire ;
+document chiffré non modifiable ; outils masqués puis réaffichés. Test du moteur
+`outline_write_and_reload` (titres accentués, imbrication, ordonnée, lien web, remplacement,
+vidage, enregistrement PDFium par-dessus, document chiffré refusé et intact).
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Modifier les signets | 2026-11-14 | fait | glisser-déposer dans l'arbre ; documents chiffrés | PDFium ne sait pas écrire les signets : après son enregistrement, une seconde mise à jour incrémentale (lopdf, MIT) ajoute le nouvel arbre /Outlines et le catalogue ; fichiers de plus de 512 Mo refusés (lopdf charge le fichier en mémoire) |
+| Barre d'outils personnalisable | 2026-11-14 | fait | ordre des outils | — |
+
+Corrigé au passage : un clic sur un signet l'ouvrait sans le sélectionner (l'arbre ne
+sélectionne qu'à la barre d'espace quand une action est définie) : impossible de le modifier
+après un clic. Nouvelle dépendance `lopdf` 0.47 (licences vérifiées par cargo-deny ; mentions
+des composants tiers régénérées : 366 composants).

@@ -35,6 +35,7 @@ export const tauriEngine: EngineClient = {
   countHighlights: (doc, page) => invoke<number>("doc_count_highlights", { doc, page }),
   links: (doc, page) => invoke<PageLink[]>("doc_links", { doc, page }),
   bookmarks: (doc) => invoke<Bookmark[]>("doc_bookmarks", { doc }),
+  setBookmarks: (doc, items) => invoke<void>("doc_set_bookmarks", { doc, items }),
   properties: (doc) => invoke<DocProperties>("doc_properties", { doc }),
   attachments: (doc) => invoke<Attachment[]>("doc_attachments", { doc }),
   async saveAttachment(doc, index, name, path) {

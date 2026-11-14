@@ -126,11 +126,25 @@
   "url": "https://github.com/oyvindln/adler2"
  },
  {
+  "name": "aes",
+  "version": "0.9.4",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/RustCrypto/block-ciphers"
+ },
+ {
   "name": "aho-corasick",
   "version": "1.1.5",
   "license": "Unlicense OR MIT",
   "kind": "Rust",
   "url": "https://github.com/BurntSushi/aho-corasick"
+ },
+ {
+  "name": "alloc-no-stdlib",
+  "version": "2.0.4",
+  "license": "BSD-3-Clause",
+  "kind": "Rust",
+  "url": "https://github.com/dropbox/rust-alloc-no-stdlib"
  },
  {
   "name": "alloc-no-stdlib",
@@ -142,6 +156,13 @@
  {
   "name": "alloc-stdlib",
   "version": "0.3.0",
+  "license": "BSD-3-Clause",
+  "kind": "Rust",
+  "url": "https://github.com/dropbox/rust-alloc-no-stdlib"
+ },
+ {
+  "name": "alloc-stdlib",
+  "version": "0.2.4",
   "license": "BSD-3-Clause",
   "kind": "Rust",
   "url": "https://github.com/dropbox/rust-alloc-no-stdlib"
@@ -203,6 +224,13 @@
   "url": "https://github.com/RustCrypto/utils"
  },
  {
+  "name": "block-padding",
+  "version": "0.4.2",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/RustCrypto/utils"
+ },
+ {
   "name": "brotli",
   "version": "9.1.1",
   "license": "BSD-3-Clause AND MIT",
@@ -212,6 +240,13 @@
  {
   "name": "brotli-decompressor",
   "version": "6.3.1",
+  "license": "BSD-3-Clause/MIT",
+  "kind": "Rust",
+  "url": "https://github.com/dropbox/rust-brotli-decompressor"
+ },
+ {
+  "name": "brotli-decompressor",
+  "version": "5.0.3",
   "license": "BSD-3-Clause/MIT",
   "kind": "Rust",
   "url": "https://github.com/dropbox/rust-brotli-decompressor"
@@ -273,6 +308,13 @@
   "url": "https://github.com/oli-obk/cargo_metadata"
  },
  {
+  "name": "cbc",
+  "version": "0.2.1",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/RustCrypto/block-modes"
+ },
+ {
   "name": "cfb",
   "version": "0.14.0",
   "license": "MIT",
@@ -287,11 +329,25 @@
   "url": "https://github.com/rust-lang/cfg-if"
  },
  {
+  "name": "chacha20",
+  "version": "0.10.2",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/RustCrypto/stream-ciphers"
+ },
+ {
   "name": "chrono",
   "version": "0.4.45",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/chronotope/chrono"
+ },
+ {
+  "name": "cipher",
+  "version": "0.5.2",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/RustCrypto/traits"
  },
  {
   "name": "const-oid",
@@ -313,6 +369,20 @@
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/SergioBenitez/cookie-rs"
+ },
+ {
+  "name": "core_detect",
+  "version": "1.0.0",
+  "license": "MIT/Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/thomcc/core_detect"
+ },
+ {
+  "name": "cpubits",
+  "version": "0.1.1",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/RustCrypto/utils"
  },
  {
   "name": "cpufeatures",
@@ -428,14 +498,14 @@
  },
  {
   "name": "digest",
-  "version": "0.11.3",
+  "version": "0.10.7",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/RustCrypto/traits"
  },
  {
   "name": "digest",
-  "version": "0.10.7",
+  "version": "0.11.3",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/RustCrypto/traits"
@@ -504,11 +574,25 @@
   "url": "https://github.com/dtolnay/dyn-clone"
  },
  {
+  "name": "ecb",
+  "version": "0.2.1",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/RustCrypto/block-modes"
+ },
+ {
   "name": "either",
   "version": "1.19.0",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rayon-rs/either"
+ },
+ {
+  "name": "encoding_rs",
+  "version": "0.8.44",
+  "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
+  "kind": "Rust",
+  "url": "https://github.com/hsivonen/encoding_rs"
  },
  {
   "name": "equivalent",
@@ -638,13 +722,6 @@
  },
  {
   "name": "getrandom",
-  "version": "0.4.3",
-  "license": "MIT OR Apache-2.0",
-  "kind": "Rust",
-  "url": "https://github.com/rust-random/getrandom"
- },
- {
-  "name": "getrandom",
   "version": "0.2.17",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
@@ -658,6 +735,13 @@
   "url": "https://github.com/rust-random/getrandom"
  },
  {
+  "name": "getrandom",
+  "version": "0.4.3",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/rust-random/getrandom"
+ },
+ {
   "name": "glob",
   "version": "0.3.4",
   "license": "MIT OR Apache-2.0",
@@ -666,14 +750,14 @@
  },
  {
   "name": "hashbrown",
-  "version": "0.17.1",
+  "version": "0.12.3",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-lang/hashbrown"
  },
  {
   "name": "hashbrown",
-  "version": "0.12.3",
+  "version": "0.17.1",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-lang/hashbrown"
@@ -875,6 +959,13 @@
   "url": "https://github.com/bojand/infer"
  },
  {
+  "name": "inout",
+  "version": "0.2.6",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/RustCrypto/utils"
+ },
+ {
   "name": "ipnet",
   "version": "2.12.2",
   "license": "MIT OR Apache-2.0",
@@ -987,6 +1078,13 @@
   "url": "https://github.com/rust-lang/log"
  },
  {
+  "name": "lopdf",
+  "version": "0.47.0",
+  "license": "MIT",
+  "kind": "Rust",
+  "url": "https://github.com/J-F-Liu/lopdf.git"
+ },
+ {
   "name": "markup5ever",
   "version": "0.39.0",
   "license": "MIT OR Apache-2.0",
@@ -999,6 +1097,13 @@
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rustonaut/maybe-owned"
+ },
+ {
+  "name": "md-5",
+  "version": "0.11.0",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/RustCrypto/hashes"
  },
  {
   "name": "memchr",
@@ -1064,11 +1169,25 @@
   "url": "https://github.com/tauri-apps/muda"
  },
  {
+  "name": "multiversion_no_op",
+  "version": "1.0.0",
+  "license": "Apache-2.0 OR MIT",
+  "kind": "Rust",
+  "url": "https://github.com/hsivonen/multiversion_no_op"
+ },
+ {
   "name": "new_debug_unreachable",
   "version": "1.0.6",
   "license": "MIT",
   "kind": "Rust",
   "url": "https://github.com/mbrubeck/rust-debug-unreachable"
+ },
+ {
+  "name": "nom",
+  "version": "8.0.0",
+  "license": "MIT",
+  "kind": "Rust",
+  "url": "https://github.com/rust-bakery/nom"
  },
  {
   "name": "num-conv",
@@ -1239,6 +1358,27 @@
   "url": "https://github.com/dtolnay/quote"
  },
  {
+  "name": "rand",
+  "version": "0.10.3",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/rust-random/rand"
+ },
+ {
+  "name": "rand_core",
+  "version": "0.10.1",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/rust-random/rand_core"
+ },
+ {
+  "name": "rangemap",
+  "version": "1.8.0",
+  "license": "MIT/Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/jeffparsons/rangemap"
+ },
+ {
   "name": "raw-window-handle",
   "version": "0.6.2",
   "license": "MIT OR Apache-2.0 OR Zlib",
@@ -1352,6 +1492,13 @@
  },
  {
   "name": "schemars",
+  "version": "0.9.0",
+  "license": "MIT",
+  "kind": "Rust",
+  "url": "https://github.com/GREsau/schemars"
+ },
+ {
+  "name": "schemars",
   "version": "1.2.3",
   "license": "MIT",
   "kind": "Rust",
@@ -1360,13 +1507,6 @@
  {
   "name": "schemars",
   "version": "0.8.22",
-  "license": "MIT",
-  "kind": "Rust",
-  "url": "https://github.com/GREsau/schemars"
- },
- {
-  "name": "schemars",
-  "version": "0.9.0",
   "license": "MIT",
   "kind": "Rust",
   "url": "https://github.com/GREsau/schemars"
@@ -1512,6 +1652,13 @@
   "url": "https://github.com/mcountryman/simd-adler32"
  },
  {
+  "name": "simdutf8",
+  "version": "0.1.5",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/rusticstuff/simdutf8"
+ },
+ {
   "name": "siphasher",
   "version": "1.0.4",
   "license": "MIT OR Apache-2.0",
@@ -1559,6 +1706,13 @@
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/servo/string-cache"
+ },
+ {
+  "name": "stringprep",
+  "version": "0.1.5",
+  "license": "MIT/Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/sfackler/rust-stringprep"
  },
  {
   "name": "strsim",
@@ -1876,11 +2030,32 @@
   "url": "https://github.com/paholg/typenum"
  },
  {
+  "name": "unicode-bidi",
+  "version": "0.3.18",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/servo/unicode-bidi"
+ },
+ {
   "name": "unicode-ident",
   "version": "1.0.27",
   "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
   "kind": "Rust",
   "url": "https://github.com/dtolnay/unicode-ident"
+ },
+ {
+  "name": "unicode-normalization",
+  "version": "0.1.26",
+  "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
+  "kind": "Rust",
+  "url": "https://github.com/unicode-rs/unicode-normalization"
+ },
+ {
+  "name": "unicode-properties",
+  "version": "0.1.5",
+  "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
+  "kind": "Rust",
+  "url": "https://github.com/unicode-rs/unicode-properties"
  },
  {
   "name": "unicode-segmentation",
@@ -1995,6 +2170,13 @@
   "url": "https://github.com/wravery/webview2-rs"
  },
  {
+  "name": "weezl",
+  "version": "0.2.1",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/image-rs/weezl"
+ },
+ {
   "name": "winapi-util",
   "version": "0.1.11",
   "license": "Unlicense OR MIT",
@@ -2087,14 +2269,14 @@
  },
  {
   "name": "windows-sys",
-  "version": "0.52.0",
+  "version": "0.61.2",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/microsoft/windows-rs"
  },
  {
   "name": "windows-sys",
-  "version": "0.61.2",
+  "version": "0.52.0",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/microsoft/windows-rs"

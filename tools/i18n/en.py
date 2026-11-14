@@ -541,6 +541,22 @@ EN = {
     "Texte de la réponse": "Reply text",
     "Tous les statuts": "All statuses",
     "Votre réponse": "Your reply",
+    "Ajouter un signet ici": "Add a bookmark here",
+    "Descendre": "Move down",
+    "Document protégé : ses signets ne peuvent pas être modifiés.": "Protected document: its bookmarks cannot be changed.",
+    "Gomme": "Eraser",
+    "Les signets n'ont pas pu être modifiés ({detail}).": "The bookmarks could not be changed ({detail}).",
+    "Mettre sous le signet précédent": "Nest under the previous bookmark",
+    "Modifier le signet": "Edit bookmark",
+    "Monter": "Move up",
+    "Nom du signet": "Bookmark name",
+    "Outils affichés": "Tools shown",
+    "Personnaliser la barre d'outils": "Customise the toolbar",
+    "Pointer vers la vue actuelle": "Point to the current view",
+    "Remonter d'un niveau": "Move up one level",
+    "Renommer": "Rename",
+    "Supprimer le signet": "Delete bookmark",
+    "Tout afficher": "Show all",
 }
 
 
