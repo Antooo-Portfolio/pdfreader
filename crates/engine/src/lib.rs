@@ -221,6 +221,7 @@ pub mod fill;
 pub mod properties;
 pub mod navigation;
 pub mod outline;
+pub mod formcalc;
 
 #[cfg(windows)]
 pub mod print_win;

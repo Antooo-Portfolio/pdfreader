@@ -97,6 +97,8 @@ interface Props {
   /** Outils retirés de la barre (préférence) et leur modification. */
   hiddenTools: string[];
   onHiddenToolsChange: (tools: string[]) => void;
+  /** Préférence : calculs et vérifications des formulaires. */
+  formScripts: boolean;
 }
 
 /** Outils de la barre, dans l'ordre (Sélectionner reste toujours visible). */
@@ -188,6 +190,17 @@ interface SearchState {
 
 const EMPTY_SEARCH: SearchState = { perPage: new Map(), flat: [], current: -1, searching: false, pagesWithText: -1 };
 const SEARCH_BATCH = 10;
+
+/** Message d'une saisie refusée par le formulaire (voir FormOutcome.rejected). */
+function rejectionMessage(code: string): string {
+  const [kind, a, b] = code.split(":");
+  if (kind === "number") return t("Cette valeur doit être un nombre.");
+  if (kind === "range") return t("Cette valeur doit être comprise entre {min} et {max}.", { min: a ?? "", max: b ?? "" });
+  if (kind === "min") return t("Cette valeur doit être au moins {min}.", { min: a ?? "" });
+  if (kind === "max") return t("Cette valeur doit être au plus {max}.", { max: a ?? "" });
+  if (kind === "message") return t("Valeur refusée par le formulaire : {message}", { message: code.slice(8, 308) });
+  return t("Cette valeur n'est pas acceptée par le formulaire.");
+}
 const LAYOUT_LABELS: Record<Layout, string> = {
   single: msg("Une page à la fois"),
   continuous: msg("Défilement continu"),
@@ -249,6 +262,7 @@ export function DocumentView({
   onOpenPath,
   hiddenTools,
   onHiddenToolsChange,
+  formScripts,
 }: Props) {
   const toast = useToast();
   const { info } = doc;
@@ -990,16 +1004,30 @@ export function DocumentView({
     [engine, info.id, info.hasForm],
   );
 
+  const formScriptsRef = useRef(formScripts);
+  formScriptsRef.current = formScripts;
   const setField = useCallback(
     async (p: number, index: number, input: FieldInput): Promise<Field[] | null> => {
-      const r = await attempt(() => engine.setField(info.id, p, index, input), t("La saisie n'a pas pu être enregistrée"));
+      const r = await attempt(() => engine.setField(info.id, p, index, input, formScriptsRef.current), t("La saisie n'a pas pu être enregistrée"));
       if (!r) return null;
-      fieldsRef.current = new Map(fieldsRef.current).set(p, r);
-      setFields(fieldsRef.current);
+      // Champs recalculés sur d'autres pages : relus au prochain affichage.
+      const next = new Map(fieldsRef.current).set(p, r.fields);
+      for (const q of r.outcome.changedPages) {
+        if (q !== p) {
+          next.delete(q);
+          loadingFields.current.delete(q);
+          onAnnotated(q);
+        }
+      }
+      fieldsRef.current = next;
+      setFields(next);
       onAnnotated(p);
-      return r;
+      const why = r.outcome.rejected;
+      if (why) toast({ tone: "error", message: rejectionMessage(why) });
+      else if (r.outcome.alerts[0]) toast({ tone: "info", message: t("Message du formulaire : {message}", { message: r.outcome.alerts[0].slice(0, 300) }) });
+      return r.fields;
     },
-    [attempt, engine, info.id, onAnnotated],
+    [attempt, engine, info.id, onAnnotated, toast],
   );
 
   const addText = useCallback(

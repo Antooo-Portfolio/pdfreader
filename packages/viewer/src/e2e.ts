@@ -72,6 +72,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.m3navigation = await runM3Navigation(engine, actions, path);
     steps.m3comments = await runM3Comments(actions, path);
     steps.m3bookmarks = await runM3Bookmarks(engine, actions, path);
+    steps.m3forms = await runM3FormCalc(actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -81,7 +82,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.m3reading as { ok: boolean }).ok &&
       (steps.m3navigation as { ok: boolean }).ok &&
       (steps.m3comments as { ok: boolean }).ok &&
-      (steps.m3bookmarks as { ok: boolean }).ok;
+      (steps.m3bookmarks as { ok: boolean }).ok &&
+      (steps.m3forms as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -1047,6 +1049,69 @@ async function runM3Bookmarks(engine: EngineClient, actions: AppActions, path: s
   return r;
 }
 
+/** M3, lot « formulaires » : calculs en chaîne déclenchés par la saisie dans l'interface,
+ *  refus d'une valeur hors plage (message, valeur rétablie), champs calculés en lecture seule,
+ *  préférence qui coupe les calculs. */
+async function runM3FormCalc(actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  try {
+    const doc = await actions.openPath(dir + "13-formulaire-calculs.pdf");
+    if (!doc) throw new Error("13-formulaire-calculs.pdf introuvable");
+    const a = await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    const input = (label: string) => waitFor(() => Array.from(document.querySelectorAll<HTMLInputElement>(`input[aria-label="${label}"]`)).find((el) => !el.closest("[hidden]")), 6000);
+    const value = async (name: string) => (await a.fields(0)).find((f) => f.name === name)?.value ?? null;
+    const typeIn = async (label: string, v: string) => {
+      const el = await input(label);
+      el.focus();
+      setNativeValue(el, v);
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      el.blur();
+    };
+    const waitValue = (name: string, v: string) => until(async () => ((await value(name)) === v ? true : null), 6000);
+
+    await typeIn("Quantité", "3");
+    await waitValue("qte", "3");
+    await typeIn("Prix unitaire", "12,5");
+    const chained = !!(await waitValue("ttc", "45"));
+    const totals = { total: await value("total"), net: await value("net"), tva: await value("tva"), ttc: await value("ttc") };
+    const totalInput = await input("Total");
+    const readOnly = totalInput.readOnly || totalInput.disabled;
+    // Le total affiché dans l'interface suit (champs relus).
+    const shown = await waitFor(() => (Array.from(document.querySelectorAll<HTMLInputElement>('input[aria-label="Total TTC"]')).some((el) => el.value === "45") ? true : null), 4000).catch(() => false);
+    r.chain = { chained, totals, readOnly, shown };
+    checks.chain = chained && totals.total === "37.5" && totals.tva === "7.5" && readOnly && shown;
+
+    // Hors plage : message et valeur rétablie.
+    await typeIn("Quantité", "150");
+    const toast = await waitFor(() => (document.body.textContent?.includes("comprise entre 0 et 100") ? true : null), 4000).catch(() => false);
+    const restored = !!(await waitValue("qte", "3"));
+    r.rejected = { toast, restored };
+    checks.rejected = toast && restored;
+
+    // Préférence coupée : plus de calcul ; rétablie : le calcul reprend.
+    actions.setPref("formScripts", false);
+    await sleep(100);
+    await typeIn("Remise", "5");
+    await waitValue("remise", "5");
+    await sleep(300);
+    const netOff = await value("net");
+    actions.setPref("formScripts", true);
+    await sleep(100);
+    await typeIn("Remise", "6");
+    const recalculated = !!(await waitValue("net", "31.5"));
+    r.pref = { netOff, recalculated };
+    checks.pref = netOff === "37.5" && recalculated;
+    await actions.save(doc.id);
+  } catch (e) {
+    r.error = String(e);
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 3;
+  return r;
+}
+
 /** Scénarios en deux lancements : « crash » modifie un document, fait sa copie de récupération et
  *  quitte sans rien nettoyer ; « recover » vérifie qu'au lancement suivant la copie est proposée,
  *  rouverte avec la modification, puis effacée à l'enregistrement. */
@@ -1084,7 +1149,15 @@ export async function runStage(stage: string, engine: EngineClient, actions: App
       const pause = (await engine.e2ePause()) || 3000;
       const d = actions.doc()!;
       // Document avec pièces jointes : recherche avancée puis pièces jointes ; sinon propriétés puis mode lecture.
-      if (first.name.includes("tailles-mixtes")) {
+      if (first.name.includes("calculs")) {
+        const fl = await d.fields(0);
+        const at = (n: string) => fl.find((f) => f.name === n)?.index ?? -1;
+        await d.setField(0, at("qte"), { kind: "text", value: "3" });
+        await d.setField(0, at("prix"), { kind: "text", value: "12,5" });
+        await d.setField(0, at("remise"), { kind: "text", value: "5" });
+        await d.setField(0, at("qte"), { kind: "text", value: "150" });
+        await sleep(pause);
+      } else if (first.name.includes("tailles-mixtes")) {
         // Signets en cours de modification.
         await engine.setBookmarks(first.id, [
           { title: "Introduction", page: 0, top: null, uri: null, children: [] },

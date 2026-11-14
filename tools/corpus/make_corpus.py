@@ -157,6 +157,64 @@ def form(path):
     c.save()
 
 
+def form_calc(path):
+    """Formulaire avec calculs (fonctions standard d'Acrobat, notation simplifiée, script
+    personnalisé), validations, contrôle de saisie, et deux scripts piégés (boucle sans fin,
+    appel à app.launchURL) qui ne doivent rien bloquer ni rien ouvrir."""
+    tmp = path + ".tmp.pdf"
+    c = canvas.Canvas(tmp, pagesize=A4)
+    w, h = A4
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(56, h - 72, "Devis avec calculs")
+    f = c.acroForm
+    c.setFont("Helvetica", 11)
+    rows = [
+        ("qte", "Quantité", ""),
+        ("prix", "Prix unitaire", ""),
+        ("total", "Total", "readOnly"),
+        ("remise", "Remise", ""),
+        ("net", "Net", "readOnly"),
+        ("tva", "TVA 20 %", "readOnly"),
+        ("ttc", "Total TTC", "readOnly"),
+        ("code", "Code (4 caractères)", ""),
+        ("piege1", "Script en boucle", "readOnly"),
+        ("piege2", "Script qui ouvre un lien", "readOnly"),
+    ]
+    for i, (name, label, flags) in enumerate(rows):
+        y = h - 120 - i * 34
+        c.drawString(56, y + 6, label + " :")
+        f.textfield(name=name, tooltip=label, x=220, y=y, width=200, height=20, fieldFlags=flags, forceBorder=True)
+    c.showPage()
+    c.save()
+    js = {
+        "total": ("C", 'AFSimple_Calculate("PRD", new Array ("qte", "prix"));'),
+        "net": ("C", '/** BVCALC total - remise EVCALC **/ event.value = AFMakeNumber(getField("total").value) - AFMakeNumber(getField("remise").value);'),
+        "tva": ("C", 'event.value = Math.round(this.getField("net").value * 0.2 * 100) / 100;'),
+        "ttc": ("C", 'AFSimple_Calculate("SUM", new Array ("net", "tva"));'),
+        "piege1": ("C", "while (true) {}"),
+        "piege2": ("C", 'app.launchURL("https://example.org/", true); event.value = "ouvert";'),
+        "code": ("V", 'if (event.value.length !== 4) { app.alert("Le code doit avoir 4 caractères."); event.rc = false; }'),
+    }
+    pdf = pikepdf.open(tmp)
+    calc_order = []
+    for field in pdf.Root.AcroForm.Fields:
+        name = str(field.get("/T", ""))
+        if name == "qte":
+            field.AA = pikepdf.Dictionary(
+                K=pikepdf.Dictionary(S=pikepdf.Name.JavaScript, JS=pikepdf.String("AFNumber_Keystroke(0, 0, 0, 0, \"\", true);")),
+                V=pikepdf.Dictionary(S=pikepdf.Name.JavaScript, JS=pikepdf.String("AFRange_Validate(true, 0, true, 100);")),
+            )
+        elif name in js:
+            key, code = js[name]
+            field.AA = pikepdf.Dictionary({"/" + key: pikepdf.Dictionary(S=pikepdf.Name.JavaScript, JS=pikepdf.String(code))})
+            if key == "C":
+                calc_order.append(field)
+    pdf.Root.AcroForm.CO = pikepdf.Array(calc_order)
+    pdf.save(path)
+    pdf.close()
+    os.remove(tmp)
+
+
 def encrypt(src, dst, password):
     pdf = pikepdf.open(src)
     pdf.save(dst, encryption=pikepdf.Encryption(owner="owner-" + password, user=password, R=6, allow=pikepdf.Permissions(print_highres=False, extract=False)))
@@ -234,6 +292,7 @@ def main():
     encrypt(j("01-texte-10p.pdf"), j("09-chiffre-aes256.pdf"), "test1234")
     encrypt(j("08-formulaire-acroform.pdf"), j("10-formulaire-chiffre-aes256.pdf"), "test1234")
     with_attachments(j("01-texte-10p.pdf"), j("12-pieces-jointes.pdf"), j("07-tailles-mixtes-rotation.pdf"))
+    form_calc(j("13-formulaire-calculs.pdf"))
     if not a.skip_big:
         big_with_attachment(j("11-gros-fichier.pdf"), a.big_gb)
     for n in sorted(os.listdir(OUT)):

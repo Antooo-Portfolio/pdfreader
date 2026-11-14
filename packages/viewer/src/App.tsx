@@ -624,6 +624,7 @@ export function App({ engine }: { engine: EngineClient }) {
           onOpenPath={(p) => void openPath(p)}
           hiddenTools={prefs.hiddenTools}
           onHiddenToolsChange={(tools) => setPref("hiddenTools", tools)}
+          formScripts={prefs.formScripts}
         />
       ))}
 

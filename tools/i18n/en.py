@@ -557,6 +557,14 @@ EN = {
     "Renommer": "Rename",
     "Supprimer le signet": "Delete bookmark",
     "Tout afficher": "Show all",
+    "Cette valeur doit être au moins {min}.": "This value must be at least {min}.",
+    "Cette valeur doit être au plus {max}.": "This value must be at most {max}.",
+    "Cette valeur doit être comprise entre {min} et {max}.": "This value must be between {min} and {max}.",
+    "Cette valeur doit être un nombre.": "This value must be a number.",
+    "Cette valeur n'est pas acceptée par le formulaire.": "The form does not accept this value.",
+    "Faire les calculs et vérifications des formulaires (scripts isolés, sans accès à l'ordinateur)": "Run form calculations and checks (isolated scripts, no access to the computer)",
+    "Message du formulaire : {message}": "Message from the form: {message}",
+    "Valeur refusée par le formulaire : {message}": "Value rejected by the form: {message}",
 }
 
 

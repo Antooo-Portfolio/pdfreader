@@ -186,8 +186,8 @@ async fn doc_fields(doc: u32, page: i32, engine: State<'_, EngineHandle>) -> Res
 }
 
 #[tauri::command]
-async fn field_set(doc: u32, page: i32, index: i32, input: pdfreader_engine::fill::FieldInput, engine: State<'_, EngineHandle>) -> Result<Vec<pdfreader_engine::fill::Field>, String> {
-    ask(&engine, |reply| Cmd::SetField { doc, page, index, input, reply }).await
+async fn field_set(doc: u32, page: i32, index: i32, input: pdfreader_engine::fill::FieldInput, scripts: bool, engine: State<'_, EngineHandle>) -> Result<engine::SetFieldResult, String> {
+    ask(&engine, |reply| Cmd::SetField { doc, page, index, input, scripts, reply }).await
 }
 
 #[tauri::command]

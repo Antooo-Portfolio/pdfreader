@@ -228,6 +228,22 @@ export interface Field {
   fontSize: number;
 }
 
+/** Effets des scripts du formulaire après une saisie. */
+export interface FormOutcome {
+  /** Pages dont des champs ont été recalculés. */
+  changedPages: number[];
+  /** Saisie refusée (valeur rétablie) : « number », « range:min:max », « min:x », « max:x »,
+   *  « message:texte » ou « invalid ». */
+  rejected: string | null;
+  alerts: string[];
+  scriptErrors: number;
+}
+
+export interface SetFieldResult {
+  fields: Field[];
+  outcome: FormOutcome;
+}
+
 export type FieldInput = { kind: "text"; value: string } | { kind: "checked"; checked: boolean } | { kind: "choice"; index: number };
 
 export type SignatureKind = "signature" | "initials";
@@ -348,7 +364,8 @@ export interface EngineClient {
   updateAnnot(doc: number, page: number, id: string, patch: AnnotPatch): Promise<AnnotResult>;
   fields(doc: number, page: number): Promise<Field[]>;
   /** Saisie dans un champ ; renvoie les champs à jour de la page. */
-  setField(doc: number, page: number, index: number, input: FieldInput): Promise<Field[]>;
+  /** Saisie ; avec `scripts`, les calculs et validations du formulaire s'exécutent (isolés). */
+  setField(doc: number, page: number, index: number, input: FieldInput, scripts: boolean): Promise<SetFieldResult>;
   /** Texte posé sur la page (formulaire plat), coin haut gauche en (x, y). */
   addText(doc: number, page: number, x: number, y: number, text: string, size: number, color: Rgb): Promise<AnnotResult>;
   addMark(doc: number, page: number, x: number, y: number, size: number, cross: boolean, color: Rgb): Promise<AnnotResult>;

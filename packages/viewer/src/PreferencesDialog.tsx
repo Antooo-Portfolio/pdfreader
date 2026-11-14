@@ -203,6 +203,9 @@ export function PreferencesDialog({
           <Switch isSelected={prefs.protectedView} onChange={(v) => onChange("protectedView", v)}>
             {t("Ouvrir en vue protégée les fichiers venus d'Internet (lecture seule)")}
           </Switch>
+          <Switch isSelected={prefs.formScripts} onChange={(v) => onChange("formScripts", v)}>
+            {t("Faire les calculs et vérifications des formulaires (scripts isolés, sans accès à l'ordinateur)")}
+          </Switch>
           <Switch isSelected={prefs.recovery} onChange={(v) => onChange("recovery", v)}>
             {t("Garder une copie de récupération des modifications non enregistrées")}
           </Switch>

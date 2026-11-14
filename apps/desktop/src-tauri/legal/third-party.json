@@ -7,6 +7,13 @@
   "url": "https://pdfium.googlesource.com/pdfium/"
  },
  {
+  "name": "QuickJS (quickjs-ng, dans rquickjs-sys)",
+  "version": "0.14.0",
+  "license": "MIT",
+  "kind": "natif",
+  "url": "https://github.com/quickjs-ng/quickjs"
+ },
+ {
   "name": "abseil (dans PDFium)",
   "version": "",
   "license": "incluse avec PDFium (voir le texte)",
@@ -141,14 +148,21 @@
  },
  {
   "name": "alloc-no-stdlib",
-  "version": "2.0.4",
+  "version": "3.0.0",
   "license": "BSD-3-Clause",
   "kind": "Rust",
   "url": "https://github.com/dropbox/rust-alloc-no-stdlib"
  },
  {
   "name": "alloc-no-stdlib",
-  "version": "3.0.0",
+  "version": "2.0.4",
+  "license": "BSD-3-Clause",
+  "kind": "Rust",
+  "url": "https://github.com/dropbox/rust-alloc-no-stdlib"
+ },
+ {
+  "name": "alloc-stdlib",
+  "version": "0.2.4",
   "license": "BSD-3-Clause",
   "kind": "Rust",
   "url": "https://github.com/dropbox/rust-alloc-no-stdlib"
@@ -161,11 +175,11 @@
   "url": "https://github.com/dropbox/rust-alloc-no-stdlib"
  },
  {
-  "name": "alloc-stdlib",
-  "version": "0.2.4",
-  "license": "BSD-3-Clause",
+  "name": "allocator-api2",
+  "version": "0.2.21",
+  "license": "MIT OR Apache-2.0",
   "kind": "Rust",
-  "url": "https://github.com/dropbox/rust-alloc-no-stdlib"
+  "url": "https://github.com/zakarumych/allocator-api2"
  },
  {
   "name": "anyhow",
@@ -386,14 +400,14 @@
  },
  {
   "name": "cpufeatures",
-  "version": "0.3.1",
+  "version": "0.2.17",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/RustCrypto/utils"
  },
  {
   "name": "cpufeatures",
-  "version": "0.2.17",
+  "version": "0.3.1",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/RustCrypto/utils"
@@ -498,14 +512,14 @@
  },
  {
   "name": "digest",
-  "version": "0.10.7",
+  "version": "0.11.3",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/RustCrypto/traits"
  },
  {
   "name": "digest",
-  "version": "0.11.3",
+  "version": "0.10.7",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/RustCrypto/traits"
@@ -722,14 +736,14 @@
  },
  {
   "name": "getrandom",
-  "version": "0.2.17",
+  "version": "0.3.4",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-random/getrandom"
  },
  {
   "name": "getrandom",
-  "version": "0.3.4",
+  "version": "0.2.17",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-random/getrandom"
@@ -750,14 +764,14 @@
  },
  {
   "name": "hashbrown",
-  "version": "0.12.3",
+  "version": "0.17.1",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-lang/hashbrown"
  },
  {
   "name": "hashbrown",
-  "version": "0.17.1",
+  "version": "0.12.3",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-lang/hashbrown"
@@ -939,17 +953,17 @@
  },
  {
   "name": "indexmap",
-  "version": "2.14.2",
-  "license": "Apache-2.0 OR MIT",
-  "kind": "Rust",
-  "url": "https://github.com/indexmap-rs/indexmap"
- },
- {
-  "name": "indexmap",
   "version": "1.9.3",
   "license": "Apache-2.0 OR MIT",
   "kind": "Rust",
   "url": "https://github.com/bluss/indexmap"
+ },
+ {
+  "name": "indexmap",
+  "version": "2.14.2",
+  "license": "Apache-2.0 OR MIT",
+  "kind": "Rust",
+  "url": "https://github.com/indexmap-rs/indexmap"
  },
  {
   "name": "infer",
@@ -1442,6 +1456,27 @@
   "url": "https://github.com/briansmith/ring"
  },
  {
+  "name": "rquickjs",
+  "version": "0.14.0",
+  "license": "MIT",
+  "kind": "Rust",
+  "url": "https://github.com/DelSkayn/rquickjs.git"
+ },
+ {
+  "name": "rquickjs-core",
+  "version": "0.14.0",
+  "license": "MIT",
+  "kind": "Rust",
+  "url": "https://github.com/DelSkayn/rquickjs.git"
+ },
+ {
+  "name": "rquickjs-sys",
+  "version": "0.14.0",
+  "license": "MIT",
+  "kind": "Rust",
+  "url": "https://github.com/DelSkayn/rquickjs.git"
+ },
+ {
   "name": "rusqlite",
   "version": "0.41.1",
   "license": "MIT",
@@ -1492,7 +1527,7 @@
  },
  {
   "name": "schemars",
-  "version": "0.9.0",
+  "version": "0.8.22",
   "license": "MIT",
   "kind": "Rust",
   "url": "https://github.com/GREsau/schemars"
@@ -1506,7 +1541,7 @@
  },
  {
   "name": "schemars",
-  "version": "0.8.22",
+  "version": "0.9.0",
   "license": "MIT",
   "kind": "Rust",
   "url": "https://github.com/GREsau/schemars"
@@ -1730,14 +1765,14 @@
  },
  {
   "name": "syn",
-  "version": "3.0.10",
+  "version": "2.0.119",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/dtolnay/syn"
  },
  {
   "name": "syn",
-  "version": "2.0.119",
+  "version": "3.0.10",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/dtolnay/syn"
@@ -2269,14 +2304,14 @@
  },
  {
   "name": "windows-sys",
-  "version": "0.61.2",
+  "version": "0.52.0",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/microsoft/windows-rs"
  },
  {
   "name": "windows-sys",
-  "version": "0.52.0",
+  "version": "0.61.2",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/microsoft/windows-rs"

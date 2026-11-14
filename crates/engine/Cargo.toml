@@ -11,7 +11,9 @@ image = { version = "0.25.10", default-features = false, features = ["png", "web
 lopdf = { version = "0.47.0", default-features = false }
 memory-stats = "1.2.0"
 pdfium-render = { version = "0.9.5", default-features = false, features = ["thread_safe", "pdfium_latest", "pdfium_use_win32"] }
+rquickjs = { version = "0.14.0", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 sha2 = "0.11.1"
 
 [target."cfg(windows)".dependencies]

@@ -15,6 +15,7 @@ polices. Bibliothèque standard uniquement.
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -125,6 +126,16 @@ def native_components():
         name = os.path.splitext(os.path.basename(f))[0]
         out.append({"name": f"{name} (dans PDFium)", "version": "", "license": "incluse avec PDFium (voir le texte)", "kind": "natif", "url": "",
                     "texts": [(os.path.basename(f), open(f, encoding="utf-8", errors="replace").read().strip())]})
+    # QuickJS (code C embarqué par rquickjs-sys) : sa propre licence et ses auteurs.
+    lock = open(os.path.join(ROOT, "Cargo.lock"), encoding="utf-8").read()
+    m = re.search(r'name = "rquickjs-sys"\nversion = "([^"]+)"', lock)
+    if m:
+        home = os.environ.get("CARGO_HOME") or os.path.join(os.path.expanduser("~"), ".cargo")
+        found = glob.glob(os.path.join(home, "registry", "src", "*", f"rquickjs-sys-{m.group(1)}", "quickjs", "LICENSE"))
+        if not found:
+            sys.exit("licence de QuickJS introuvable (lancer cargo fetch)")
+        out.append({"name": "QuickJS (quickjs-ng, dans rquickjs-sys)", "version": m.group(1), "license": "MIT", "kind": "natif",
+                    "url": "https://github.com/quickjs-ng/quickjs", "texts": [("LICENSE", open(found[0], encoding="utf-8").read().strip())]})
     return out
 
 

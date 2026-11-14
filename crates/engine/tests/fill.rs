@@ -179,3 +179,91 @@ fn textbox_and_callout() {
     let list = eng::annotations::list(&page, 1);
     assert_eq!(list.iter().filter(|a| a.kind == "textbox" || a.kind == "callout").count(), 2);
 }
+
+/// M3 : calculs (fonctions d'Acrobat, notation simplifiée, script personnalisé), validations,
+/// contrôle de saisie, scripts piégés, bac à sable ; valeurs et lecture seule conservées à
+/// l'enregistrement.
+#[test]
+fn form_calculations_and_sandbox() {
+    use eng::fill::{FieldInput, fields, set_field};
+    use eng::formcalc::{after_change, run_script_for_test, sfn_for_test};
+    // Bac à sable : rien du système n'est visible ; boucle sans fin interrompue.
+    let (v, _) = run_script_for_test(
+        "event.value = [typeof require, typeof process, typeof std, typeof os, typeof fetch, typeof XMLHttpRequest, typeof app.launchURL, typeof importScripts].join(',');",
+        &[],
+    )
+    .unwrap();
+    assert!(v.split(',').all(|x| x == "undefined"), "{v}");
+    let t0 = std::time::Instant::now();
+    assert!(run_script_for_test("while (true) {}", &[]).is_err(), "boucle interrompue");
+    assert!(t0.elapsed().as_millis() < 2000, "interrompue vite : {:?}", t0.elapsed());
+    assert!(run_script_for_test("var a = []; while (true) a.push(new Array(100000).fill(1));", &[]).is_err(), "mémoire limitée");
+    let (v, _) = run_script_for_test("event.value = this.getField('a').value * 2 + getField('b').value;", &[("a", "1,5"), ("b", "2")]).unwrap();
+    assert_eq!(v, "5");
+    assert_eq!(sfn_for_test("a + b * 2", &[("a", "1"), ("b", "2")]), Some(5.0));
+    assert_eq!(sfn_for_test("(a + b) / 0", &[("a", "1"), ("b", "2")]), Some(0.0));
+    assert_eq!(sfn_for_test(r"prix\ unitaire * 2", &[("prix unitaire", "3")]), Some(6.0));
+    assert_eq!(sfn_for_test("a +", &[]), None);
+    assert_eq!(eng::formcalc::format_number(0.1 + 0.2), "0.3");
+
+    let Some(src) = common::corpus("13-formulaire-calculs.pdf") else {
+        eprintln!("corpus absent : test ignoré");
+        return;
+    };
+    let pdfium = pdfium();
+    let dir = std::env::temp_dir().join(format!("pdfreader-calc-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let saved = dir.join("calc.pdf");
+    let doc = eng::open_typed(&pdfium, &src, None).unwrap();
+    let page = doc.pages().get(0).unwrap();
+    let idx = |name: &str| fields(&doc, &page, 0).iter().find(|f| f.name == name).map(|f| f.index).unwrap();
+    let val = |name: &str| fields(&doc, &page, 0).iter().find(|f| f.name == name).map(|f| f.value.clone()).unwrap();
+    let type_in = |name: &str, value: &str| {
+        let old = val(name);
+        let i = idx(name);
+        set_field(&doc, &page, i, &FieldInput::Text { value: value.into() }).unwrap();
+        after_change(&doc, 0, i, &old, true).unwrap()
+    };
+    let t0 = std::time::Instant::now();
+    type_in("qte", "3");
+    let o = type_in("prix", "12,5");
+    assert_eq!(val("total"), "37.5");
+    assert_eq!(val("net"), "37.5");
+    assert_eq!(val("tva"), "7.5");
+    assert_eq!(val("ttc"), "45");
+    assert_eq!(o.changed_pages, vec![0]);
+    assert!(o.script_errors >= 1, "les deux pièges échouent sans tout bloquer");
+    assert_eq!(val("piege2"), "", "app.launchURL n'existe pas : rien d'écrit");
+    type_in("remise", "5");
+    assert_eq!((val("net").as_str(), val("tva").as_str(), val("ttc").as_str()), ("32.5", "6.5", "39"));
+    assert!(t0.elapsed().as_secs() < 10, "calculs en {:?}", t0.elapsed());
+
+    // Refus : hors plage, pas un nombre, validation personnalisée ; la valeur précédente revient.
+    let o = type_in("qte", "150");
+    assert_eq!(o.rejected.as_deref(), Some("range:0:100"));
+    assert_eq!(val("qte"), "3");
+    let o = type_in("qte", "abc");
+    assert_eq!(o.rejected.as_deref(), Some("number"));
+    assert_eq!(val("qte"), "3");
+    let o = type_in("code", "12");
+    assert_eq!(o.rejected.as_deref(), Some("message:Le code doit avoir 4 caractères."));
+    assert_eq!(val("code"), "");
+    let o = type_in("code", "1234");
+    assert!(o.rejected.is_none());
+    assert_eq!(val("code"), "1234");
+
+    // Enregistrement : valeurs calculées conservées, champs toujours en lecture seule.
+    eng::save(&doc, &saved, true).unwrap();
+    drop(page);
+    drop(doc);
+    let doc = eng::open_typed(&pdfium, &saved, None).unwrap();
+    let page = doc.pages().get(0).unwrap();
+    let fl = fields(&doc, &page, 0);
+    let get = |n: &str| fl.iter().find(|f| f.name == n).unwrap();
+    assert_eq!(get("ttc").value, "39");
+    assert!(get("ttc").read_only && get("total").read_only, "lecture seule rétablie");
+    assert!(!get("qte").read_only);
+    drop(page);
+    drop(doc);
+    let _ = std::fs::remove_dir_all(&dir);
+}

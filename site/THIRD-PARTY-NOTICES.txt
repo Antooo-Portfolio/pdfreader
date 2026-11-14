@@ -5,6 +5,7 @@ PDFReader utilise les composants libres ci-dessous, chacun sous sa propre licenc
 PDFReader uses the open-source components below, each under its own licence.
 
 - PDFium chromium/8138 (natif) : BSD-3-Clause AND Apache-2.0 — https://pdfium.googlesource.com/pdfium/
+- QuickJS (quickjs-ng, dans rquickjs-sys) 0.14.0 (natif) : MIT — https://github.com/quickjs-ng/quickjs
 - abseil (dans PDFium)  (natif) : incluse avec PDFium (voir le texte)
 - agg23 (dans PDFium)  (natif) : incluse avec PDFium (voir le texte)
 - dragonbox-Apache2-LLVM (dans PDFium)  (natif) : incluse avec PDFium (voir le texte)
@@ -24,10 +25,11 @@ PDFReader uses the open-source components below, each under its own licence.
 - adler2 2.0.1 (Rust) : 0BSD OR MIT OR Apache-2.0 — https://github.com/oyvindln/adler2
 - aes 0.9.4 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/block-ciphers
 - aho-corasick 1.1.5 (Rust) : Unlicense OR MIT — https://github.com/BurntSushi/aho-corasick
-- alloc-no-stdlib 2.0.4 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
 - alloc-no-stdlib 3.0.0 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
-- alloc-stdlib 0.3.0 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
+- alloc-no-stdlib 2.0.4 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
 - alloc-stdlib 0.2.4 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
+- alloc-stdlib 0.3.0 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
+- allocator-api2 0.2.21 (Rust) : MIT OR Apache-2.0 — https://github.com/zakarumych/allocator-api2
 - anyhow 1.0.104 (Rust) : MIT OR Apache-2.0 — https://github.com/dtolnay/anyhow
 - atomic-waker 1.1.2 (Rust) : Apache-2.0 OR MIT — https://github.com/smol-rs/atomic-waker
 - base64 0.23.1 (Rust) : MIT OR Apache-2.0 — https://github.com/marshallpierce/rust-base64
@@ -59,8 +61,8 @@ PDFReader uses the open-source components below, each under its own licence.
 - cookie 0.18.2 (Rust) : MIT OR Apache-2.0 — https://github.com/SergioBenitez/cookie-rs
 - core_detect 1.0.0 (Rust) : MIT/Apache-2.0 — https://github.com/thomcc/core_detect
 - cpubits 0.1.1 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
-- cpufeatures 0.3.1 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
 - cpufeatures 0.2.17 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
+- cpufeatures 0.3.1 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
 - crc32fast 1.5.4 (Rust) : MIT OR Apache-2.0 — https://github.com/srijs/rust-crc32fast
 - crossbeam-channel 0.5.17 (Rust) : MIT OR Apache-2.0 — https://github.com/crossbeam-rs/crossbeam
 - crossbeam-utils 0.8.23 (Rust) : MIT OR Apache-2.0 — https://github.com/crossbeam-rs/crossbeam
@@ -75,8 +77,8 @@ PDFReader uses the open-source components below, each under its own licence.
 - deranged 0.5.9 (Rust) : MIT OR Apache-2.0 — https://github.com/jhpratt/deranged
 - derive_more 2.1.1 (Rust) : MIT — https://github.com/JelteF/derive_more
 - derive_more-impl 2.1.1 (Rust) : MIT — https://github.com/JelteF/derive_more
-- digest 0.10.7 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/traits
 - digest 0.11.3 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/traits
+- digest 0.10.7 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/traits
 - dirs 7.0.0 (Rust) : MIT OR Apache-2.0 — https://codeberg.org/dirs/dirs-rs
 - dirs-sys 0.5.0 (Rust) : MIT OR Apache-2.0 — https://github.com/dirs-dev/dirs-sys-rs
 - displaydoc 0.2.7 (Rust) : MIT OR Apache-2.0 — https://github.com/yaahc/displaydoc
@@ -107,12 +109,12 @@ PDFReader uses the open-source components below, each under its own licence.
 - futures-task 0.3.34 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/futures-rs
 - futures-util 0.3.34 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/futures-rs
 - generic-array 0.14.7 (Rust) : MIT — https://github.com/fizyk20/generic-array.git
-- getrandom 0.2.17 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-random/getrandom
 - getrandom 0.3.4 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-random/getrandom
+- getrandom 0.2.17 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-random/getrandom
 - getrandom 0.4.3 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-random/getrandom
 - glob 0.3.4 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/glob
-- hashbrown 0.12.3 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/hashbrown
 - hashbrown 0.17.1 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/hashbrown
+- hashbrown 0.12.3 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/hashbrown
 - hashlink 0.12.2 (Rust) : MIT OR Apache-2.0 — https://github.com/djc/hashlink
 - heck 0.5.0 (Rust) : MIT OR Apache-2.0 — https://github.com/withoutboats/heck
 - hex 0.4.3 (Rust) : MIT OR Apache-2.0 — https://github.com/KokaKiwi/rust-hex
@@ -138,8 +140,8 @@ PDFReader uses the open-source components below, each under its own licence.
 - idna_adapter 1.2.2 (Rust) : Apache-2.0 OR MIT — https://github.com/hsivonen/idna_adapter
 - image 0.25.10 (Rust) : MIT OR Apache-2.0 — https://github.com/image-rs/image
 - image-webp 0.2.4 (Rust) : MIT OR Apache-2.0 — https://github.com/image-rs/image-webp
-- indexmap 2.14.2 (Rust) : Apache-2.0 OR MIT — https://github.com/indexmap-rs/indexmap
 - indexmap 1.9.3 (Rust) : Apache-2.0 OR MIT — https://github.com/bluss/indexmap
+- indexmap 2.14.2 (Rust) : Apache-2.0 OR MIT — https://github.com/indexmap-rs/indexmap
 - infer 0.22.0 (Rust) : MIT — https://github.com/bojand/infer
 - inout 0.2.6 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
 - ipnet 2.12.2 (Rust) : MIT OR Apache-2.0 — https://github.com/krisprice/ipnet
@@ -210,6 +212,9 @@ PDFReader uses the open-source components below, each under its own licence.
 - reqwest 0.13.5 (Rust) : MIT OR Apache-2.0 — https://github.com/seanmonstar/reqwest
 - rfd 0.17.2 (Rust) : MIT — https://github.com/PolyMeilex/rfd
 - ring 0.17.14 (Rust) : Apache-2.0 AND ISC — https://github.com/briansmith/ring
+- rquickjs 0.14.0 (Rust) : MIT — https://github.com/DelSkayn/rquickjs.git
+- rquickjs-core 0.14.0 (Rust) : MIT — https://github.com/DelSkayn/rquickjs.git
+- rquickjs-sys 0.14.0 (Rust) : MIT — https://github.com/DelSkayn/rquickjs.git
 - rusqlite 0.41.1 (Rust) : MIT — https://github.com/rusqlite/rusqlite
 - rustc-hash 2.1.3 (Rust) : Apache-2.0 OR MIT — https://github.com/rust-lang/rustc-hash
 - rustls 0.23.46 (Rust) : Apache-2.0 OR ISC OR MIT — https://github.com/rustls/rustls
@@ -217,9 +222,9 @@ PDFReader uses the open-source components below, each under its own licence.
 - rustls-platform-verifier 0.7.1 (Rust) : MIT OR Apache-2.0 — https://github.com/rustls/rustls-platform-verifier
 - rustls-webpki 0.103.17 (Rust) : ISC — https://github.com/rustls/webpki
 - same-file 1.0.6 (Rust) : Unlicense/MIT — https://github.com/BurntSushi/same-file
-- schemars 0.9.0 (Rust) : MIT — https://github.com/GREsau/schemars
-- schemars 1.2.3 (Rust) : MIT — https://github.com/GREsau/schemars
 - schemars 0.8.22 (Rust) : MIT — https://github.com/GREsau/schemars
+- schemars 1.2.3 (Rust) : MIT — https://github.com/GREsau/schemars
+- schemars 0.9.0 (Rust) : MIT — https://github.com/GREsau/schemars
 - schemars_derive 0.8.22 (Rust) : MIT — https://github.com/GREsau/schemars
 - scopeguard 1.2.0 (Rust) : MIT OR Apache-2.0 — https://github.com/bluss/scopeguard
 - selectors 0.38.0 (Rust) : MPL-2.0 — https://github.com/servo/stylo
@@ -251,8 +256,8 @@ PDFReader uses the open-source components below, each under its own licence.
 - stringprep 0.1.5 (Rust) : MIT/Apache-2.0 — https://github.com/sfackler/rust-stringprep
 - strsim 0.11.1 (Rust) : MIT — https://github.com/rapidfuzz/strsim-rs
 - subtle 2.6.1 (Rust) : BSD-3-Clause — https://github.com/dalek-cryptography/subtle
-- syn 3.0.10 (Rust) : MIT OR Apache-2.0 — https://github.com/dtolnay/syn
 - syn 2.0.119 (Rust) : MIT OR Apache-2.0 — https://github.com/dtolnay/syn
+- syn 3.0.10 (Rust) : MIT OR Apache-2.0 — https://github.com/dtolnay/syn
 - sync_wrapper 1.0.2 (Rust) : Apache-2.0 — https://github.com/Actyx/sync_wrapper
 - synstructure 0.14.0 (Rust) : MIT — https://github.com/mystor/synstructure
 - tao 0.37.2 (Rust) : Apache-2.0 — https://github.com/tauri-apps/tao
@@ -328,8 +333,8 @@ PDFReader uses the open-source components below, each under its own licence.
 - windows-registry 0.6.1 (Rust) : MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-result 0.4.1 (Rust) : MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-strings 0.5.1 (Rust) : MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
-- windows-sys 0.61.2 (Rust) : MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-sys 0.52.0 (Rust) : MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
+- windows-sys 0.61.2 (Rust) : MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-targets 0.52.6 (Rust) : MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-threading 0.2.1 (Rust) : MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-version 0.1.7 (Rust) : MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
@@ -388,6 +393,35 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 This package also includes third-party software. See the licenses/ directory for their respective licenses.
+
+----------------------------------------------------------------
+Pour / for : QuickJS (quickjs-ng, dans rquickjs-sys) 0.14.0
+----------------------------------------------------------------
+
+The MIT License (MIT)
+ 
+Copyright (c) 2017-2026 Fabrice Bellard
+Copyright (c) 2017-2024 Charlie Gordon
+Copyright (c) 2023-2026 Ben Noordhuis
+Copyright (c) 2023-2026 Saúl Ibarra Corretgé
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 ----------------------------------------------------------------
 Pour / for : abseil (dans PDFium)
@@ -2904,7 +2938,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ----------------------------------------------------------------
-Pour / for : adler2 2.0.1, anyhow 1.0.104, atomic-waker 1.1.2, camino 1.2.6, cargo-platform 0.1.9, cargo_metadata 0.19.2, displaydoc 0.2.7, dtoa 1.0.11, dyn-clone 1.0.20, erased-serde 0.4.11, fastrand 2.5.0, itoa 1.0.19, once_cell 1.21.4, pin-project-lite 0.2.17, proc-macro2 1.0.107, quote 1.0.47, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, semver 1.0.28, serde 1.0.229, serde-untagged 0.1.9, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.154, serde_repr 0.1.21, servo_arc 0.4.3, syn 2.0.119, syn 3.0.10, thiserror 2.0.21, thiserror-impl 2.0.21, typed-path 0.13.0, typeid 1.0.3, unicode-ident 1.0.27, zmij 1.0.23
+Pour / for : adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.104, atomic-waker 1.1.2, camino 1.2.6, cargo-platform 0.1.9, cargo_metadata 0.19.2, displaydoc 0.2.7, dtoa 1.0.11, dyn-clone 1.0.20, erased-serde 0.4.11, fastrand 2.5.0, itoa 1.0.19, once_cell 1.21.4, pin-project-lite 0.2.17, proc-macro2 1.0.107, quote 1.0.47, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, semver 1.0.28, serde 1.0.229, serde-untagged 0.1.9, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.154, serde_repr 0.1.21, servo_arc 0.4.3, syn 2.0.119, syn 3.0.10, thiserror 2.0.21, thiserror-impl 2.0.21, typed-path 0.13.0, typeid 1.0.3, unicode-ident 1.0.27, zmij 1.0.23
 ----------------------------------------------------------------
 
 Permission is hereby granted, free of charge, to any
@@ -3249,7 +3283,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ----------------------------------------------------------------
-Pour / for : anyhow 1.0.104, constant_time_eq 0.6.1, dtoa 1.0.11, dyn-clone 1.0.20, erased-serde 0.4.11, itoa 1.0.19, libc 0.2.191, proc-macro2 1.0.107, quote 1.0.47, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, semver 1.0.28, serde 1.0.229, serde-untagged 0.1.9, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.154, serde_repr 0.1.21, syn 2.0.119, syn 3.0.10, thiserror 2.0.21, thiserror-impl 2.0.21, typed-path 0.13.0, typeid 1.0.3, unicode-ident 1.0.27
+Pour / for : allocator-api2 0.2.21, anyhow 1.0.104, constant_time_eq 0.6.1, dtoa 1.0.11, dyn-clone 1.0.20, erased-serde 0.4.11, itoa 1.0.19, libc 0.2.191, proc-macro2 1.0.107, quote 1.0.47, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, semver 1.0.28, serde 1.0.229, serde-untagged 0.1.9, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.154, serde_repr 0.1.21, syn 2.0.119, syn 3.0.10, thiserror 2.0.21, thiserror-impl 2.0.21, typed-path 0.13.0, typeid 1.0.3, unicode-ident 1.0.27
 ----------------------------------------------------------------
 
 Apache License
@@ -6699,9 +6733,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ----------------------------------------------------------------
-Pour / for : digest 0.10.7
+Pour / for : digest 0.11.3
 ----------------------------------------------------------------
 
+Copyright (c) 2017-2025 RustCrypto Developers
 Copyright (c) 2017 Artyom Pavlov
 
 Permission is hereby granted, free of charge, to any
@@ -6729,10 +6764,9 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------
-Pour / for : digest 0.11.3
+Pour / for : digest 0.10.7
 ----------------------------------------------------------------
 
-Copyright (c) 2017-2025 RustCrypto Developers
 Copyright (c) 2017 Artyom Pavlov
 
 Permission is hereby granted, free of charge, to any
@@ -8445,10 +8479,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ----------------------------------------------------------------
-Pour / for : getrandom 0.2.17
+Pour / for : getrandom 0.3.4
 ----------------------------------------------------------------
 
-Copyright (c) 2018-2024 The rust-random Project Developers
+Copyright (c) 2018-2025 The rust-random Project Developers
 Copyright (c) 2014 The Rust Project Developers
 
 Permission is hereby granted, free of charge, to any
@@ -8476,10 +8510,10 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------
-Pour / for : getrandom 0.3.4
+Pour / for : getrandom 0.2.17
 ----------------------------------------------------------------
 
-Copyright (c) 2018-2025 The rust-random Project Developers
+Copyright (c) 2018-2024 The rust-random Project Developers
 Copyright (c) 2014 The Rust Project Developers
 
 Permission is hereby granted, free of charge, to any
@@ -13132,6 +13166,33 @@ OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ----------------------------------------------------------------
+Pour / for : rquickjs 0.14.0
+----------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2020 Mees Delzenne
+Copyright (c) 2025 Rquickjs Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----------------------------------------------------------------
 Pour / for : rustls-pki-types 1.16.0
 ----------------------------------------------------------------
 
@@ -16942,8 +17003,10 @@ PERFORMANCE OF THIS SOFTWARE.
 Composants sans fichier de licence fourni : licence indiquée dans la liste ci-dessus.
 Components without a bundled licence file: licence as listed above.
 ----------------------------------------------------------------
-- alloc-stdlib 0.3.0 : BSD-3-Clause
 - alloc-stdlib 0.2.4 : BSD-3-Clause
+- alloc-stdlib 0.3.0 : BSD-3-Clause
+- rquickjs-core 0.14.0 : MIT
+- rquickjs-sys 0.14.0 : MIT
 - selectors 0.38.0 : MPL-2.0
 - webview2-com 0.39.1 : MIT
 - webview2-com-macros 0.8.1 : MIT

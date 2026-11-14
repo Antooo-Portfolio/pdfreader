@@ -1,5 +1,5 @@
 import { t } from "@pdfreader/ui";
-import type { AnnotResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Attachment, Bookmark, DocInfo, DocProperties, SnippetHit, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
+import type { AnnotResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Attachment, Bookmark, DocInfo, DocProperties, SetFieldResult, SnippetHit, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -24,7 +24,7 @@ export const tauriEngine: EngineClient = {
   updateAnnot: (doc, page, id, patch) => invoke<AnnotResult>("annot_update", { doc, page, id, patch }),
   deleteAnnot: (doc, page, id) => invoke<AnnotResult>("annot_delete", { doc, page, id }),
   fields: (doc, page) => invoke<Field[]>("doc_fields", { doc, page }),
-  setField: (doc, page, index, input) => invoke<Field[]>("field_set", { doc, page, index, input }),
+  setField: (doc, page, index, input, scripts) => invoke<SetFieldResult>("field_set", { doc, page, index, input, scripts }),
   addText: (doc, page, x, y, text, size, color) => invoke<AnnotResult>("fill_add_text", { doc, page, x, y, text, size, color }),
   addMark: (doc, page, x, y, size, cross, color) => invoke<AnnotResult>("fill_add_mark", { doc, page, x, y, size, cross, color }),
   addTextBox: (doc, page, rect, text, size, color, filled, anchor) => invoke<AnnotResult>("fill_add_textbox", { doc, page, rect, text, size, color, filled, anchor }),

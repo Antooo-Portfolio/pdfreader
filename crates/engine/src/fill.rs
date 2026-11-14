@@ -16,9 +16,9 @@ use crate::annotations::pdf_date_now;
 const FIELD_PUSHBUTTON: i32 = 1;
 const FIELD_CHECKBOX: i32 = 2;
 const FIELD_RADIOBUTTON: i32 = 3;
-const FIELD_COMBOBOX: i32 = 4;
+pub(crate) const FIELD_COMBOBOX: i32 = 4;
 const FIELD_LISTBOX: i32 = 5;
-const FIELD_TEXTFIELD: i32 = 6;
+pub(crate) const FIELD_TEXTFIELD: i32 = 6;
 const FIELD_SIGNATURE: i32 = 7;
 
 // Drapeaux de champ (ISO 32000-2, tableaux 227, 228, 230, 231).
@@ -30,7 +30,7 @@ const FF_COMBO_EDIT: i32 = 1 << 18;
 const FF_MULTISELECT: i32 = 1 << 21;
 const FF_COMB: i32 = 1 << 24;
 
-const WIDGET: i32 = 20;
+pub(crate) const WIDGET: i32 = 20;
 const STAMP: i32 = 13;
 
 /// Clé privée qui distingue nos tampons « texte », « coche » et « signature ».
@@ -74,7 +74,7 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn read_wide(f: impl Fn(*mut u16, u64) -> u64) -> String {
+pub(crate) fn read_wide(f: impl Fn(*mut u16, u64) -> u64) -> String {
     let len = f(std::ptr::null_mut(), 0);
     if len <= 2 {
         return String::new();
@@ -89,14 +89,14 @@ fn read_wide(f: impl Fn(*mut u16, u64) -> u64) -> String {
 
 /// Page ouverte pour le moteur de formulaires : PDFium exige `FORM_OnAfterLoadPage` avant toute
 /// interaction et `FORM_OnBeforeClosePage` après.
-struct FormPage<'a> {
-    b: &'a dyn PdfiumLibraryBindings,
-    form: FPDF_FORMHANDLE,
-    page: FPDF_PAGE,
+pub(crate) struct FormPage<'a> {
+    pub(crate) b: &'a dyn PdfiumLibraryBindings,
+    pub(crate) form: FPDF_FORMHANDLE,
+    pub(crate) page: FPDF_PAGE,
 }
 
 impl<'a> FormPage<'a> {
-    fn new(doc: &PdfDocument, page: &PdfPage) -> Option<Self> {
+    pub(crate) fn new(doc: &PdfDocument, page: &PdfPage) -> Option<Self> {
         let form = doc.form()?.raw_handle();
         let b = raw_bindings();
         unsafe { b.FORM_OnAfterLoadPage(page.raw_handle(), form) };
@@ -113,9 +113,9 @@ impl Drop for FormPage<'_> {
     }
 }
 
-struct Annot<'a> {
-    b: &'a dyn PdfiumLibraryBindings,
-    h: FPDF_ANNOTATION,
+pub(crate) struct Annot<'a> {
+    pub(crate) b: &'a dyn PdfiumLibraryBindings,
+    pub(crate) h: FPDF_ANNOTATION,
 }
 
 impl Drop for Annot<'_> {
@@ -124,7 +124,7 @@ impl Drop for Annot<'_> {
     }
 }
 
-fn get_annot<'a>(b: &'a dyn PdfiumLibraryBindings, page: FPDF_PAGE, index: i32) -> Option<Annot<'a>> {
+pub(crate) fn get_annot<'a>(b: &'a dyn PdfiumLibraryBindings, page: FPDF_PAGE, index: i32) -> Option<Annot<'a>> {
     let h = unsafe { b.FPDFPage_GetAnnot(page, index) };
     (!h.is_null()).then_some(Annot { b, h })
 }
@@ -217,6 +217,12 @@ pub enum FieldInput {
 /// Saisit une valeur comme le ferait l'utilisateur dans PDFium : focus, saisie, perte du focus.
 /// PDFium met alors à jour la valeur (/V) et régénère l'apparence de tous les widgets du champ.
 pub fn set_field(doc: &PdfDocument, page: &PdfPage, index: i32, input: &FieldInput) -> Result<()> {
+    set_field_opts(doc, page, index, input, false)
+}
+
+/// `force` : écrit aussi dans un champ en lecture seule (valeur calculée) ; le drapeau est levé
+/// le temps de la saisie puis rétabli.
+pub fn set_field_opts(doc: &PdfDocument, page: &PdfPage, index: i32, input: &FieldInput, force: bool) -> Result<()> {
     let fp = FormPage::new(doc, page).context("pas de formulaire")?;
     let b = fp.b;
     let a = get_annot(b, fp.page, index).context("champ introuvable")?;
@@ -225,9 +231,26 @@ pub fn set_field(doc: &PdfDocument, page: &PdfPage, index: i32, input: &FieldInp
     }
     let t = unsafe { b.FPDFAnnot_GetFormFieldType(fp.form, a.h) };
     let flags = unsafe { b.FPDFAnnot_GetFormFieldFlags(fp.form, a.h) };
-    if flags & FF_READONLY != 0 {
+    let restore = flags & FF_READONLY != 0;
+    if restore && !force {
         bail!("champ en lecture seule");
     }
+    if restore {
+        unsafe { b.FPDFAnnot_SetFormFieldFlags(fp.form, a.h, flags & !FF_READONLY) };
+    }
+    let r = set_value(&fp, &a, t, input);
+    if restore {
+        unsafe { b.FPDFAnnot_SetFormFieldFlags(fp.form, a.h, flags) };
+    }
+    r?;
+    drop(a);
+    drop(fp); // perte du focus : la valeur est validée
+    crate::render_page(page, 0.25)?;
+    Ok(())
+}
+
+fn set_value(fp: &FormPage, a: &Annot, t: i32, input: &FieldInput) -> Result<()> {
+    let b = fp.b;
     let (l, bt, r, tp) = rect_of(b, a.h).context("champ sans position")?;
     let (cx, cy) = (((l + r) / 2.0) as f64, ((bt + tp) / 2.0) as f64);
     let click = || unsafe {
@@ -263,9 +286,9 @@ pub fn set_field(doc: &PdfDocument, page: &PdfPage, index: i32, input: &FieldInp
         }
         _ => bail!("saisie incompatible avec ce champ"),
     }
-    drop(a);
-    drop(fp); // perte du focus : la valeur est validée
-    crate::render_page(page, 0.25)?;
+    // La saisie est validée à la perte du focus (dans l'appelant) : on la provoque ici, tant que
+    // le drapeau de lecture seule est encore levé.
+    unsafe { b.FORM_ForceToKillFocus(fp.form) };
     Ok(())
 }
 

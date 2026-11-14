@@ -379,3 +379,30 @@ Corrigé au passage : un clic sur un signet l'ouvrait sans le sélectionner (l'a
 sélectionne qu'à la barre d'espace quand une action est définie) : impossible de le modifier
 après un clic. Nouvelle dépendance `lopdf` 0.47 (licences vérifiées par cargo-deny ; mentions
 des composants tiers régénérées : 366 composants).
+
+## M3 — lot « calculs des formulaires » (2026-11-14)
+
+Branche `m3-formulaires-js`. PDFium (sans V8) n'exécute pas le JavaScript des formulaires.
+Après chaque saisie : contrôle de frappe (nombre attendu), validation du champ (valeur rétablie
+et message si refusée), puis recalcul des champs calculés jusqu'à stabilité (10 passes au plus).
+Les fonctions standard d'Acrobat sont calculées en Rust sans exécuter le code du document ; tout
+autre script tourne dans QuickJS (rquickjs, MIT) : globales réduites à `getField`, `event`,
+`app.alert`, quelques fonctions AF ; ni `require`, ni réseau, ni fichiers ; 150 ms et 16 Mo par
+script. Les champs calculés sont souvent en lecture seule : le drapeau est levé le temps de la
+saisie puis rétabli, pour que PDFium régénère l'apparence.
+
+Corpus : `13-formulaire-calculs.pdf` (quantité × prix, notation simplifiée, TVA par script
+personnalisé, somme, plage 0–100, nombres seulement, code de 4 caractères validé par script,
+boucle sans fin, appel à `app.launchURL`). Test du moteur `form_calculations_and_sandbox` :
+chaîne de calcul juste (37,5 / 7,5 / 45, puis remise), trois refus avec valeur rétablie, les deux
+pièges échouent sans rien bloquer (moins de 1,5 s en tout), rien du système visible depuis un
+script, mémoire limitée, valeurs et lecture seule conservées à l'enregistrement. Partie `m3forms`
+du scénario : saisie dans l'interface, total relu à l'écran, message de refus, préférence coupée
+puis rétablie.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Calculs et validations | 2026-11-14 | fait | mise en forme d'affichage (AFNumber_Format : « 37,50 € ») ; scripts de frappe personnalisés ; ordre de calcul /CO (remplacé par des passes jusqu'à stabilité) | couper la préférence n'arrêtait que les scripts personnalisés (les calculs standard continuaient) : elle coupe désormais tout |
+
+Mentions des composants tiers : QuickJS (code C embarqué dans rquickjs-sys) ajouté avec sa
+propre licence et ses auteurs (371 composants).

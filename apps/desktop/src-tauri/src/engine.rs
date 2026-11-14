@@ -107,7 +107,7 @@ pub enum Cmd {
     /// Relit le fichier depuis le disque (abandonne les modifications en mémoire).
     Reload { doc: u32, reply: Reply<DocInfo> },
     Fields { doc: u32, page: i32, reply: Reply<Vec<eng::fill::Field>> },
-    SetField { doc: u32, page: i32, index: i32, input: eng::fill::FieldInput, reply: Reply<Vec<eng::fill::Field>> },
+    SetField { doc: u32, page: i32, index: i32, input: eng::fill::FieldInput, scripts: bool, reply: Reply<SetFieldResult> },
     Links { doc: u32, page: i32, reply: Reply<Vec<eng::PageLink>> },
     Bookmarks { doc: u32, reply: Reply<Vec<eng::Bookmark>> },
     Properties { doc: u32, reply: Reply<eng::properties::DocProperties> },
@@ -142,6 +142,16 @@ struct Entry {
     fingerprint: String,
     /// Signets modifiés, écrits au prochain enregistrement (PDFium ne sait pas les écrire).
     outline: Option<Vec<eng::outline::OutlineItem>>,
+    /// Le formulaire porte-t-il des scripts (calcul, validation) ? Lu à la première saisie.
+    form_scripts: Option<bool>,
+}
+
+/// Résultat d'une saisie : champs à jour de la page, et effets des scripts du formulaire.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetFieldResult {
+    pub fields: Vec<eng::fill::Field>,
+    pub outcome: eng::formcalc::Outcome,
 }
 
 #[derive(Clone)]
@@ -308,7 +318,7 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                     let (path, password, generation) = (e.path.clone(), e.password.clone(), e.generation + 1);
                     let fresh = eng::open_typed(pdfium, &path, password.as_deref()).map_err(|e| e.to_string())?;
                     let fingerprint = eng::fingerprint(&path).map_err(|e| e.to_string())?;
-                    let entry = Entry { doc: fresh, mtime: eng::file_mtime(&path), path, password, generation, fingerprint, outline: None };
+                    let entry = Entry { doc: fresh, mtime: eng::file_mtime(&path), path, password, generation, fingerprint, outline: None, form_scripts: None };
                     let info = info_of(doc, &entry);
                     docs.insert(doc, entry);
                     Ok(info)
@@ -323,7 +333,7 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                     // Copie de récupération : empreinte du fichier d'origine s'il existe encore.
                     let fingerprint = eng::fingerprint(&shown).or_else(|_| eng::fingerprint(&path)).map_err(|e| eng::OpenError::Other(e.to_string()))?;
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    let entry = Entry { doc, mtime: eng::file_mtime(&shown), path: shown, password: password.clone(), generation: 1, fingerprint, outline: None };
+                    let entry = Entry { doc, mtime: eng::file_mtime(&shown), path: shown, password: password.clone(), generation: 1, fingerprint, outline: None, form_scripts: None };
                     let id = next_id;
                     next_id += 1;
                     let info = info_of(id, &entry);
@@ -398,11 +408,16 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                 });
                 let _ = reply.send(r);
             }
-            Cmd::SetField { doc, page, index, input, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
+            Cmd::SetField { doc, page, index, input, scripts, reply } => {
+                let r = docs.get_mut(&doc).ok_or("document fermé".to_string()).and_then(|e| {
                     let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
+                    let old = eng::fill::fields(&e.doc, &p, page).into_iter().find(|f| f.index == index).map(|f| f.value).unwrap_or_default();
                     eng::fill::set_field(&e.doc, &p, index, &input).map_err(|e| e.to_string())?;
-                    Ok(eng::fill::fields(&e.doc, &p, page))
+                    // Calculs et validations : seulement si le formulaire en a (vérifié une fois).
+                    // Préférence coupée : aucun calcul ni aucune vérification (même standard).
+                    let has = scripts && *e.form_scripts.get_or_insert_with(|| eng::formcalc::has_scripts(&eng::formcalc::collect(&e.doc)));
+                    let outcome = if has { eng::formcalc::after_change(&e.doc, page, index, &old, scripts).map_err(|e| e.to_string())? } else { Default::default() };
+                    Ok(SetFieldResult { fields: eng::fill::fields(&e.doc, &p, page), outcome })
                 });
                 let _ = reply.send(r);
             }
@@ -504,7 +519,7 @@ fn save(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, target
     let doc = eng::open_typed(pdfium, &target, password.as_deref()).map_err(|e| e.to_string())?;
     let bytes = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
     let fingerprint = eng::fingerprint(&target).map_err(|e| e.to_string())?;
-    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone(), outline: None };
+    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone(), outline: None, form_scripts: None };
     docs.insert(id, entry);
     Ok(SaveResult { path: target.display().to_string(), bytes, generation, fingerprint, old_fingerprint })
 }
@@ -571,7 +586,10 @@ fn fail(cmd: Cmd, msg: &str) {
         Cmd::SearchSnippets { reply, .. } => {
             let _ = reply.send(Err(msg.into()));
         }
-        Cmd::Fields { reply, .. } | Cmd::SetField { reply, .. } => {
+        Cmd::Fields { reply, .. } => {
+            let _ = reply.send(Err(msg.into()));
+        }
+        Cmd::SetField { reply, .. } => {
             let _ = reply.send(Err(msg.into()));
         }
         Cmd::Print { reply, .. } => {
