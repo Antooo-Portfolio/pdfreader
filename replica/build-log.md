@@ -478,3 +478,19 @@ Sandbox (non activé ici) ou une machine sans WebView2.
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | Setup hors ligne | 2026-11-14 | fait | essai sur un poste sans WebView2 et sans Internet | le site ne peut annoncer la version hors ligne qu'avec la version qui la contient : annonce confiée à prepare.py |
+
+## Version 0.3.0 — préparation (2026-11-14)
+
+Branche `release-0.3.0` : version 0.3.0 dans tauri.conf.json, notes dans
+`tools/release/notes/0.3.0.md` (la partie française va dans latest.json, affichée par l'updater),
+mentions tierces régénérées (ordre désormais stable : tri par nom puis version), site : taille
+(9 Mo) et paragraphe de la version hors ligne ajouté par prepare.py.
+
+Construit : setup normal signé pour l'updater (9,3 Mo) et setup hors ligne (217 Mo, WebView2 signé
+Microsoft) ; `target/release-upload/` : les deux setups, la signature, latest.json. Vérifié :
+signature acceptée par la clé publique de l'application (test `updater_signature`), aucun chemin
+personnel dans l'exécutable ; mise à niveau silencieuse 0.2.0 → 0.3.0 en 2,5 s, données de
+l'utilisateur identiques octet pour octet, lecteur PDF par défaut (Acrobat) inchangé ; scénario
+complet vert sur la 0.3.0 installée ; la 0.3.0 lit le flux publié (rien à proposer, la 0.2.0 étant
+la dernière) ; 0.2.0 réinstallée pour essayer la vraie mise à jour par l'updater une fois la 0.3.0
+publiée.

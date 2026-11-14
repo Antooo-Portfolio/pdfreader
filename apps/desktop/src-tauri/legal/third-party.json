@@ -148,14 +148,14 @@
  },
  {
   "name": "alloc-no-stdlib",
-  "version": "3.0.0",
+  "version": "2.0.4",
   "license": "BSD-3-Clause",
   "kind": "Rust",
   "url": "https://github.com/dropbox/rust-alloc-no-stdlib"
  },
  {
   "name": "alloc-no-stdlib",
-  "version": "2.0.4",
+  "version": "3.0.0",
   "license": "BSD-3-Clause",
   "kind": "Rust",
   "url": "https://github.com/dropbox/rust-alloc-no-stdlib"
@@ -225,14 +225,14 @@
  },
  {
   "name": "block-buffer",
-  "version": "0.12.1",
+  "version": "0.10.4",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/RustCrypto/utils"
  },
  {
   "name": "block-buffer",
-  "version": "0.10.4",
+  "version": "0.12.1",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/RustCrypto/utils"
@@ -253,14 +253,14 @@
  },
  {
   "name": "brotli-decompressor",
-  "version": "6.3.1",
+  "version": "5.0.3",
   "license": "BSD-3-Clause/MIT",
   "kind": "Rust",
   "url": "https://github.com/dropbox/rust-brotli-decompressor"
  },
  {
   "name": "brotli-decompressor",
-  "version": "5.0.3",
+  "version": "6.3.1",
   "license": "BSD-3-Clause/MIT",
   "kind": "Rust",
   "url": "https://github.com/dropbox/rust-brotli-decompressor"
@@ -512,14 +512,14 @@
  },
  {
   "name": "digest",
-  "version": "0.11.3",
+  "version": "0.10.7",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/RustCrypto/traits"
  },
  {
   "name": "digest",
-  "version": "0.10.7",
+  "version": "0.11.3",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/RustCrypto/traits"
@@ -736,14 +736,14 @@
  },
  {
   "name": "getrandom",
-  "version": "0.3.4",
+  "version": "0.2.17",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-random/getrandom"
  },
  {
   "name": "getrandom",
-  "version": "0.2.17",
+  "version": "0.3.4",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-random/getrandom"
@@ -764,14 +764,14 @@
  },
  {
   "name": "hashbrown",
-  "version": "0.17.1",
+  "version": "0.12.3",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-lang/hashbrown"
  },
  {
   "name": "hashbrown",
-  "version": "0.12.3",
+  "version": "0.17.1",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-lang/hashbrown"
@@ -1149,14 +1149,14 @@
  },
  {
   "name": "miniz_oxide",
-  "version": "0.9.1",
+  "version": "0.8.9",
   "license": "MIT OR Zlib OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide"
  },
  {
   "name": "miniz_oxide",
-  "version": "0.8.9",
+  "version": "0.9.1",
   "license": "MIT OR Zlib OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide"
@@ -1534,14 +1534,14 @@
  },
  {
   "name": "schemars",
-  "version": "1.2.3",
+  "version": "0.9.0",
   "license": "MIT",
   "kind": "Rust",
   "url": "https://github.com/GREsau/schemars"
  },
  {
   "name": "schemars",
-  "version": "0.9.0",
+  "version": "1.2.3",
   "license": "MIT",
   "kind": "Rust",
   "url": "https://github.com/GREsau/schemars"

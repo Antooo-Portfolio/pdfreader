@@ -142,7 +142,7 @@ def native_components():
 def main():
     comps = rust_components() + npm_components() + native_components()
     # PDFium d'abord, puis les bibliothèques qu'il contient, puis Rust et npm.
-    comps.sort(key=lambda c: (c["kind"] != "natif", "(dans PDFium)" in c["name"], c["kind"], c["name"].lower()))
+    comps.sort(key=lambda c: (c["kind"] != "natif", "(dans PDFium)" in c["name"], c["kind"], c["name"].lower(), c["version"]))
     os.makedirs(OUT, exist_ok=True)
     lines = [
         "PDFReader — mentions des composants tiers / third-party notices",

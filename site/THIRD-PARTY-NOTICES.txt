@@ -25,8 +25,8 @@ PDFReader uses the open-source components below, each under its own licence.
 - adler2 2.0.1 (Rust) : 0BSD OR MIT OR Apache-2.0 — https://github.com/oyvindln/adler2
 - aes 0.9.4 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/block-ciphers
 - aho-corasick 1.1.5 (Rust) : Unlicense OR MIT — https://github.com/BurntSushi/aho-corasick
-- alloc-no-stdlib 3.0.0 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
 - alloc-no-stdlib 2.0.4 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
+- alloc-no-stdlib 3.0.0 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
 - alloc-stdlib 0.2.4 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
 - alloc-stdlib 0.3.0 (Rust) : BSD-3-Clause — https://github.com/dropbox/rust-alloc-no-stdlib
 - allocator-api2 0.2.21 (Rust) : MIT OR Apache-2.0 — https://github.com/zakarumych/allocator-api2
@@ -36,12 +36,12 @@ PDFReader uses the open-source components below, each under its own licence.
 - bit-set 0.8.0 (Rust) : Apache-2.0 OR MIT — https://github.com/contain-rs/bit-set
 - bit-vec 0.8.0 (Rust) : Apache-2.0 OR MIT — https://github.com/contain-rs/bit-vec
 - bitflags 2.13.2 (Rust) : MIT OR Apache-2.0 — https://github.com/bitflags/bitflags
-- block-buffer 0.12.1 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
 - block-buffer 0.10.4 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
+- block-buffer 0.12.1 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
 - block-padding 0.4.2 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
 - brotli 9.1.1 (Rust) : BSD-3-Clause AND MIT — https://github.com/dropbox/rust-brotli
-- brotli-decompressor 6.3.1 (Rust) : BSD-3-Clause/MIT — https://github.com/dropbox/rust-brotli-decompressor
 - brotli-decompressor 5.0.3 (Rust) : BSD-3-Clause/MIT — https://github.com/dropbox/rust-brotli-decompressor
+- brotli-decompressor 6.3.1 (Rust) : BSD-3-Clause/MIT — https://github.com/dropbox/rust-brotli-decompressor
 - bs58 0.5.1 (Rust) : MIT/Apache-2.0 — https://github.com/Nullus157/bs58-rs
 - bytemuck 1.25.2 (Rust) : Zlib OR Apache-2.0 OR MIT — https://github.com/Lokathor/bytemuck
 - byteorder 1.5.0 (Rust) : Unlicense OR MIT — https://github.com/BurntSushi/byteorder
@@ -77,8 +77,8 @@ PDFReader uses the open-source components below, each under its own licence.
 - deranged 0.5.9 (Rust) : MIT OR Apache-2.0 — https://github.com/jhpratt/deranged
 - derive_more 2.1.1 (Rust) : MIT — https://github.com/JelteF/derive_more
 - derive_more-impl 2.1.1 (Rust) : MIT — https://github.com/JelteF/derive_more
-- digest 0.11.3 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/traits
 - digest 0.10.7 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/traits
+- digest 0.11.3 (Rust) : MIT OR Apache-2.0 — https://github.com/RustCrypto/traits
 - dirs 7.0.0 (Rust) : MIT OR Apache-2.0 — https://codeberg.org/dirs/dirs-rs
 - dirs-sys 0.5.0 (Rust) : MIT OR Apache-2.0 — https://github.com/dirs-dev/dirs-sys-rs
 - displaydoc 0.2.7 (Rust) : MIT OR Apache-2.0 — https://github.com/yaahc/displaydoc
@@ -109,12 +109,12 @@ PDFReader uses the open-source components below, each under its own licence.
 - futures-task 0.3.34 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/futures-rs
 - futures-util 0.3.34 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/futures-rs
 - generic-array 0.14.7 (Rust) : MIT — https://github.com/fizyk20/generic-array.git
-- getrandom 0.3.4 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-random/getrandom
 - getrandom 0.2.17 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-random/getrandom
+- getrandom 0.3.4 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-random/getrandom
 - getrandom 0.4.3 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-random/getrandom
 - glob 0.3.4 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/glob
-- hashbrown 0.17.1 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/hashbrown
 - hashbrown 0.12.3 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/hashbrown
+- hashbrown 0.17.1 (Rust) : MIT OR Apache-2.0 — https://github.com/rust-lang/hashbrown
 - hashlink 0.12.2 (Rust) : MIT OR Apache-2.0 — https://github.com/djc/hashlink
 - heck 0.5.0 (Rust) : MIT OR Apache-2.0 — https://github.com/withoutboats/heck
 - hex 0.4.3 (Rust) : MIT OR Apache-2.0 — https://github.com/KokaKiwi/rust-hex
@@ -168,8 +168,8 @@ PDFReader uses the open-source components below, each under its own licence.
 - memory-stats 1.2.0 (Rust) : MIT OR Apache-2.0 — https://github.com/Arc-blroth/memory-stats
 - mime 0.3.18 (Rust) : MIT OR Apache-2.0 — https://github.com/hyperium/mime
 - minisign-verify 0.3.0 (Rust) : MIT — https://github.com/jedisct1/rust-minisign-verify
-- miniz_oxide 0.9.1 (Rust) : MIT OR Zlib OR Apache-2.0 — https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
 - miniz_oxide 0.8.9 (Rust) : MIT OR Zlib OR Apache-2.0 — https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
+- miniz_oxide 0.9.1 (Rust) : MIT OR Zlib OR Apache-2.0 — https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
 - mio 1.2.4 (Rust) : MIT — https://github.com/tokio-rs/mio
 - moxcms 0.8.1 (Rust) : BSD-3-Clause OR Apache-2.0 — https://github.com/awxkee/moxcms.git
 - muda 0.20.0 (Rust) : Apache-2.0 OR MIT — https://github.com/tauri-apps/muda
@@ -223,8 +223,8 @@ PDFReader uses the open-source components below, each under its own licence.
 - rustls-webpki 0.103.17 (Rust) : ISC — https://github.com/rustls/webpki
 - same-file 1.0.6 (Rust) : Unlicense/MIT — https://github.com/BurntSushi/same-file
 - schemars 0.8.22 (Rust) : MIT — https://github.com/GREsau/schemars
-- schemars 1.2.3 (Rust) : MIT — https://github.com/GREsau/schemars
 - schemars 0.9.0 (Rust) : MIT — https://github.com/GREsau/schemars
+- schemars 1.2.3 (Rust) : MIT — https://github.com/GREsau/schemars
 - schemars_derive 0.8.22 (Rust) : MIT — https://github.com/GREsau/schemars
 - scopeguard 1.2.0 (Rust) : MIT OR Apache-2.0 — https://github.com/bluss/scopeguard
 - selectors 0.38.0 (Rust) : MPL-2.0 — https://github.com/servo/stylo
@@ -4012,10 +4012,10 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------
-Pour / for : block-buffer 0.12.1, block-padding 0.4.2
+Pour / for : block-buffer 0.10.4
 ----------------------------------------------------------------
 
-Copyright (c) 2018-2025 The RustCrypto Project Developers
+Copyright (c) 2018-2019 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -4042,10 +4042,10 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------
-Pour / for : block-buffer 0.10.4
+Pour / for : block-buffer 0.12.1, block-padding 0.4.2
 ----------------------------------------------------------------
 
-Copyright (c) 2018-2019 The RustCrypto Project Developers
+Copyright (c) 2018-2025 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -6733,10 +6733,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ----------------------------------------------------------------
-Pour / for : digest 0.11.3
+Pour / for : digest 0.10.7
 ----------------------------------------------------------------
 
-Copyright (c) 2017-2025 RustCrypto Developers
 Copyright (c) 2017 Artyom Pavlov
 
 Permission is hereby granted, free of charge, to any
@@ -6764,9 +6763,10 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------
-Pour / for : digest 0.10.7
+Pour / for : digest 0.11.3
 ----------------------------------------------------------------
 
+Copyright (c) 2017-2025 RustCrypto Developers
 Copyright (c) 2017 Artyom Pavlov
 
 Permission is hereby granted, free of charge, to any
@@ -8479,10 +8479,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ----------------------------------------------------------------
-Pour / for : getrandom 0.3.4
+Pour / for : getrandom 0.2.17
 ----------------------------------------------------------------
 
-Copyright (c) 2018-2025 The rust-random Project Developers
+Copyright (c) 2018-2024 The rust-random Project Developers
 Copyright (c) 2014 The Rust Project Developers
 
 Permission is hereby granted, free of charge, to any
@@ -8510,10 +8510,10 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------
-Pour / for : getrandom 0.2.17
+Pour / for : getrandom 0.3.4
 ----------------------------------------------------------------
 
-Copyright (c) 2018-2024 The rust-random Project Developers
+Copyright (c) 2018-2025 The rust-random Project Developers
 Copyright (c) 2014 The Rust Project Developers
 
 Permission is hereby granted, free of charge, to any
