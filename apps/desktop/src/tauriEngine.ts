@@ -1,5 +1,5 @@
 import { t } from "@pdfreader/ui";
-import type { AnnotResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Attachment, Bookmark, DocInfo, DocProperties, SetFieldResult, SnippetHit, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
+import type { AnnotResult, EngineRestart, Field, PrinterInfo, RecoveryItem, SavedSignature, Attachment, Bookmark, DocInfo, DocProperties, SetFieldResult, SnippetHit, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -116,5 +116,7 @@ export const tauriEngine: EngineClient = {
     return { name: i.name, version: i.version, pdfium: i.pdfium, dataDir: i.data_dir };
   },
   openSettings: (page) => invoke("open_settings", { page }),
+  onEngineRestarted: (cb) => listen<EngineRestart>("engine-restarted", (e) => cb(e.payload)),
+  e2eEngineFault: (kind, doc) => invoke("e2e_engine_fault", { kind, doc }),
   e2eReport: (report) => invoke("e2e_report", { report: JSON.stringify(report, null, 2) }),
 };

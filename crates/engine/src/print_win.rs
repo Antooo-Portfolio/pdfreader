@@ -103,7 +103,7 @@ fn default_printer() -> Option<String> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Scale {
     /// Ajuster à la zone imprimable (agrandit ou réduit).
@@ -116,7 +116,7 @@ pub enum Scale {
     Custom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Orientation {
     /// Selon chaque page : portrait ou paysage.
@@ -125,7 +125,7 @@ pub enum Orientation {
     Landscape,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Duplex {
     None,
@@ -135,7 +135,7 @@ pub enum Duplex {
     Short,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrintOptions {
     pub printer: String,

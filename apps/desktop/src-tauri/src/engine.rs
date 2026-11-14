@@ -1,616 +1,581 @@
-//! Thread moteur : seul propriétaire de PDFium (non thread-safe). Les commandes Tauri et le
-//! protocole `pdfpage://` lui envoient des messages et attendent la réponse.
+//! Côté application du moteur PDF. PDFium tourne dans un processus à part (le même exécutable,
+//! lancé avec `--engine-host`, voir `host.rs`) : un PDF malformé qui le fait planter ou le bloque
+//! n'emporte pas l'application. Ce module envoie les demandes, attend les réponses, surveille le
+//! moteur et, s'il tombe ou ne répond plus, le relance et rouvre les documents sous le même numéro
+//! (depuis leur dernière copie de récupération s'il y en a une). L'interface est prévenue par
+//! l'événement « engine-restarted ».
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::time::SystemTime;
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
-use pdfium_render::prelude::*;
-use pdfreader_engine as eng;
 use serde::Serialize;
-use tauri::UriSchemeResponder;
+use serde::de::DeserializeOwned;
+use serde_json::Value;
 use tauri::http::Response;
+use tauri::{AppHandle, Emitter, Manager, UriSchemeResponder};
 use tokio::sync::oneshot;
 
-pub type Reply<T> = oneshot::Sender<Result<T, String>>;
+pub use crate::protocol::{AnnotOp, DocInfo, OpenResult, Request, SaveResult};
+use crate::protocol::{Answer, Envelope, read_frame, write_frame};
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DocInfo {
-    pub id: u32,
-    pub path: String,
-    pub name: String,
-    pub title: Option<String>,
-    pub page_count: i32,
-    /// Taille de chaque page en points PDF (largeur, hauteur), rotation comprise.
-    pub pages: Vec<[f32; 2]>,
-    pub encrypted: bool,
-    pub has_form: bool,
-    pub is_xfa: bool,
-    pub permissions: eng::Permissions,
-    /// Nombre de pièces jointes (panneau affiché seulement s'il y en a).
-    pub attachment_count: u16,
-    /// Le fichier porte la « marque du Web » (téléchargé) : vue protégée.
-    pub from_internet: bool,
-    /// Les signets peuvent être modifiés (document non chiffré).
-    pub bookmarks_editable: bool,
-    /// Empreinte du fichier (clé des récents et de l'état de vue).
-    pub fingerprint: String,
-    /// Dernier état de vue mémorisé, rempli par la commande `doc_open`.
-    pub view_state: Option<serde_json::Value>,
-    /// Change à chaque rechargement (après enregistrement) : invalide le cache des tuiles.
-    pub generation: u32,
+/// Pourquoi une demande n'a pas abouti.
+#[derive(Debug)]
+pub enum Fail {
+    /// Erreur renvoyée par le moteur (texte, ou erreur d'ouverture typée).
+    Engine(Value),
+    /// Le moteur s'est arrêté pendant la demande (il est relancé).
+    Restarted,
+    /// Le moteur ne peut pas être lancé.
+    Unavailable(String),
 }
 
-#[derive(Debug, Serialize)]
-pub struct OpenResult {
-    pub info: DocInfo,
-    #[serde(skip)]
-    pub size: u64,
-    #[serde(skip)]
-    pub thumbnail: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SaveResult {
-    pub path: String,
-    pub bytes: u64,
-    pub generation: u32,
-    pub fingerprint: String,
-    #[serde(skip)]
-    pub old_fingerprint: String,
-}
-
-/// Opération sur les commentaires d'une page.
-pub enum AnnotOp {
-    List,
-    Markup { kind: String, rects: Vec<[f32; 4]>, color: [u8; 3], opacity: f32, author: String },
-    Note { x: f32, y: f32, contents: String, color: [u8; 3], author: String },
-    Ink { strokes: Vec<Vec<[f32; 2]>>, color: [u8; 3], opacity: f32, width: f32, author: String },
-    Update { id: String, patch: eng::annotations::AnnotPatch },
-    Text { x: f32, y: f32, text: String, size: f32, color: [u8; 3], author: String },
-    Mark { x: f32, y: f32, size: f32, cross: bool, color: [u8; 3], author: String },
-    TextBox { rect: [f32; 4], text: String, size: f32, color: [u8; 3], filled: bool, anchor: Option<[f32; 2]>, author: String },
-    Image { rect: [f32; 4], png: Vec<u8>, kind: String, author: String },
-    Delete { id: String },
-    Shape { kind: String, points: Vec<[f32; 2]>, color: [u8; 3], opacity: f32, width: f32, fill: Option<[u8; 3]>, author: String },
-    Stamp { x: f32, y: f32, preset: String, label: String, subtitle: Option<String>, author: String },
-    Reply { parent: String, contents: String, author: String },
-    Status { id: String, status: Option<String>, marked: Option<bool> },
-}
-
-/// Commentaire créé (s'il y en a un) et liste à jour des commentaires de la page.
-#[derive(Debug, Serialize)]
-pub struct AnnotResult {
-    pub id: Option<String>,
-    pub annots: Vec<eng::annotations::Annot>,
-}
-
-pub enum Cmd {
-    /// `shown_as` : le fichier lu est une copie de récupération, présentée (et enregistrée) sous
-    /// le chemin du document d'origine.
-    Open { path: PathBuf, shown_as: Option<PathBuf>, password: Option<String>, reply: oneshot::Sender<Result<OpenResult, eng::OpenError>> },
-    TextLayer { doc: u32, page: i32, reply: Reply<Vec<Vec<eng::TextWord>>> },
-    Annot { doc: u32, page: i32, op: AnnotOp, reply: Reply<AnnotResult> },
-    Save { doc: u32, path: Option<PathBuf>, reply: Reply<SaveResult> },
-    CountHighlights { doc: u32, page: i32, reply: Reply<usize> },
-    /// Impression : avance d'une page chaque fois que le moteur n'a rien d'autre à faire.
-    Print { doc: u32, opts: eng::print_win::PrintOptions, cancel: Arc<AtomicBool>, progress: Box<dyn Fn(usize, usize) + Send>, reply: Reply<usize> },
-    /// Copie de récupération : enregistre l'état actuel ailleurs, sans toucher au document ouvert.
-    Snapshot { doc: u32, target: PathBuf, reply: Reply<u64> },
-    /// Le fichier a-t-il été modifié (ou supprimé) par un autre programme depuis l'ouverture ?
-    ChangedOnDisk { doc: u32, reply: Reply<bool> },
-    /// Relit le fichier depuis le disque (abandonne les modifications en mémoire).
-    Reload { doc: u32, reply: Reply<DocInfo> },
-    Fields { doc: u32, page: i32, reply: Reply<Vec<eng::fill::Field>> },
-    SetField { doc: u32, page: i32, index: i32, input: eng::fill::FieldInput, scripts: bool, reply: Reply<SetFieldResult> },
-    Links { doc: u32, page: i32, reply: Reply<Vec<eng::PageLink>> },
-    Bookmarks { doc: u32, reply: Reply<Vec<eng::Bookmark>> },
-    Properties { doc: u32, reply: Reply<eng::properties::DocProperties> },
-    /// Remplace les signets (écrits au prochain enregistrement).
-    SetBookmarks { doc: u32, items: Vec<eng::outline::OutlineItem>, reply: Reply<()> },
-    Attachments { doc: u32, reply: Reply<Vec<eng::navigation::Attachment>> },
-    AttachmentBytes { doc: u32, index: u16, reply: Reply<Vec<u8>> },
-    SearchSnippets { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool, already: usize, reply: Reply<eng::navigation::SnippetBatch> },
-    Search { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool, reply: Reply<eng::SearchBatch> },
-    Close { doc: u32 },
-    Tile { doc: u32, page: i32, scale: f32, x: i32, y: i32, size: i32, responder: UriSchemeResponder },
-}
-
-/// Impression en cours (une seule à la fois).
-struct ActivePrint {
-    doc: u32,
-    job: eng::print_win::PrintJob,
-    pages: Vec<i32>,
-    next: usize,
-    vector: bool,
-    cancel: Arc<AtomicBool>,
-    progress: Box<dyn Fn(usize, usize) + Send>,
-    reply: Reply<usize>,
-}
-
-struct Entry {
-    doc: PdfDocument<'static>,
-    path: PathBuf,
-    password: Option<String>,
-    mtime: Option<SystemTime>,
-    generation: u32,
-    fingerprint: String,
-    /// Signets modifiés, écrits au prochain enregistrement (PDFium ne sait pas les écrire).
-    outline: Option<Vec<eng::outline::OutlineItem>>,
-    /// Le formulaire porte-t-il des scripts (calcul, validation) ? Lu à la première saisie.
-    form_scripts: Option<bool>,
-}
-
-/// Résultat d'une saisie : champs à jour de la page, et effets des scripts du formulaire.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SetFieldResult {
-    pub fields: Vec<eng::fill::Field>,
-    pub outcome: eng::formcalc::Outcome,
-}
-
-#[derive(Clone)]
-pub struct EngineHandle(pub mpsc::Sender<Cmd>);
-
-impl EngineHandle {
-    pub fn send(&self, cmd: Cmd) {
-        let _ = self.0.send(cmd);
+impl Fail {
+    pub fn message(self) -> String {
+        match self {
+            Fail::Engine(Value::String(s)) => s,
+            Fail::Engine(v) => v.to_string(),
+            Fail::Restarted => "engine_restarted".into(),
+            Fail::Unavailable(s) => s,
+        }
     }
 }
 
-/// Démarre le thread moteur. `lib_dir` : dossier qui contient pdfium.dll.
-pub fn start(lib_dir: PathBuf) -> EngineHandle {
-    let (tx, rx) = mpsc::channel::<Cmd>();
-    std::thread::Builder::new()
-        .name("moteur-pdf".into())
-        .spawn(move || run(lib_dir, rx))
-        .expect("thread moteur");
-    EngineHandle(tx)
+type Done = Result<(Value, Vec<u8>), Fail>;
+type Progress = Box<dyn Fn(usize, usize) + Send>;
+
+enum Sink {
+    Reply(oneshot::Sender<Done>),
+    Tile(UriSchemeResponder),
+    Ignore,
 }
 
-fn info_of(id: u32, e: &Entry) -> DocInfo {
-    let doc = &e.doc;
-    let pages = doc.pages().iter().map(|p| [p.width().value, p.height().value]).collect();
-    DocInfo {
-        id,
-        path: e.path.display().to_string(),
-        name: e.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-        title: doc.metadata().get(PdfDocumentMetadataTagType::Title).map(|t| t.value().to_string()).filter(|t| !t.is_empty()),
-        page_count: doc.pages().len(),
-        pages,
-        encrypted: e.password.is_some(),
-        has_form: doc.form().is_some(),
-        is_xfa: doc.form().map(|f| matches!(f.form_type(), PdfFormType::XfaFull | PdfFormType::XfaForeground)).unwrap_or(false),
-        permissions: eng::permissions(doc),
-        attachment_count: doc.attachments().len(),
-        from_internet: eng::navigation::from_internet(&e.path),
-        bookmarks_editable: !eng::is_encrypted(doc),
-        fingerprint: e.fingerprint.clone(),
-        view_state: None,
-        generation: e.generation,
+struct Pending {
+    doc: Option<u32>,
+    sent: Instant,
+    patience: Duration,
+    print: bool,
+    progress: Option<Progress>,
+    sink: Sink,
+}
+
+/// Ce qu'il faut pour rouvrir un document après un redémarrage du moteur.
+#[derive(Clone)]
+struct DocRecord {
+    /// Fichier lu (une copie de récupération, pour un document restauré).
+    source: PathBuf,
+    /// Chemin présenté (et d'enregistrement), s'il diffère du fichier lu.
+    shown: Option<PathBuf>,
+    password: Option<String>,
+    generation: u32,
+}
+
+impl DocRecord {
+    fn shown(&self) -> &Path {
+        self.shown.as_deref().unwrap_or(&self.source)
+    }
+}
+
+struct Conn {
+    stdin: ChildStdin,
+    child: Child,
+}
+
+/// Ce que l'interface doit apprendre du prochain redémarrage (cumulé si le moteur retombe pendant
+/// qu'on rouvre les documents).
+#[derive(Default)]
+struct Notice {
+    reason: Option<&'static str>,
+    culprit: Option<u32>,
+    closed: Vec<u32>,
+}
+
+struct State {
+    conn: Option<Conn>,
+    epoch: u64,
+    pending: BTreeMap<u64, Pending>,
+    docs: HashMap<u32, DocRecord>,
+    /// Arrêts attribués à chaque document : au deuxième, il n'est plus rouvert.
+    crashes: HashMap<u32, u32>,
+    last_activity: Instant,
+    /// Le moteur a été arrêté par la surveillance (il ne répondait plus).
+    killed_for_hang: bool,
+    /// Instants des derniers arrêts, pour ne pas relancer sans fin un moteur qui ne démarre pas.
+    recent_exits: Vec<Instant>,
+    broken: Option<String>,
+    notice: Notice,
+}
+
+struct Shared {
+    lib_dir: PathBuf,
+    state: Mutex<State>,
+    /// Un seul redémarrage à la fois.
+    restart: Mutex<()>,
+    app: OnceLock<AppHandle>,
+    next_req: AtomicU64,
+    next_doc: AtomicU32,
+    #[cfg(windows)]
+    job: Option<job::Job>,
+}
+
+/// Mémoire maximale du processus moteur : au-delà, une allocation échoue et le moteur s'arrête
+/// (bombe de décompression, image démesurée) au lieu d'épuiser la machine.
+const ENGINE_MEMORY: usize = 4 << 30;
+
+#[derive(Clone)]
+pub struct Engine(Arc<Shared>);
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ReopenedDoc {
+    id: u32,
+    info: DocInfo,
+    /// « snapshot » : rouvert depuis la dernière copie de récupération ; « file » : depuis le fichier.
+    from: &'static str,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RestartEvent {
+    reason: &'static str,
+    culprit: Option<u32>,
+    docs: Vec<ReopenedDoc>,
+    closed: Vec<u32>,
+}
+
+impl Engine {
+    /// Lance le moteur. `lib_dir` : dossier qui contient pdfium.dll.
+    pub fn start(lib_dir: PathBuf) -> Engine {
+        let shared = Arc::new(Shared {
+            lib_dir,
+            state: Mutex::new(State {
+                conn: None,
+                epoch: 0,
+                pending: BTreeMap::new(),
+                docs: HashMap::new(),
+                crashes: HashMap::new(),
+                last_activity: Instant::now(),
+                killed_for_hang: false,
+                recent_exits: Vec::new(),
+                broken: None,
+                notice: Notice::default(),
+            }),
+            restart: Mutex::new(()),
+            app: OnceLock::new(),
+            next_req: AtomicU64::new(1),
+            next_doc: AtomicU32::new(1),
+            #[cfg(windows)]
+            job: job::Job::new(ENGINE_MEMORY),
+        });
+        let engine = Engine(shared);
+        if let Err(e) = engine.spawn() {
+            eprintln!("moteur PDF : lancement impossible : {e}");
+            engine.0.state.lock().unwrap().broken = Some(format!("Le moteur PDF n'a pas pu démarrer ({e})."));
+        }
+        let watch = engine.clone();
+        std::thread::Builder::new().name("surveillance-moteur".into()).spawn(move || watch.watchdog()).expect("fil de surveillance");
+        engine
+    }
+
+    /// Application (événements, base locale pour retrouver les copies de récupération).
+    pub fn attach(&self, app: AppHandle) {
+        let _ = self.0.app.set(app);
+    }
+
+    fn spawn(&self) -> std::io::Result<()> {
+        let exe = std::env::current_exe()?;
+        let mut cmd = Command::new(exe);
+        cmd.arg("--engine-host").arg(&self.0.lib_dir).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let mut child = cmd.spawn()?;
+        #[cfg(windows)]
+        if let Some(job) = &self.0.job
+            && !job.assign(&child)
+        {
+            eprintln!("moteur PDF : limites du processus non appliquées");
+        }
+        let stdin = child.stdin.take().ok_or_else(|| std::io::Error::other("entrée du moteur"))?;
+        let stdout = child.stdout.take().ok_or_else(|| std::io::Error::other("sortie du moteur"))?;
+        let epoch = {
+            let mut s = self.0.state.lock().unwrap();
+            s.epoch += 1;
+            s.conn = Some(Conn { stdin, child });
+            s.last_activity = Instant::now();
+            s.epoch
+        };
+        let me = self.clone();
+        std::thread::Builder::new()
+            .name("réponses-moteur".into())
+            .spawn(move || me.read_answers(BufReader::new(stdout), epoch))
+            .expect("fil de lecture du moteur");
+        Ok(())
+    }
+
+    /// Numéro du prochain document (choisi ici, pour qu'il survive aux redémarrages du moteur).
+    pub fn new_doc_id(&self) -> u32 {
+        self.0.next_doc.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn submit(&self, req: Request, data: &[u8], sink: Sink, progress: Option<Progress>) {
+        let id = self.0.next_req.fetch_add(1, Ordering::Relaxed);
+        let mut s = self.0.state.lock().unwrap();
+        let fail = |sink: Sink, f: Fail| complete(sink, Err(f));
+        if let Some(b) = &s.broken {
+            let b = b.clone();
+            drop(s);
+            return fail(sink, Fail::Unavailable(b));
+        }
+        let Some(conn) = s.conn.as_mut() else {
+            drop(s);
+            return fail(sink, Fail::Restarted);
+        };
+        let pending = Pending { doc: req.doc(), sent: Instant::now(), patience: patience(&req), print: matches!(req, Request::Print { .. }), progress, sink };
+        if write_frame(&mut conn.stdin, &Envelope { id, req }, data).is_err() {
+            // Le moteur vient de s'arrêter : le fil de lecture s'en occupe.
+            drop(s);
+            return complete(pending.sink, Err(Fail::Restarted));
+        }
+        s.pending.insert(id, pending);
+    }
+
+    /// Envoie une demande et attend la réponse (valeur JSON et données binaires).
+    pub async fn call(&self, req: Request, data: Vec<u8>) -> Done {
+        let (tx, rx) = oneshot::channel();
+        self.submit(req, &data, Sink::Reply(tx), None);
+        rx.await.unwrap_or(Err(Fail::Restarted))
+    }
+
+    fn call_blocking(&self, req: Request) -> Done {
+        let (tx, rx) = oneshot::channel();
+        self.submit(req, &[], Sink::Reply(tx), None);
+        rx.blocking_recv().unwrap_or(Err(Fail::Restarted))
+    }
+
+    /// Demande dont la réponse est relue en type Rust ; l'erreur est un message.
+    pub async fn ask<T: DeserializeOwned>(&self, req: Request) -> Result<T, String> {
+        let (v, _) = self.call(req, Vec::new()).await.map_err(Fail::message)?;
+        serde_json::from_value(v).map_err(|e| e.to_string())
+    }
+
+    /// Demande sans attente de réponse (fermeture, annulation d'impression).
+    pub fn send(&self, req: Request) {
+        if let Request::Close { doc } = req {
+            self.0.state.lock().unwrap().docs.remove(&doc);
+        }
+        self.submit(req, &[], Sink::Ignore, None);
+    }
+
+    /// Tuile pour le protocole `pdfpage://` : la réponse HTTP part dès que le moteur a rendu.
+    pub fn tile(&self, req: Request, responder: UriSchemeResponder) {
+        self.submit(req, &[], Sink::Tile(responder), None);
+    }
+
+    /// Impression, avec la progression page par page.
+    pub async fn print(&self, req: Request, progress: Progress) -> Result<usize, String> {
+        #[cfg(windows)]
+        if let Some(pid) = self.0.state.lock().unwrap().conn.as_ref().map(|c| c.child.id()) {
+            // Le pilote peut ouvrir sa propre fenêtre (« Enregistrer sous » de Microsoft Print to PDF)
+            // depuis le moteur : elle a le droit de passer devant.
+            unsafe {
+                let _ = windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid);
+            }
+        }
+        let (tx, rx) = oneshot::channel();
+        self.submit(req, &[], Sink::Reply(tx), Some(progress));
+        let (v, _) = rx.await.unwrap_or(Err(Fail::Restarted)).map_err(Fail::message)?;
+        serde_json::from_value(v).map_err(|e| e.to_string())
+    }
+
+    /// Ouvre un document sous un nouveau numéro ; renvoie aussi la miniature (PNG).
+    pub async fn open(&self, path: PathBuf, shown_as: Option<PathBuf>, password: Option<String>) -> Result<(OpenResult, Vec<u8>), pdfreader_engine::OpenError> {
+        use pdfreader_engine::OpenError;
+        let id = self.new_doc_id();
+        let req = Request::Open { doc: id, path: path.clone(), shown_as: shown_as.clone(), password: password.clone(), generation: 1 };
+        let (v, thumb) = self.call(req, Vec::new()).await.map_err(|f| match f {
+            Fail::Engine(v) => serde_json::from_value::<OpenError>(v.clone()).unwrap_or_else(|_| OpenError::Other(Fail::Engine(v).message())),
+            other => OpenError::Other(other.message()),
+        })?;
+        let r: OpenResult = serde_json::from_value(v).map_err(|e| OpenError::Other(e.to_string()))?;
+        self.0.state.lock().unwrap().docs.insert(id, DocRecord { source: path, shown: shown_as, password, generation: r.info.generation });
+        Ok((r, thumb))
+    }
+
+    pub async fn save(&self, doc: u32, path: Option<PathBuf>) -> Result<SaveResult, String> {
+        let r: SaveResult = self.ask(Request::Save { doc, path }).await?;
+        if let Some(d) = self.0.state.lock().unwrap().docs.get_mut(&doc) {
+            d.source = PathBuf::from(&r.path);
+            d.shown = None;
+            d.generation = r.generation;
+        }
+        Ok(r)
+    }
+
+    pub async fn reload(&self, doc: u32) -> Result<DocInfo, String> {
+        let info: DocInfo = self.ask(Request::Reload { doc }).await?;
+        if let Some(d) = self.0.state.lock().unwrap().docs.get_mut(&doc) {
+            d.source = PathBuf::from(&info.path);
+            d.shown = None;
+            d.generation = info.generation;
+        }
+        Ok(info)
+    }
+
+    // -------------------------------------------------------------- réponses et arrêts
+
+    fn read_answers(&self, mut out: BufReader<std::process::ChildStdout>, epoch: u64) {
+        loop {
+            let frame = read_frame::<Answer>(&mut out);
+            let Ok(Some((answer, data))) = frame else { break };
+            let mut s = self.0.state.lock().unwrap();
+            if s.epoch != epoch {
+                return;
+            }
+            s.last_activity = Instant::now();
+            match answer {
+                Answer::Progress { id, done, total } => {
+                    if let Some(p) = s.pending.get(&id).and_then(|p| p.progress.as_ref()) {
+                        p(done, total);
+                    }
+                }
+                Answer::Ok { id, value } => {
+                    if let Some(p) = s.pending.remove(&id) {
+                        drop(s);
+                        complete(p.sink, Ok((value, data)));
+                    }
+                }
+                Answer::Err { id, error } => {
+                    if let Some(p) = s.pending.remove(&id) {
+                        drop(s);
+                        complete(p.sink, Err(Fail::Engine(error)));
+                    }
+                }
+            }
+        }
+        self.on_exit(epoch);
+    }
+
+    /// Le moteur s'est arrêté (plantage, blocage interrompu) : on termine les demandes en cours,
+    /// on le relance et on rouvre les documents.
+    fn on_exit(&self, epoch: u64) {
+        let pending = {
+            let mut s = self.0.state.lock().unwrap();
+            if s.epoch != epoch {
+                return;
+            }
+            let Some(mut conn) = s.conn.take() else { return };
+            let _ = conn.child.kill();
+            let status = conn.child.wait().ok();
+            let reason = if std::mem::take(&mut s.killed_for_hang) { "hang" } else { "crash" };
+            eprintln!("moteur PDF arrêté ({reason}, {status:?})");
+            let pending = std::mem::take(&mut s.pending);
+            // Le moteur traite les demandes dans l'ordre : la plus ancienne en attente est celle
+            // qui l'a fait tomber.
+            let culprit = pending.values().find_map(|p| p.doc).filter(|d| s.docs.contains_key(d));
+            if let Some(c) = culprit {
+                *s.crashes.entry(c).or_default() += 1;
+            }
+            let n = &mut s.notice;
+            n.reason = Some(match (n.reason, reason) {
+                (Some("hang"), _) | (_, "hang") => "hang",
+                _ => "crash",
+            });
+            n.culprit = n.culprit.or(culprit);
+            let now = Instant::now();
+            s.recent_exits.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
+            s.recent_exits.push(now);
+            pending
+        };
+        for (_, p) in pending {
+            complete(p.sink, Err(Fail::Restarted));
+        }
+        let me = self.clone();
+        std::thread::Builder::new().name("relance-moteur".into()).spawn(move || me.restart()).expect("fil de relance");
+    }
+
+    fn restart(&self) {
+        let _one = self.0.restart.lock().unwrap();
+        {
+            let mut s = self.0.state.lock().unwrap();
+            if s.conn.is_some() || s.broken.is_some() {
+                return; // déjà relancé par un autre arrêt
+            }
+            if s.recent_exits.len() >= 5 {
+                s.broken = Some("Le moteur PDF s'arrête sans cesse : redémarrez PDFReader.".into());
+            }
+        }
+        let broken = self.0.state.lock().unwrap().broken.clone();
+        if broken.is_none()
+            && let Err(e) = self.spawn()
+        {
+            self.0.state.lock().unwrap().broken = Some(format!("Le moteur PDF n'a pas pu redémarrer ({e})."));
+        }
+        if self.0.state.lock().unwrap().broken.is_some() {
+            let (notice, closed) = {
+                let mut s = self.0.state.lock().unwrap();
+                let closed: Vec<u32> = s.docs.drain().map(|(id, _)| id).collect();
+                (std::mem::take(&mut s.notice), closed)
+            };
+            let mut all = notice.closed;
+            all.extend(closed);
+            self.emit(RestartEvent { reason: "unavailable", culprit: notice.culprit, docs: Vec::new(), closed: all });
+            return;
+        }
+        // Documents à rouvrir, dans l'ordre d'ouverture. Celui qui a déjà fait tomber le moteur
+        // deux fois reste fermé.
+        let docs: Vec<(u32, DocRecord)> = {
+            let mut s = self.0.state.lock().unwrap();
+            let doomed: Vec<u32> = s.docs.keys().copied().filter(|id| s.crashes.get(id).copied().unwrap_or(0) >= 2).collect();
+            for id in &doomed {
+                s.docs.remove(id);
+                s.notice.closed.push(*id);
+            }
+            let mut v: Vec<_> = s.docs.iter().map(|(k, d)| (*k, d.clone())).collect();
+            v.sort_by_key(|(k, _)| *k);
+            v
+        };
+        let mut reopened = Vec::new();
+        for (id, rec) in docs {
+            let (source, shown, from) = match self.snapshot_for(rec.shown()) {
+                Some(snap) => (snap, Some(rec.shown().to_path_buf()), "snapshot"),
+                None if rec.shown.is_some() && rec.source.exists() => (rec.source.clone(), rec.shown.clone(), "snapshot"),
+                None => (rec.shown().to_path_buf(), None, "file"),
+            };
+            let req = Request::Open { doc: id, path: source.clone(), shown_as: shown.clone(), password: rec.password.clone(), generation: rec.generation + 1 };
+            match self.call_blocking(req) {
+                Ok((v, _)) => {
+                    let Ok(r) = serde_json::from_value::<OpenResult>(v) else { continue };
+                    let mut s = self.0.state.lock().unwrap();
+                    if let Some(d) = s.docs.get_mut(&id) {
+                        *d = DocRecord { source, shown, password: rec.password.clone(), generation: r.info.generation };
+                    }
+                    reopened.push(ReopenedDoc { id, info: r.info, from });
+                }
+                // Le moteur est retombé pendant la réouverture : le prochain redémarrage reprend tout.
+                Err(Fail::Restarted) | Err(Fail::Unavailable(_)) => return,
+                Err(Fail::Engine(_)) => {
+                    // Fichier disparu ou illisible : le document est fermé.
+                    let mut s = self.0.state.lock().unwrap();
+                    s.docs.remove(&id);
+                    s.notice.closed.push(id);
+                }
+            }
+        }
+        let notice = std::mem::take(&mut self.0.state.lock().unwrap().notice);
+        self.emit(RestartEvent { reason: notice.reason.unwrap_or("crash"), culprit: notice.culprit, docs: reopened, closed: notice.closed });
+    }
+
+    /// Dernière copie de récupération du document (modifications non enregistrées).
+    fn snapshot_for(&self, shown: &Path) -> Option<PathBuf> {
+        let app = self.0.app.get()?;
+        let db = app.try_state::<crate::db::Db>()?;
+        let wanted = shown.display().to_string();
+        db.snapshots().ok()?.into_iter().find(|s| s.1 == wanted).map(|s| PathBuf::from(s.2)).filter(|p| p.exists())
+    }
+
+    fn emit(&self, e: RestartEvent) {
+        if let Some(app) = self.0.app.get() {
+            let _ = app.emit("engine-restarted", e);
+        }
+    }
+
+    /// Un moteur qui ne répond plus est arrêté : la relance suit le même chemin qu'un plantage.
+    fn watchdog(&self) {
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+            let mut s = self.0.state.lock().unwrap();
+            // Pendant une impression, le pilote peut attendre l'utilisateur (choix du fichier) :
+            // pas de surveillance.
+            if s.conn.is_none() || s.pending.values().any(|p| p.print) {
+                continue;
+            }
+            let Some(oldest) = s.pending.values().next() else { continue };
+            let since = oldest.sent.max(s.last_activity);
+            if since.elapsed() > oldest.patience {
+                s.killed_for_hang = true;
+                if let Some(c) = s.conn.as_mut() {
+                    let _ = c.child.kill();
+                }
+            }
+        }
+    }
+}
+
+/// Délai de patience d'une demande ; raccourci pour les tests de bout en bout.
+fn patience(req: &Request) -> Duration {
+    let p = req.patience();
+    if p <= Duration::from_secs(30)
+        && let Some(ms) = std::env::var("PDFREADER_E2E").ok().and(std::env::var("PDFREADER_E2E_WATCHDOG_MS").ok()).and_then(|v| v.parse().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    p
+}
+
+fn complete(sink: Sink, r: Done) {
+    match sink {
+        Sink::Reply(tx) => {
+            let _ = tx.send(r);
+        }
+        Sink::Tile(responder) => match r {
+            Ok((_, webp)) => respond(responder, 200, "image/webp", webp),
+            Err(Fail::Engine(e)) => respond(responder, 404, "text/plain", Fail::Engine(e).message().into_bytes()),
+            Err(f) => respond(responder, 503, "text/plain", f.message().into_bytes()),
+        },
+        Sink::Ignore => {}
     }
 }
 
 fn respond(responder: UriSchemeResponder, status: u16, content_type: &str, body: Vec<u8>) {
-    responder.respond(
-        Response::builder()
-            .status(status)
-            .header("Content-Type", content_type)
-            .header("Access-Control-Allow-Origin", "*")
-            // L'URL contient la génération du document et la version de la page : immuable.
-            .header("Cache-Control", "public, max-age=31536000, immutable")
-            .body(body)
-            .unwrap(),
-    );
+    let mut b = Response::builder().status(status).header("Content-Type", content_type).header("Access-Control-Allow-Origin", "*");
+    if status == 200 {
+        // L'URL contient la génération du document et la version de la page : immuable.
+        b = b.header("Cache-Control", "public, max-age=31536000, immutable");
+    } else {
+        b = b.header("Cache-Control", "no-store");
+    }
+    responder.respond(b.body(body).unwrap());
 }
 
-fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
-    let pdfium: &'static Pdfium = match eng::load_pdfium(&lib_dir) {
-        Ok(p) => Box::leak(Box::new(p)),
-        Err(e) => {
-            eprintln!("PDFium introuvable : {e:#}");
-            // On répond en erreur à tout, pour que l'interface l'affiche au lieu de rester bloquée.
-            for cmd in rx {
-                fail(cmd, "Le moteur PDF n'a pas pu démarrer (pdfium.dll introuvable).");
-            }
-            return;
-        }
+#[cfg(windows)]
+mod job {
+    //! Objet de tâche Windows : le moteur meurt avec l'application, sa mémoire est plafonnée et
+    //! une exception non gérée l'arrête sans boîte de dialogue.
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
     };
-    let mut docs: HashMap<u32, Entry> = HashMap::new();
-    let mut next_id: u32 = 1;
-    let mut printing: Option<ActivePrint> = None;
 
-    loop {
-        // Les commandes passent toujours avant l'impression : l'affichage reste fluide.
-        let cmd = if printing.is_some() {
-            match rx.try_recv() {
-                Ok(c) => Some(c),
-                Err(mpsc::TryRecvError::Empty) => None,
-                Err(mpsc::TryRecvError::Disconnected) => break,
-            }
-        } else {
-            match rx.recv() {
-                Ok(c) => Some(c),
-                Err(_) => break,
-            }
-        };
-        let Some(cmd) = cmd else {
-            // Rien en attente : une page de plus pour l'impression en cours.
-            let Some(mut p) = printing.take() else { continue };
-            if p.cancel.load(Ordering::Relaxed) {
-                let _ = p.reply.send(Err("print_cancelled".into()));
-                continue; // la tâche abandonnée annule le document côté spouleur
-            }
-            let Some(e) = docs.get(&p.doc) else {
-                let _ = p.reply.send(Err("document fermé".into()));
-                continue;
-            };
-            let Some(&page) = p.pages.get(p.next) else {
-                let n = p.pages.len();
-                let _ = p.reply.send(p.job.finish().map(|_| n).map_err(|e| e.to_string()));
-                continue;
-            };
-            match p.job.page(&e.doc, page, p.vector) {
-                Ok(()) => {
-                    p.next += 1;
-                    (p.progress)(p.next, p.pages.len());
-                    printing = Some(p);
-                }
-                Err(err) => {
-                    let _ = p.reply.send(Err(err.to_string()));
-                }
-            }
-            continue;
-        };
-        match cmd {
-            Cmd::Print { doc, opts, cancel, progress, reply } => {
-                if printing.is_some() {
-                    let _ = reply.send(Err("print_busy".into()));
-                    continue;
-                }
-                let started = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
-                    let perms = eng::permissions(&e.doc);
-                    if !perms.print {
-                        return Err("print_forbidden".to_string());
-                    }
-                    let count = e.doc.pages().len();
-                    let pages: Vec<i32> = opts.pages.iter().copied().filter(|p| (0..count).contains(p)).collect();
-                    if pages.is_empty() {
-                        return Err("aucune page à imprimer".to_string());
-                    }
-                    let mut opts = opts;
-                    opts.pages = pages.clone();
-                    if opts.title.is_empty() {
-                        opts.title = e.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                    }
-                    let job = eng::print_win::PrintJob::start(&opts).map_err(|e| e.to_string())?;
-                    Ok((job, pages, perms.print_high_quality))
-                });
-                match started {
-                    Ok((job, pages, vector)) => printing = Some(ActivePrint { doc, job, pages, next: 0, vector, cancel, progress, reply }),
-                    Err(e) => {
-                        let _ = reply.send(Err(e));
-                    }
-                }
-            }
-            Cmd::Snapshot { doc, target, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
-                    eng::save(&e.doc, &target, true).map_err(|e| e.to_string())?;
-                    if let Some(items) = &e.outline {
-                        let _ = eng::outline::write(&target, items, &heights(&e.doc));
-                    }
-                    Ok(std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0))
-                });
-                let _ = reply.send(r);
-            }
-            Cmd::ChangedOnDisk { doc, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::file_mtime(&e.path) != e.mtime);
-                let _ = reply.send(r);
-            }
-            Cmd::Reload { doc, reply } => {
-                let r = (|| {
-                    let e = docs.get(&doc).ok_or("document fermé".to_string())?;
-                    let (path, password, generation) = (e.path.clone(), e.password.clone(), e.generation + 1);
-                    let fresh = eng::open_typed(pdfium, &path, password.as_deref()).map_err(|e| e.to_string())?;
-                    let fingerprint = eng::fingerprint(&path).map_err(|e| e.to_string())?;
-                    let entry = Entry { doc: fresh, mtime: eng::file_mtime(&path), path, password, generation, fingerprint, outline: None, form_scripts: None };
-                    let info = info_of(doc, &entry);
-                    docs.insert(doc, entry);
-                    Ok(info)
-                })();
-                let _ = reply.send(r);
-            }
-            Cmd::Open { path, shown_as, password, reply } => {
-                let result = (|| {
-                    let doc = eng::open_typed(pdfium, &path, password.as_deref())?;
-                    let thumbnail = eng::thumbnail_png(&doc, 160).unwrap_or_default();
-                    let shown = shown_as.unwrap_or_else(|| path.clone());
-                    // Copie de récupération : empreinte du fichier d'origine s'il existe encore.
-                    let fingerprint = eng::fingerprint(&shown).or_else(|_| eng::fingerprint(&path)).map_err(|e| eng::OpenError::Other(e.to_string()))?;
-                    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    let entry = Entry { doc, mtime: eng::file_mtime(&shown), path: shown, password: password.clone(), generation: 1, fingerprint, outline: None, form_scripts: None };
-                    let id = next_id;
-                    next_id += 1;
-                    let info = info_of(id, &entry);
-                    docs.insert(id, entry);
-                    Ok(OpenResult { info, size, thumbnail })
-                })();
-                let _ = reply.send(result);
-            }
-            Cmd::TextLayer { doc, page, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
-                    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
-                    eng::text_layer(&p).map_err(|e| e.to_string())
-                });
-                let _ = reply.send(r);
-            }
-            Cmd::Annot { doc, page, op, reply } => {
-                use eng::annotations as an;
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
-                    let mut p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
-                    let id = match op {
-                        AnnotOp::List => None,
-                        AnnotOp::Markup { kind, rects, color, opacity, author } => Some(an::add_markup(&mut p, &kind, &rects, color, opacity, &author)),
-                        AnnotOp::Note { x, y, contents, color, author } => Some(an::add_note(&mut p, x, y, &contents, color, &author)),
-                        AnnotOp::Ink { strokes, color, opacity, width, author } => Some(an::add_ink(&mut p, &strokes, color, opacity, width, &author)),
-                        AnnotOp::Text { x, y, text, size, color, author } => Some(eng::fill::add_text(&e.doc, &mut p, x, y, &text, size, color, &author)),
-                        AnnotOp::Mark { x, y, size, cross, color, author } => Some(eng::fill::add_mark(&mut p, x, y, size, cross, color, &author)),
-                        AnnotOp::TextBox { rect, text, size, color, filled, anchor, author } => {
-                            Some(eng::fill::add_textbox(&e.doc, &mut p, rect, &text, size, color, filled.then_some([255, 255, 255]), anchor, &author))
-                        }
-                        AnnotOp::Image { rect, png, kind, author } => Some(eng::fill::add_image(&e.doc, &mut p, rect, &png, &kind, &author)),
-                        AnnotOp::Update { id, patch } => {
-                            an::update(&mut p, &id, &patch).map_err(|e| e.to_string())?;
-                            None
-                        }
-                        AnnotOp::Delete { id } => {
-                            an::delete(&mut p, &id).map_err(|e| e.to_string())?;
-                            None
-                        }
-                        AnnotOp::Shape { kind, points, color, opacity, width, fill, author } => Some(an::add_shape(&mut p, &kind, &points, color, opacity, width, fill, &author)),
-                        AnnotOp::Stamp { x, y, preset, label, subtitle, author } => {
-                            Some(eng::fill::add_preset_stamp(&e.doc, &mut p, x, y, &preset, &label, subtitle.as_deref(), &author))
-                        }
-                        AnnotOp::Reply { parent, contents, author } => Some(an::add_reply(&mut p, &parent, &contents, &author)),
-                        AnnotOp::Status { id, status, marked } => {
-                            an::set_status(&mut p, &id, status.as_deref(), marked).map_err(|e| e.to_string())?;
-                            None
-                        }
-                    };
-                    let id = id.transpose().map_err(|e| e.to_string())?;
-                    Ok(AnnotResult { id, annots: an::list(&p, page) })
-                });
-                let _ = reply.send(r);
-            }
-            Cmd::CountHighlights { doc, page, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
-                    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
-                    Ok(eng::count_annotations(&p, PdfPageAnnotationType::Highlight))
-                });
-                let _ = reply.send(r);
-            }
-            Cmd::Links { doc, page, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
-                    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
-                    Ok(eng::page_links(&e.doc, &p))
-                });
-                let _ = reply.send(r);
-            }
-            Cmd::Fields { doc, page, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
-                    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
-                    Ok(eng::fill::fields(&e.doc, &p, page))
-                });
-                let _ = reply.send(r);
-            }
-            Cmd::SetField { doc, page, index, input, scripts, reply } => {
-                let r = docs.get_mut(&doc).ok_or("document fermé".to_string()).and_then(|e| {
-                    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
-                    let old = eng::fill::fields(&e.doc, &p, page).into_iter().find(|f| f.index == index).map(|f| f.value).unwrap_or_default();
-                    eng::fill::set_field(&e.doc, &p, index, &input).map_err(|e| e.to_string())?;
-                    // Calculs et validations : seulement si le formulaire en a (vérifié une fois).
-                    // Préférence coupée : aucun calcul ni aucune vérification (même standard).
-                    let has = scripts && *e.form_scripts.get_or_insert_with(|| eng::formcalc::has_scripts(&eng::formcalc::collect(&e.doc)));
-                    let outcome = if has { eng::formcalc::after_change(&e.doc, page, index, &old, scripts).map_err(|e| e.to_string())? } else { Default::default() };
-                    Ok(SetFieldResult { fields: eng::fill::fields(&e.doc, &p, page), outcome })
-                });
-                let _ = reply.send(r);
-            }
-            Cmd::Bookmarks { doc, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| match &e.outline {
-                    Some(items) => outline_as_bookmarks(items),
-                    None => eng::bookmarks(&e.doc),
-                });
-                let _ = reply.send(r);
-            }
-            Cmd::SetBookmarks { doc, items, reply } => {
-                let r = docs.get_mut(&doc).ok_or("document fermé".to_string()).and_then(|e| {
-                    if eng::is_encrypted(&e.doc) {
-                        return Err("encrypted".to_string());
-                    }
-                    if eng::outline::count(&items) > eng::outline::MAX_ITEMS {
-                        return Err("trop de signets".to_string());
-                    }
-                    e.outline = Some(items);
-                    Ok(())
-                });
-                let _ = reply.send(r);
-            }
-            Cmd::Attachments { doc, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::navigation::attachments(&e.doc));
-                let _ = reply.send(r);
-            }
-            Cmd::AttachmentBytes { doc, index, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| eng::navigation::attachment_bytes(&e.doc, index).map_err(|e| e.to_string()));
-                let _ = reply.send(r);
-            }
-            Cmd::SearchSnippets { doc, from, count, query, match_case, whole_word, already, reply } => {
-                let r = docs
-                    .get(&doc)
-                    .ok_or("document fermé".to_string())
-                    .and_then(|e| eng::navigation::search_snippets(&e.doc, from, count, &query, match_case, whole_word, already).map_err(|e| e.to_string()));
-                let _ = reply.send(r);
-            }
-            Cmd::Properties { doc, reply } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).map(|e| eng::properties::properties(&e.doc, &e.path));
-                let _ = reply.send(r);
-            }
-            Cmd::Search { doc, from, count, query, match_case, whole_word, reply } => {
-                let r = docs
-                    .get(&doc)
-                    .ok_or("document fermé".to_string())
-                    .and_then(|e| eng::search(&e.doc, from, count, &query, match_case, whole_word).map_err(|e| e.to_string()));
-                let _ = reply.send(r);
-            }
-            Cmd::Save { doc, path, reply } => {
-                let r = save(pdfium, &mut docs, doc, path);
-                let _ = reply.send(r);
-            }
-            Cmd::Close { doc } => {
-                docs.remove(&doc);
-            }
-            Cmd::Tile { doc, page, scale, x, y, size, responder } => {
-                let r = docs.get(&doc).ok_or("document fermé".to_string()).and_then(|e| {
-                    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
-                    let tile = eng::render_tile(&p, scale, x, y, size).map_err(|e| e.to_string())?;
-                    eng::tile_webp(&tile).map_err(|e| e.to_string())
-                });
-                match r {
-                    Ok(webp) => respond(responder, 200, "image/webp", webp),
-                    Err(e) => respond(responder, 404, "text/plain", e.into_bytes()),
-                }
-            }
-        }
-    }
-}
+    pub struct Job(HANDLE);
+    // Le descripteur est utilisé depuis plusieurs fils, sans état partagé côté Rust.
+    unsafe impl Send for Job {}
+    unsafe impl Sync for Job {}
 
-/// Enregistre (sur place ou ailleurs), puis recharge le document depuis le fichier écrit pour que
-/// les enregistrements suivants s'appuient sur la nouvelle version.
-fn save(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, target: Option<PathBuf>) -> Result<SaveResult, String> {
-    let e = docs.get(&id).ok_or("document fermé")?;
-    let same_file = target.as_ref().map(|t| same_path(t, &e.path)).unwrap_or(true);
-    let target = target.unwrap_or_else(|| e.path.clone());
-    if same_file && eng::file_mtime(&e.path) != e.mtime {
-        return Err("file_changed".into());
-    }
-    // Sur place : incrémental (préserve les signatures). Ailleurs : incrémental aussi, le fichier
-    // d'origine est recopié en tête puis la mise à jour ajoutée.
-    eng::save(&e.doc, &target, true).map_err(|err| {
-        if err.to_string().contains("os error 32") || err.to_string().contains("os error 5") {
-            "file_locked".to_string()
-        } else {
-            err.to_string()
+    impl Job {
+        pub fn new(memory: usize) -> Option<Job> {
+            unsafe {
+                let h = CreateJobObjectW(None, windows::core::PCWSTR::null()).ok()?;
+                let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION | JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+                info.ProcessMemoryLimit = memory;
+                SetInformationJobObject(h, JobObjectExtendedLimitInformation, &info as *const _ as *const core::ffi::c_void, std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32)
+                    .ok()?;
+                Some(Job(h))
+            }
         }
-    })?;
-    if let Some(items) = &e.outline {
-        eng::outline::write(&target, items, &heights(&e.doc)).map_err(|err| {
-            let m = err.to_string();
-            if m.contains("encrypted") || m.contains("file_too_big") { m } else { format!("bookmarks_failed: {m}") }
-        })?;
-    }
-    let password = e.password.clone();
-    let generation = e.generation + 1;
-    let old_fingerprint = e.fingerprint.clone();
-    let doc = eng::open_typed(pdfium, &target, password.as_deref()).map_err(|e| e.to_string())?;
-    let bytes = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
-    let fingerprint = eng::fingerprint(&target).map_err(|e| e.to_string())?;
-    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone(), outline: None, form_scripts: None };
-    docs.insert(id, entry);
-    Ok(SaveResult { path: target.display().to_string(), bytes, generation, fingerprint, old_fingerprint })
-}
 
-fn heights(doc: &PdfDocument) -> Vec<f32> {
-    doc.pages().iter().map(|p| p.height().value).collect()
-}
-
-/// Signets en attente, présentés comme ceux lus dans le fichier.
-fn outline_as_bookmarks(items: &[eng::outline::OutlineItem]) -> Vec<eng::Bookmark> {
-    items
-        .iter()
-        .map(|i| eng::Bookmark {
-            title: i.title.clone(),
-            action: match (&i.uri, i.page) {
-                (Some(u), _) => eng::LinkAction::Uri { uri: u.clone() },
-                (None, p) if p >= 0 => eng::LinkAction::Goto { page: p, top: i.top },
-                _ => eng::LinkAction::None,
-            },
-            children: outline_as_bookmarks(&i.children),
-        })
-        .collect()
-}
-
-fn same_path(a: &Path, b: &Path) -> bool {
-    match (a.canonicalize(), b.canonicalize()) {
-        (Ok(x), Ok(y)) => x == y,
-        _ => a == b,
-    }
-}
-
-fn fail(cmd: Cmd, msg: &str) {
-    match cmd {
-        Cmd::Open { reply, .. } => {
-            let _ = reply.send(Err(eng::OpenError::Other(msg.into())));
+        pub fn assign(&self, child: &std::process::Child) -> bool {
+            unsafe { AssignProcessToJobObject(self.0, HANDLE(child.as_raw_handle())).is_ok() }
         }
-        Cmd::TextLayer { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Annot { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::CountHighlights { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Links { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Bookmarks { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::SetBookmarks { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Properties { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Attachments { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::AttachmentBytes { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::SearchSnippets { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Fields { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::SetField { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Print { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Snapshot { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::ChangedOnDisk { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Reload { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Search { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Save { reply, .. } => {
-            let _ = reply.send(Err(msg.into()));
-        }
-        Cmd::Close { .. } => {}
-        Cmd::Tile { responder, .. } => respond(responder, 503, "text/plain", msg.as_bytes().to_vec()),
     }
 }

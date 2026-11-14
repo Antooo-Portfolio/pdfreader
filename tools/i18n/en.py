@@ -565,6 +565,15 @@ EN = {
     "Faire les calculs et vérifications des formulaires (scripts isolés, sans accès à l'ordinateur)": "Run form calculations and checks (isolated scripts, no access to the computer)",
     "Message du formulaire : {message}": "Message from the form: {message}",
     "Valeur refusée par le formulaire : {message}": "Value rejected by the form: {message}",
+    "Ce fichier a fait s'arrêter le moteur PDF : il est probablement endommagé. Le moteur a été relancé.": "This file made the PDF engine stop: it is probably damaged. The engine was restarted.",
+    "Fermé, car il fait s'arrêter le moteur PDF : {names}.": "Closed because it makes the PDF engine stop: {names}.",
+    "Le moteur PDF ne redémarre plus : fermez puis relancez PDFReader. Vos copies de récupération seront proposées au démarrage.": "The PDF engine no longer restarts: close and reopen PDFReader. Your recovery copies will be offered at startup.",
+    "Le moteur PDF ne répondait plus (« {name} ») : il a été relancé.": "The PDF engine stopped responding (“{name}”): it was restarted.",
+    "Le moteur PDF ne répondait plus : il a été relancé.": "The PDF engine stopped responding: it was restarted.",
+    "Le moteur PDF s'est arrêté : il a été relancé.": "The PDF engine stopped: it was restarted.",
+    "Le moteur PDF s'est arrêté sur « {name} » : il a été relancé.": "The PDF engine stopped on “{name}”: it was restarted.",
+    "Modifications non enregistrées perdues : {names}.": "Unsaved changes lost: {names}.",
+    "Rouvert depuis la dernière copie de récupération (les toutes dernières modifications peuvent manquer) : {names}.": "Reopened from the last recovery copy (the very latest changes may be missing): {names}.",
 }
 
 

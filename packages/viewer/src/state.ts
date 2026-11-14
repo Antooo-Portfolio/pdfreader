@@ -13,6 +13,8 @@ export interface OpenDoc {
 export type Action =
   | { type: "opened"; info: DocInfo; dirty?: boolean }
   | { type: "reloaded"; info: DocInfo }
+  /** Rouvert après un redémarrage du moteur ; `dirty` : depuis une copie de récupération. */
+  | { type: "restarted"; info: DocInfo; dirty: boolean }
   | { type: "closed"; id: number }
   | { type: "annotated"; id: number; page: number }
   | { type: "saved"; id: number; generation: number; path: string; fingerprint: string };
@@ -23,6 +25,8 @@ export function reducer(docs: OpenDoc[], a: Action): OpenDoc[] {
       return [...docs, { info: a.info, dirty: a.dirty ?? false, pageVersions: {}, edits: a.dirty ? 1 : 0 }];
     case "reloaded":
       return docs.map((d) => (d.info.id === a.info.id ? { info: a.info, dirty: false, pageVersions: {}, edits: 0 } : d));
+    case "restarted":
+      return docs.map((d) => (d.info.id === a.info.id ? { info: a.info, dirty: a.dirty, pageVersions: {}, edits: a.dirty ? d.edits : 0 } : d));
     case "closed":
       return docs.filter((d) => d.info.id !== a.id);
     case "annotated":

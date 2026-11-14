@@ -206,7 +206,7 @@ pub fn fields(doc: &PdfDocument, page: &PdfPage, page_index: i32) -> Vec<Field> 
 }
 
 /// Valeur à saisir dans un champ.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum FieldInput {
     Text { value: String },

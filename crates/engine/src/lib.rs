@@ -229,7 +229,7 @@ pub mod print_win;
 // ============================================================================ M1
 
 /// Erreur d'ouverture typée, pour que l'interface réagisse (demander le mot de passe, etc.).
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
 pub enum OpenError {
     PasswordRequired,

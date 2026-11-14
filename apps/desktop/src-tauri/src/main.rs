@@ -3,16 +3,17 @@
 
 mod db;
 mod engine;
+mod host;
+mod protocol;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
-use engine::{AnnotOp, AnnotResult, Cmd, DocInfo, EngineHandle, SaveResult};
-use pdfreader_engine::{Bookmark, OpenError, PageLink, SearchBatch, TextWord};
+use engine::{AnnotOp, DocInfo, Engine, Request, SaveResult};
+use pdfreader_engine::OpenError;
+use serde_json::Value;
 use tauri::http::Response;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::oneshot;
 
 /// Fichiers .pdf passés en argument (double-clic, « Ouvrir avec »).
 fn pdf_args(args: impl IntoIterator<Item = String>, cwd: &Path) -> Vec<String> {
@@ -32,12 +33,6 @@ fn author_name() -> String {
     std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Utilisateur".into())
 }
 
-async fn ask<T>(engine: &EngineHandle, make: impl FnOnce(engine::Reply<T>) -> Cmd) -> Result<T, String> {
-    let (tx, rx) = oneshot::channel();
-    engine.send(make(tx));
-    rx.await.map_err(|_| "moteur indisponible".to_string())?
-}
-
 // ------------------------------------------------------------------ commandes
 
 #[tauri::command]
@@ -47,18 +42,16 @@ fn get_launch_files() -> Vec<String> {
 }
 
 #[tauri::command]
-async fn doc_open(path: String, password: Option<String>, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<DocInfo, OpenError> {
-    let (tx, rx) = oneshot::channel();
-    engine.send(Cmd::Open { path: PathBuf::from(&path), shown_as: None, password, reply: tx });
-    let mut r = rx.await.map_err(|_| OpenError::Other("moteur indisponible".into()))??;
-    let _ = db.touch(&r.info.fingerprint, &r.info.path, &r.info.name, r.size, r.info.page_count, &r.thumbnail);
+async fn doc_open(path: String, password: Option<String>, engine: State<'_, Engine>, db: State<'_, db::Db>) -> Result<DocInfo, OpenError> {
+    let (mut r, thumbnail) = engine.open(PathBuf::from(&path), None, password).await?;
+    let _ = db.touch(&r.info.fingerprint, &r.info.path, &r.info.name, r.size, r.info.page_count, &thumbnail);
     r.info.view_state = db.view_state(&r.info.fingerprint);
     Ok(r.info)
 }
 
 #[tauri::command]
-async fn doc_text_layer(doc: u32, page: i32, engine: State<'_, EngineHandle>) -> Result<Vec<Vec<TextWord>>, String> {
-    ask(&engine, |reply| Cmd::TextLayer { doc, page, reply }).await
+async fn doc_text_layer(doc: u32, page: i32, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::TextLayer { doc, page }).await
 }
 
 /// Nom d'auteur des commentaires : préférence « author », sinon le nom de session Windows.
@@ -72,8 +65,8 @@ fn comment_author(db: &db::Db) -> String {
 }
 
 #[tauri::command]
-async fn doc_annotations(doc: u32, page: i32, engine: State<'_, EngineHandle>) -> Result<AnnotResult, String> {
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::List, reply }).await
+async fn doc_annotations(doc: u32, page: i32, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::List }).await
 }
 
 #[tauri::command]
@@ -85,11 +78,11 @@ async fn annot_add_markup(
     rects: Vec<[f32; 4]>,
     color: [u8; 3],
     opacity: f32,
-    engine: State<'_, EngineHandle>,
+    engine: State<'_, Engine>,
     db: State<'_, db::Db>,
-) -> Result<AnnotResult, String> {
+) -> Result<Value, String> {
     let author = comment_author(&db);
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Markup { kind, rects, color, opacity, author }, reply }).await
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Markup { kind, rects, color, opacity, author } }).await
 }
 
 #[tauri::command]
@@ -101,11 +94,11 @@ async fn annot_add_note(
     y: f32,
     contents: String,
     color: [u8; 3],
-    engine: State<'_, EngineHandle>,
+    engine: State<'_, Engine>,
     db: State<'_, db::Db>,
-) -> Result<AnnotResult, String> {
+) -> Result<Value, String> {
     let author = comment_author(&db);
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Note { x, y, contents, color, author }, reply }).await
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Note { x, y, contents, color, author } }).await
 }
 
 #[tauri::command]
@@ -119,11 +112,11 @@ async fn annot_add_shape(
     opacity: f32,
     width: f32,
     fill: Option<[u8; 3]>,
-    engine: State<'_, EngineHandle>,
+    engine: State<'_, Engine>,
     db: State<'_, db::Db>,
-) -> Result<AnnotResult, String> {
+) -> Result<Value, String> {
     let author = comment_author(&db);
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Shape { kind, points, color, opacity, width, fill, author }, reply }).await
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Shape { kind, points, color, opacity, width, fill, author } }).await
 }
 
 #[tauri::command]
@@ -136,22 +129,22 @@ async fn annot_add_stamp(
     preset: String,
     label: String,
     subtitle: Option<String>,
-    engine: State<'_, EngineHandle>,
+    engine: State<'_, Engine>,
     db: State<'_, db::Db>,
-) -> Result<AnnotResult, String> {
+) -> Result<Value, String> {
     let author = comment_author(&db);
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Stamp { x, y, preset, label, subtitle, author }, reply }).await
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Stamp { x, y, preset, label, subtitle, author } }).await
 }
 
 #[tauri::command]
-async fn annot_reply(doc: u32, page: i32, parent: String, contents: String, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<AnnotResult, String> {
+async fn annot_reply(doc: u32, page: i32, parent: String, contents: String, engine: State<'_, Engine>, db: State<'_, db::Db>) -> Result<Value, String> {
     let author = comment_author(&db);
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Reply { parent, contents, author }, reply }).await
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Reply { parent, contents, author } }).await
 }
 
 #[tauri::command]
-async fn annot_set_status(doc: u32, page: i32, id: String, status: Option<String>, marked: Option<bool>, engine: State<'_, EngineHandle>) -> Result<AnnotResult, String> {
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Status { id, status, marked }, reply }).await
+async fn annot_set_status(doc: u32, page: i32, id: String, status: Option<String>, marked: Option<bool>, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Status { id, status, marked } }).await
 }
 
 #[tauri::command]
@@ -163,31 +156,31 @@ async fn annot_add_ink(
     color: [u8; 3],
     opacity: f32,
     width: f32,
-    engine: State<'_, EngineHandle>,
+    engine: State<'_, Engine>,
     db: State<'_, db::Db>,
-) -> Result<AnnotResult, String> {
+) -> Result<Value, String> {
     let author = comment_author(&db);
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Ink { strokes, color, opacity, width, author }, reply }).await
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Ink { strokes, color, opacity, width, author } }).await
 }
 
 #[tauri::command]
-async fn annot_update(doc: u32, page: i32, id: String, patch: pdfreader_engine::annotations::AnnotPatch, engine: State<'_, EngineHandle>) -> Result<AnnotResult, String> {
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Update { id, patch }, reply }).await
+async fn annot_update(doc: u32, page: i32, id: String, patch: pdfreader_engine::annotations::AnnotPatch, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Update { id, patch } }).await
 }
 
 #[tauri::command]
-async fn annot_delete(doc: u32, page: i32, id: String, engine: State<'_, EngineHandle>) -> Result<AnnotResult, String> {
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Delete { id }, reply }).await
+async fn annot_delete(doc: u32, page: i32, id: String, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Delete { id } }).await
 }
 
 #[tauri::command]
-async fn doc_fields(doc: u32, page: i32, engine: State<'_, EngineHandle>) -> Result<Vec<pdfreader_engine::fill::Field>, String> {
-    ask(&engine, |reply| Cmd::Fields { doc, page, reply }).await
+async fn doc_fields(doc: u32, page: i32, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::Fields { doc, page }).await
 }
 
 #[tauri::command]
-async fn field_set(doc: u32, page: i32, index: i32, input: pdfreader_engine::fill::FieldInput, scripts: bool, engine: State<'_, EngineHandle>) -> Result<engine::SetFieldResult, String> {
-    ask(&engine, |reply| Cmd::SetField { doc, page, index, input, scripts, reply }).await
+async fn field_set(doc: u32, page: i32, index: i32, input: pdfreader_engine::fill::FieldInput, scripts: bool, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::SetField { doc, page, index, input, scripts }).await
 }
 
 #[tauri::command]
@@ -200,11 +193,11 @@ async fn fill_add_text(
     text: String,
     size: f32,
     color: [u8; 3],
-    engine: State<'_, EngineHandle>,
+    engine: State<'_, Engine>,
     db: State<'_, db::Db>,
-) -> Result<AnnotResult, String> {
+) -> Result<Value, String> {
     let author = comment_author(&db);
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Text { x, y, text, size, color, author }, reply }).await
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Text { x, y, text, size, color, author } }).await
 }
 
 #[tauri::command]
@@ -217,11 +210,11 @@ async fn fill_add_mark(
     size: f32,
     cross: bool,
     color: [u8; 3],
-    engine: State<'_, EngineHandle>,
+    engine: State<'_, Engine>,
     db: State<'_, db::Db>,
-) -> Result<AnnotResult, String> {
+) -> Result<Value, String> {
     let author = comment_author(&db);
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Mark { x, y, size, cross, color, author }, reply }).await
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::Mark { x, y, size, cross, color, author } }).await
 }
 
 /// Zone de texte encadrée ; avec `anchor`, légende reliée au point désigné.
@@ -236,20 +229,21 @@ async fn fill_add_textbox(
     color: [u8; 3],
     filled: bool,
     anchor: Option<[f32; 2]>,
-    engine: State<'_, EngineHandle>,
+    engine: State<'_, Engine>,
     db: State<'_, db::Db>,
-) -> Result<AnnotResult, String> {
+) -> Result<Value, String> {
     let author = comment_author(&db);
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::TextBox { rect, text, size, color, filled, anchor, author }, reply }).await
+    engine.ask(Request::Annot { doc, page, op: AnnotOp::TextBox { rect, text, size, color, filled, anchor, author } }).await
 }
 
 /// Pose la signature (ou les initiales) mémorisée dans le rectangle donné.
 #[tauri::command]
-async fn fill_add_signature(doc: u32, page: i32, rect: [f32; 4], kind: String, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<AnnotResult, String> {
+async fn fill_add_signature(doc: u32, page: i32, rect: [f32; 4], kind: String, engine: State<'_, Engine>, db: State<'_, db::Db>) -> Result<Value, String> {
     let sig = db.signature(&kind).map_err(|e| e.to_string())?.ok_or("aucune signature enregistrée")?;
     let png = decode_png_data_url(&sig.data)?;
     let author = comment_author(&db);
-    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Image { rect, png, kind, author }, reply }).await
+    let (v, _) = engine.call(Request::Annot { doc, page, op: AnnotOp::Image { rect, kind, author } }, png).await.map_err(engine::Fail::message)?;
+    Ok(v)
 }
 
 fn decode_png_data_url(data: &str) -> Result<Vec<u8>, String> {
@@ -300,11 +294,11 @@ fn remove_files(files: Vec<String>) {
 
 /// Copie de récupération des modifications non enregistrées d'un document ouvert.
 #[tauri::command]
-async fn recovery_snapshot(doc: u32, path: String, fingerprint: String, engine: State<'_, EngineHandle>, db: State<'_, db::Db>, data: State<'_, DataDir>) -> Result<(), String> {
+async fn recovery_snapshot(doc: u32, path: String, fingerprint: String, engine: State<'_, Engine>, db: State<'_, db::Db>, data: State<'_, DataDir>) -> Result<(), String> {
     let dir = recovery_dir(&data);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let target = dir.join(format!("{}.pdf", uuid::Uuid::new_v4()));
-    ask(&engine, |reply| Cmd::Snapshot { doc, target: target.clone(), reply }).await?;
+    engine.ask::<u64>(Request::Snapshot { doc, target: target.clone() }).await?;
     let old = db.add_snapshot(&fingerprint, &path, &target.display().to_string()).map_err(|e| e.to_string())?;
     remove_files(old);
     Ok(())
@@ -344,7 +338,7 @@ fn recovery_list(db: State<'_, db::Db>) -> Result<Vec<RecoveryItem>, String> {
 /// Rouvre une copie de récupération à la place du document d'origine : Ctrl+S l'enregistrera
 /// sous le chemin d'origine.
 #[tauri::command]
-async fn recovery_restore(id: String, password: Option<String>, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<DocInfo, OpenError> {
+async fn recovery_restore(id: String, password: Option<String>, engine: State<'_, Engine>, db: State<'_, db::Db>) -> Result<DocInfo, OpenError> {
     let (original, snapshot) = db
         .snapshots()
         .map_err(|e| OpenError::Other(e.to_string()))?
@@ -352,9 +346,7 @@ async fn recovery_restore(id: String, password: Option<String>, engine: State<'_
         .find(|s| s.0 == id)
         .map(|s| (s.1, s.2))
         .ok_or(OpenError::NotFound)?;
-    let (tx, rx) = oneshot::channel();
-    engine.send(Cmd::Open { path: PathBuf::from(&snapshot), shown_as: Some(PathBuf::from(&original)), password, reply: tx });
-    let mut r = rx.await.map_err(|_| OpenError::Other("moteur indisponible".into()))??;
+    let (mut r, _) = engine.open(PathBuf::from(&snapshot), Some(PathBuf::from(&original)), password).await?;
     r.info.view_state = db.view_state(&r.info.fingerprint);
     Ok(r.info)
 }
@@ -481,10 +473,6 @@ async fn update_install(app: AppHandle, pending: State<'_, PendingUpdate>) -> Re
     app.restart();
 }
 
-/// Drapeau d'annulation de l'impression en cours.
-#[derive(Default)]
-struct PrintState(Mutex<Arc<AtomicBool>>);
-
 #[tauri::command]
 async fn printers() -> Result<Vec<pdfreader_engine::print_win::PrinterInfo>, String> {
     // L'énumération peut être lente (imprimantes réseau) : hors du fil de l'interface.
@@ -494,32 +482,30 @@ async fn printers() -> Result<Vec<pdfreader_engine::print_win::PrinterInfo>, Str
 /// Imprime ; renvoie le nombre de pages envoyées. Émet « print-progress » { done, total }.
 /// Erreurs typées : `print_forbidden`, `print_cancelled`, `print_busy`.
 #[tauri::command]
-async fn doc_print(doc: u32, mut options: pdfreader_engine::print_win::PrintOptions, app: AppHandle, engine: State<'_, EngineHandle>, state: State<'_, PrintState>) -> Result<usize, String> {
+async fn doc_print(doc: u32, mut options: pdfreader_engine::print_win::PrintOptions, app: AppHandle, engine: State<'_, Engine>) -> Result<usize, String> {
     // Le fichier de sortie n'est accepté que pour les tests : sinon le pilote demande lui-même.
     if std::env::var("PDFREADER_E2E").is_err() {
         options.output_file = None;
     }
-    let cancel = Arc::new(AtomicBool::new(false));
-    *state.0.lock().unwrap() = cancel.clone();
     let progress = Box::new(move |done: usize, total: usize| {
         let _ = app.emit("print-progress", serde_json::json!({ "done": done, "total": total }));
     });
-    ask(&engine, |reply| Cmd::Print { doc, opts: options, cancel, progress, reply }).await
+    engine.print(Request::Print { doc, opts: options }, progress).await
 }
 
 #[tauri::command]
-fn print_cancel(state: State<'_, PrintState>) {
-    state.0.lock().unwrap().store(true, Ordering::Relaxed);
+fn print_cancel(engine: State<'_, Engine>) {
+    engine.send(Request::CancelPrint);
 }
 
 #[tauri::command]
-async fn doc_changed_on_disk(doc: u32, engine: State<'_, EngineHandle>) -> Result<bool, String> {
-    ask(&engine, |reply| Cmd::ChangedOnDisk { doc, reply }).await
+async fn doc_changed_on_disk(doc: u32, engine: State<'_, Engine>) -> Result<bool, String> {
+    engine.ask(Request::ChangedOnDisk { doc }).await
 }
 
 #[tauri::command]
-async fn doc_reload(doc: u32, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<DocInfo, String> {
-    let mut info = ask(&engine, |reply| Cmd::Reload { doc, reply }).await?;
+async fn doc_reload(doc: u32, engine: State<'_, Engine>, db: State<'_, db::Db>) -> Result<DocInfo, String> {
+    let mut info = engine.reload(doc).await?;
     info.view_state = db.view_state(&info.fingerprint);
     Ok(info)
 }
@@ -530,14 +516,14 @@ fn recent_star(id: String, starred: bool, db: State<'_, db::Db>) -> Result<(), S
 }
 
 #[tauri::command]
-async fn doc_count_highlights(doc: u32, page: i32, engine: State<'_, EngineHandle>) -> Result<usize, String> {
-    ask(&engine, |reply| Cmd::CountHighlights { doc, page, reply }).await
+async fn doc_count_highlights(doc: u32, page: i32, engine: State<'_, Engine>) -> Result<usize, String> {
+    engine.ask(Request::CountHighlights { doc, page }).await
 }
 
 #[tauri::command]
-async fn doc_save(doc: u32, path: Option<String>, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<SaveResult, String> {
+async fn doc_save(doc: u32, path: Option<String>, engine: State<'_, Engine>, db: State<'_, db::Db>) -> Result<SaveResult, String> {
     let as_copy = path.is_some();
-    let r = ask(&engine, |reply| Cmd::Save { doc, path: path.map(PathBuf::from), reply }).await?;
+    let r = engine.save(doc, path.map(PathBuf::from)).await?;
     // Enregistrer sur place : même document, nouvelle empreinte. Enregistrer sous : l'original
     // garde la sienne, la copie sera ajoutée aux récents à sa prochaine ouverture.
     if !as_copy {
@@ -547,13 +533,13 @@ async fn doc_save(doc: u32, path: Option<String>, engine: State<'_, EngineHandle
 }
 
 #[tauri::command]
-async fn doc_links(doc: u32, page: i32, engine: State<'_, EngineHandle>) -> Result<Vec<PageLink>, String> {
-    ask(&engine, |reply| Cmd::Links { doc, page, reply }).await
+async fn doc_links(doc: u32, page: i32, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::Links { doc, page }).await
 }
 
 #[tauri::command]
-async fn doc_bookmarks(doc: u32, engine: State<'_, EngineHandle>) -> Result<Vec<Bookmark>, String> {
-    ask(&engine, |reply| Cmd::Bookmarks { doc, reply }).await
+async fn doc_bookmarks(doc: u32, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::Bookmarks { doc }).await
 }
 
 #[tauri::command]
@@ -565,10 +551,10 @@ async fn doc_search(
     query: String,
     match_case: bool,
     whole_word: bool,
-    engine: State<'_, EngineHandle>,
-) -> Result<SearchBatch, String> {
+    engine: State<'_, Engine>,
+) -> Result<Value, String> {
     let count = count.clamp(1, 200);
-    ask(&engine, |reply| Cmd::Search { doc, from, count, query, match_case, whole_word, reply }).await
+    engine.ask(Request::Search { doc, from, count, query, match_case, whole_word }).await
 }
 
 #[derive(serde::Deserialize)]
@@ -600,24 +586,28 @@ fn view_state_set(fingerprint: String, state: ViewStateIn, db: State<'_, db::Db>
 }
 
 #[tauri::command]
-async fn doc_set_bookmarks(doc: u32, items: Vec<pdfreader_engine::outline::OutlineItem>, engine: State<'_, EngineHandle>) -> Result<(), String> {
-    ask(&engine, |reply| Cmd::SetBookmarks { doc, items, reply }).await
+async fn doc_set_bookmarks(doc: u32, items: Vec<pdfreader_engine::outline::OutlineItem>, engine: State<'_, Engine>) -> Result<(), String> {
+    engine.ask(Request::SetBookmarks { doc, items }).await
 }
 
 #[tauri::command]
-async fn doc_properties(doc: u32, engine: State<'_, EngineHandle>) -> Result<pdfreader_engine::properties::DocProperties, String> {
-    ask(&engine, |reply| Cmd::Properties { doc, reply }).await
+async fn doc_properties(doc: u32, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::Properties { doc }).await
 }
 
 #[tauri::command]
-async fn doc_attachments(doc: u32, engine: State<'_, EngineHandle>) -> Result<Vec<pdfreader_engine::navigation::Attachment>, String> {
-    ask(&engine, |reply| Cmd::Attachments { doc, reply }).await
+async fn doc_attachments(doc: u32, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::Attachments { doc }).await
+}
+
+async fn attachment_bytes(engine: &Engine, doc: u32, index: u16) -> Result<Vec<u8>, String> {
+    engine.call(Request::AttachmentBytes { doc, index }, Vec::new()).await.map(|(_, b)| b).map_err(engine::Fail::message)
 }
 
 /// Enregistre une pièce jointe là où l'utilisateur l'a choisi. Jamais exécutée.
 #[tauri::command]
-async fn attachment_save(doc: u32, index: u16, path: String, engine: State<'_, EngineHandle>) -> Result<u64, String> {
-    let bytes = ask(&engine, |reply| Cmd::AttachmentBytes { doc, index, reply }).await?;
+async fn attachment_save(doc: u32, index: u16, path: String, engine: State<'_, Engine>) -> Result<u64, String> {
+    let bytes = attachment_bytes(&engine, doc, index).await?;
     pdfreader_engine::atomic_write(Path::new(&path), |f| {
         use std::io::Write;
         f.write_all(&bytes)?;
@@ -630,17 +620,22 @@ async fn attachment_save(doc: u32, index: u16, path: String, engine: State<'_, E
 /// Pièce jointe PDF : copiée dans le dossier de données de l'application, pour être ouverte dans
 /// PDFReader. Refusé pour tout autre type de fichier.
 #[tauri::command]
-async fn attachment_open_pdf(doc: u32, index: u16, engine: State<'_, EngineHandle>, dir: State<'_, DataDir>) -> Result<String, String> {
-    let list = ask(&engine, |reply| Cmd::Attachments { doc, reply }).await?;
-    let item = list.into_iter().find(|a| a.index == index).ok_or("pièce jointe introuvable")?;
-    let bytes = ask(&engine, |reply| Cmd::AttachmentBytes { doc, index, reply }).await?;
-    if !item.name.to_ascii_lowercase().ends_with(".pdf") || !bytes.starts_with(b"%PDF") {
+async fn attachment_open_pdf(doc: u32, index: u16, engine: State<'_, Engine>, dir: State<'_, DataDir>) -> Result<String, String> {
+    let list: Vec<Value> = engine.ask(Request::Attachments { doc }).await?;
+    let name = list
+        .iter()
+        .find(|a| a.get("index").and_then(Value::as_u64) == Some(index as u64))
+        .and_then(|a| a.get("name").and_then(Value::as_str))
+        .ok_or("pièce jointe introuvable")?
+        .to_string();
+    let bytes = attachment_bytes(&engine, doc, index).await?;
+    if !name.to_ascii_lowercase().ends_with(".pdf") || !bytes.starts_with(b"%PDF") {
         return Err("not_pdf".into());
     }
     let folder = dir.0.join("attachments");
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
-    let stem = item.name[..item.name.len() - 4].to_string();
-    let mut target = folder.join(&item.name);
+    let stem = name[..name.len() - 4].to_string();
+    let mut target = folder.join(&name);
     let mut n = 2;
     while target.exists() && std::fs::read(&target).map(|b| b != bytes).unwrap_or(true) {
         target = folder.join(format!("{stem} ({n}).pdf"));
@@ -662,9 +657,9 @@ async fn doc_search_snippets(
     match_case: bool,
     whole_word: bool,
     already: usize,
-    engine: State<'_, EngineHandle>,
-) -> Result<pdfreader_engine::navigation::SnippetBatch, String> {
-    ask(&engine, |reply| Cmd::SearchSnippets { doc, from, count, query, match_case, whole_word, already, reply }).await
+    engine: State<'_, Engine>,
+) -> Result<Value, String> {
+    engine.ask(Request::SearchSnippets { doc, from, count, query, match_case, whole_word, already }).await
 }
 
 /// Préférences non exportées : propres à ce poste.
@@ -761,8 +756,8 @@ fn shell_open(url: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn doc_close(doc: u32, engine: State<'_, EngineHandle>) {
-    engine.send(Cmd::Close { doc });
+fn doc_close(doc: u32, engine: State<'_, Engine>) {
+    engine.send(Request::Close { doc });
 }
 
 #[tauri::command]
@@ -801,6 +796,22 @@ fn e2e_stage() -> String {
         return String::new();
     }
     std::env::var("PDFREADER_E2E_STAGE").unwrap_or_default()
+}
+
+/// Tests de bout en bout seulement : fait planter (« crash ») ou bloquer (« hang ») le moteur
+/// pendant une demande sur `doc`, pour vérifier sa relance et la réouverture des documents.
+#[tauri::command]
+async fn e2e_engine_fault(kind: String, doc: Option<u32>, engine: State<'_, Engine>) -> Result<(), String> {
+    if std::env::var("PDFREADER_E2E").is_err() {
+        return Err("refusé".into());
+    }
+    let req = match kind.as_str() {
+        "crash" => Request::TestCrash { doc },
+        "hang" => Request::TestHang { doc },
+        _ => return Err("inconnu".into()),
+    };
+    let _ = engine.call(req, Vec::new()).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -877,8 +888,8 @@ fn handle_protocol(app: &AppHandle, request: tauri::http::Request<Vec<u8>>, resp
             if !(0.01..=64.0).contains(&scale) {
                 return bad(responder);
             }
-            let engine = app.state::<EngineHandle>();
-            engine.send(Cmd::Tile { doc: doc as u32, page: page as i32, scale, x: x as i32, y: y as i32, size: 512, responder });
+            let engine = app.state::<Engine>();
+            engine.tile(Request::Tile { doc: doc as u32, page: page as i32, scale, x: x as i32, y: y as i32, size: 512 }, responder);
         }
         Some("thumb") if parts.len() == 2 => {
             let db = app.state::<db::Db>();
@@ -894,6 +905,12 @@ fn handle_protocol(app: &AppHandle, request: tauri::http::Request<Vec<u8>>, resp
 }
 
 fn main() {
+    // Processus moteur (lancé par l'application elle-même) : pas d'interface.
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--engine-host") {
+        host::main(PathBuf::from(args.get(2).cloned().unwrap_or_default()));
+        return;
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             // Deuxième lancement (double-clic sur un autre PDF) : on l'ouvre dans la fenêtre existante.
@@ -908,7 +925,9 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
-            app.manage(engine::start(pdfium_dir(&handle)));
+            let engine = Engine::start(pdfium_dir(&handle));
+            engine.attach(handle.clone());
+            app.manage(engine);
             let dir = data_dir(&handle);
             let db = db::Db::open(&dir).expect("base locale");
             // Ménage : fichiers de récupération que plus aucune ligne ne référence.
@@ -922,7 +941,6 @@ fn main() {
             }
             app.manage(db);
             app.manage(DataDir(dir));
-            app.manage(PrintState::default());
             app.manage(PendingUpdate::default());
             Ok(())
         })
@@ -994,7 +1012,8 @@ fn main() {
             author,
             e2e_enabled,
             e2e_pause,
-            e2e_report
+            e2e_report,
+            e2e_engine_fault
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de PDFReader");

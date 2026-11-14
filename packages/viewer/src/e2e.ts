@@ -1,5 +1,5 @@
 import type { AppActions } from "./App";
-import { type Annot, type DocInfo, type EngineClient, isOpenError } from "./engine";
+import { type Annot, type DocInfo, type EngineClient, type EngineRestart, isOpenError } from "./engine";
 import { parseRange, subset } from "./prefs";
 import { matcher } from "./SearchPanel";
 import { selectionToPageRects } from "./selection";
@@ -73,6 +73,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.m3comments = await runM3Comments(actions, path);
     steps.m3bookmarks = await runM3Bookmarks(engine, actions, path);
     steps.m3forms = await runM3FormCalc(actions, path);
+    steps.m3engine = await runM3Engine(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -83,7 +84,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.m3navigation as { ok: boolean }).ok &&
       (steps.m3comments as { ok: boolean }).ok &&
       (steps.m3bookmarks as { ok: boolean }).ok &&
-      (steps.m3forms as { ok: boolean }).ok;
+      (steps.m3forms as { ok: boolean }).ok &&
+      (steps.m3engine as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -1115,6 +1117,88 @@ async function runM3FormCalc(actions: AppActions, path: string) {
 /** Scénarios en deux lancements : « crash » modifie un document, fait sa copie de récupération et
  *  quitte sans rien nettoyer ; « recover » vérifie qu'au lancement suivant la copie est proposée,
  *  rouverte avec la modification, puis effacée à l'enregistrement. */
+/** M3, lot « moteur séparé » : le moteur PDF tourne dans un processus à part. Plantage provoqué
+ *  pendant une demande sur un document : moteur relancé, documents rouverts sous le même numéro
+ *  (celui qui avait des modifications, depuis sa copie de récupération), tuiles de nouveau servies,
+ *  message à l'écran. Deuxième plantage sur le même document : il est fermé. Blocage : le moteur
+ *  est arrêté puis relancé. */
+async function runM3Engine(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  const events: EngineRestart[] = [];
+  const off = await engine.onEngineRestarted((e) => events.push(e));
+  const nextEvent = async (n: number, ms = 45000) => waitFor(() => (events.length >= n ? events[n - 1] : null), ms);
+  const tileOk = async (doc: number, generation: number) => {
+    const res = await fetch(engine.tileUrl(doc, generation, 0, 0, 0.5, 0, 0)).catch(() => null);
+    return !!res && res.ok && (await res.blob()).size > 0;
+  };
+  try {
+    const a = await actions.openPath(dir + "04-vectoriel-transparence.pdf");
+    const b = await actions.openPath(dir + "07-tailles-mixtes-rotation.pdf");
+    if (!a || !b) throw new Error("ouverture impossible");
+    // Modification sur A, puis copie de récupération (comme le fait la minuterie).
+    await engine.addNote(a.id, 0, 100, 100, "Avant le plantage", [255, 200, 0]);
+    await engine.recoverySnapshot(a.id, a.path, a.fingerprint);
+    const genA = a.generation;
+    const genB = b.generation;
+
+    // 1. Plantage pendant une demande sur B.
+    void engine.e2eEngineFault("crash", b.id).catch(() => undefined);
+    const e1 = await nextEvent(1);
+    const ra = e1.docs.find((d) => d.id === a.id);
+    const rb = e1.docs.find((d) => d.id === b.id);
+    const notes = ra ? (await engine.annotations(a.id, 0)).annots.filter((x) => x.contents === "Avant le plantage").length : 0;
+    const tiles = !!ra && !!rb && (await tileOk(a.id, ra.info.generation)) && (await tileOk(b.id, rb.info.generation));
+    const shown = await waitFor(() => (document.body.textContent?.includes("Le moteur PDF s'est arrêté") ? true : null), 4000).catch(() => false);
+    const state = actions.openDocs();
+    // Messages à l'écran : celui de la relance, et aucune erreur venue des demandes interrompues.
+    const toasts = document.querySelector('[aria-label="Notifications"]')?.textContent ?? "";
+    r.crash = { reason: e1.reason, culprit: e1.culprit, a: ra?.from, b: rb?.from, notes, tiles, shown, toasts };
+    checks.crash =
+      e1.reason === "crash" &&
+      e1.culprit === b.id &&
+      ra?.from === "snapshot" &&
+      rb?.from === "file" &&
+      ra.info.generation > genA &&
+      rb.info.generation > genB &&
+      notes === 1 &&
+      tiles &&
+      shown &&
+      !toasts.includes("engine_restarted") &&
+      state.find((d) => d.id === a.id)?.dirty === true &&
+      state.find((d) => d.id === b.id)?.dirty === false;
+
+    // 2. Deuxième plantage sur B : B est fermé, A reste ouvert.
+    void engine.e2eEngineFault("crash", b.id).catch(() => undefined);
+    const e2 = await nextEvent(2);
+    const stillA = e2.docs.some((d) => d.id === a.id);
+    const tabGone = await waitFor(() => (actions.openDocs().some((d) => d.id === b.id) ? null : true), 4000).catch(() => false);
+    r.second = { closed: e2.closed, stillA, tabGone };
+    checks.second = e2.closed.includes(b.id) && stillA && tabGone;
+
+    // 3. Blocage pendant une demande sur A : arrêté par la surveillance, puis relancé.
+    const t0 = performance.now();
+    void engine.e2eEngineFault("hang", a.id).catch(() => undefined);
+    const e3 = await nextEvent(3);
+    const ra3 = e3.docs.find((d) => d.id === a.id);
+    const hangMs = Math.round(performance.now() - t0);
+    const tileAfter = !!ra3 && (await tileOk(a.id, ra3.info.generation));
+    r.hang = { reason: e3.reason, culprit: e3.culprit, hangMs, tileAfter };
+    checks.hang = e3.reason === "hang" && e3.culprit === a.id && tileAfter;
+
+    // Ménage : la copie de récupération de A ne sert plus.
+    await engine.recoveryClear(a.path).catch(() => undefined);
+    await actions.closeDoc(a.id);
+  } catch (e) {
+    r.error = String(e);
+  }
+  off();
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 3;
+  return r;
+}
+
 export async function runStage(stage: string, engine: EngineClient, actions: AppActions, first: DocInfo | null) {
   const r: Record<string, unknown> = { stage };
   try {

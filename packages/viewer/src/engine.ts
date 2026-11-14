@@ -463,6 +463,24 @@ export interface EngineClient {
 
   /** Ouvre une page des Paramètres de Windows. */
   openSettings(page: "defaultapps" | "printers"): Promise<void>;
+
+  /** Le moteur PDF (processus à part) s'est arrêté ou ne répondait plus : il a été relancé et les
+   *  documents rouverts sous le même numéro. */
+  onEngineRestarted(cb: (e: EngineRestart) => void): Promise<() => void>;
+  /** Tests seulement : fait planter ou bloquer le moteur pendant une demande sur `doc`. */
+  e2eEngineFault(kind: "crash" | "hang", doc: number | null): Promise<void>;
+}
+
+/** Relance du moteur PDF après un arrêt. */
+export interface EngineRestart {
+  /** « crash » : plantage ; « hang » : ne répondait plus ; « unavailable » : ne redémarre pas. */
+  reason: "crash" | "hang" | "unavailable";
+  /** Document sur lequel le moteur travaillait au moment de l'arrêt. */
+  culprit: number | null;
+  /** Documents rouverts : depuis leur dernière copie de récupération ou depuis le fichier. */
+  docs: { id: number; info: DocInfo; from: "snapshot" | "file" }[];
+  /** Documents fermés (fichier disparu, ou document qui fait tomber le moteur à chaque fois). */
+  closed: number[];
 }
 
 /** 100 % = taille réelle : 1 point PDF = 96/72 pixels CSS. */

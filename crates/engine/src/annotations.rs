@@ -712,7 +712,7 @@ pub fn set_status(page: &mut PdfPage, id: &str, status: Option<&str>, marked: Op
 }
 
 /// Modification d'un commentaire existant. Les champs absents ne changent pas.
-#[derive(Debug, Default, serde::Deserialize)]
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct AnnotPatch {
     pub color: Option<[u8; 3]>,
     pub opacity: Option<f32>,

@@ -406,3 +406,45 @@ puis rétablie.
 
 Mentions des composants tiers : QuickJS (code C embarqué dans rquickjs-sys) ajouté avec sa
 propre licence et ses auteurs (371 composants).
+
+## M3 — lot « moteur séparé » (2026-11-14)
+
+Branche `m3-moteur-separe`. PDFium (C++ qui lit des fichiers non fiables) ne tourne plus dans
+l'application : il vit dans un second `PDFReader.exe` lancé avec `--engine-host`, sans fenêtre ni
+interface. Même exécutable, donc rien à ajouter au setup ni aux mentions tierces. Les demandes et
+les réponses passent sur l'entrée et la sortie standard en trames (en-tête JSON + données binaires :
+tuiles WebP, miniatures, images de signature, pièces jointes). Les numéros de document sont choisis
+par l'application, pour survivre aux redémarrages.
+
+- **Plantage** : fin du flux → les demandes en cours échouent (« engine_restarted », tuiles en 503),
+  le moteur est relancé, chaque document est rouvert sous le même numéro avec une génération
+  nouvelle (l'interface recharge tuiles, commentaires, champs) : depuis sa dernière copie de
+  récupération s'il y en a une (modifications non enregistrées), sinon depuis le fichier. Le
+  message dit sur quel document le moteur est tombé et ce qui est perdu.
+- **Coupable** : le moteur traite les demandes dans l'ordre, la plus ancienne en attente est celle
+  qui l'a fait tomber. Un document qui le fait tomber deux fois est fermé (pas de boucle de
+  plantages) ; ses copies de récupération restent proposées au démarrage. Au-delà de 5 arrêts en
+  une minute, le moteur n'est plus relancé et l'interface demande de redémarrer PDFReader.
+- **Blocage** : surveillance d'un moteur muet (30 s pour l'affichage, 10 min pour ouvrir,
+  enregistrer, chercher) → arrêté, puis même chemin qu'un plantage. Pas de surveillance pendant
+  une impression : le pilote peut attendre l'utilisateur (« Enregistrer sous » de Microsoft Print
+  to PDF), et le moteur a le droit de passer sa fenêtre au premier plan.
+- **Objet de tâche Windows** : moteur tué avec l'application (vérifié en tuant l'application de
+  force), mémoire plafonnée à 4 Go (une bombe de décompression arrête le moteur, pas la machine ;
+  configuré, non éprouvé avec un vrai fichier piégé), pas de boîte « a cessé de fonctionner ».
+- Ce n'est pas un bac à sable complet : le moteur garde les droits de l'utilisateur (il doit lire
+  et écrire les fichiers, et imprimer).
+
+Tests : `engine_host` (cargo) pilote le vrai processus : ouverture sous un numéro imposé, erreur
+typée, 20 tuiles (3,06 ms par le moteur séparé contre 2,80 ms dans le même processus, soit
+0,26 ms de surcoût), demande de plantage refusée hors test, flux corrompu → arrêt propre, plantage
+volontaire → seul le moteur s'arrête, entrée fermée → le moteur s'arrête seul. Partie `m3engine` du
+scénario (3 passages verts) : plantage pendant une demande sur B → A rouvert depuis sa copie
+(note présente, onglet toujours « modifié »), B depuis le fichier, tuiles servies, message affiché,
+aucune erreur parasite à l'écran ; deuxième plantage sur B → B fermé, A gardé ; blocage sur A →
+arrêté en 3,3 s (surveillance raccourcie pour le test) puis relancé. Mémoire du moteur : 13 Mo
+au repos.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Moteur séparé | 2026-11-14 | fait | modifications faites depuis la dernière copie de récupération perdues au plantage (copie toutes les N minutes) ; pas de restriction des droits du moteur (jeton restreint, AppContainer) | le numéro de document de l'ouverture portait le même nom que celui de la demande dans l'en-tête : la première version ne répondait jamais (trouvé par le test du processus) |

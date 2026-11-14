@@ -54,6 +54,7 @@ export interface AppActions {
   save(id: number, asPath?: string): Promise<boolean>;
   closeDoc(id: number): Promise<void>;
   activeId(): number | null;
+  openDocs(): { id: number; dirty: boolean; generation: number; path: string }[];
   setImmersive(mode: Immersive): void;
   immersive(): Immersive;
   /** Boîte Propriétés du document actif : ouverte ou fermée. */
@@ -224,6 +225,8 @@ export function App({ engine }: { engine: EngineClient }) {
           setPassword({ path, wrong: e.kind === "wrong_password", value: "" });
         } else if (isOpenError(e) && e.kind === "not_found") {
           toast({ tone: "error", message: t("Ce fichier est introuvable : il a peut-être été déplacé ou supprimé.") });
+        } else if (isOpenError(e) && e.detail === "engine_restarted") {
+          toast({ tone: "error", message: t("Ce fichier a fait s'arrêter le moteur PDF : il est probablement endommagé. Le moteur a été relancé.") });
         } else if (isOpenError(e) && e.kind === "corrupted") {
           toast({ tone: "error", message: t("Ce fichier est endommagé ou n'est pas un PDF valide.") });
         } else {
@@ -420,6 +423,61 @@ export function App({ engine }: { engine: EngineClient }) {
     [engine, toast],
   );
 
+  // ------------------------------------------------------------ moteur PDF relancé
+  // Le moteur tourne dans un processus à part : s'il plante sur un PDF (ou ne répond plus), il est
+  // relancé et les documents rouverts sous le même numéro. On met à jour les onglets et on dit
+  // clairement ce qui a pu être perdu.
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let cancelled = false;
+    void engine
+      .onEngineRestarted((e) => {
+        const before = docsRef.current;
+        const nameOf = (id: number) => before.find((d) => d.info.id === id)?.info.name;
+        const lost: string[] = [];
+        const fromSnapshot: string[] = [];
+        for (const r of e.docs) {
+          const d = before.find((x) => x.info.id === r.id);
+          if (!d) continue;
+          if (r.from === "snapshot") fromSnapshot.push(r.info.name);
+          else if (d.dirty) lost.push(r.info.name);
+          dispatch({ type: "restarted", info: r.info, dirty: r.from === "snapshot" });
+          snapshotEdits.current.delete(r.id);
+        }
+        const closed = e.closed.map(nameOf).filter((n): n is string => !!n);
+        for (const id of e.closed) {
+          // Les copies de récupération sont gardées : elles seront proposées au prochain démarrage.
+          if (!before.some((d) => d.info.id === id)) continue;
+          docActions.current.delete(id);
+          dispatch({ type: "closed", id });
+          setActive((a) => (a === String(id) ? "home" : a));
+        }
+        const culprit = e.culprit !== null ? nameOf(e.culprit) : undefined;
+        const parts: string[] = [];
+        if (e.reason === "unavailable") {
+          parts.push(t("Le moteur PDF ne redémarre plus : fermez puis relancez PDFReader. Vos copies de récupération seront proposées au démarrage."));
+        } else if (e.reason === "hang") {
+          parts.push(culprit ? t("Le moteur PDF ne répondait plus (« {name} ») : il a été relancé.", { name: culprit }) : t("Le moteur PDF ne répondait plus : il a été relancé."));
+        } else {
+          parts.push(culprit ? t("Le moteur PDF s'est arrêté sur « {name} » : il a été relancé.", { name: culprit }) : t("Le moteur PDF s'est arrêté : il a été relancé."));
+        }
+        if (fromSnapshot.length) parts.push(t("Rouvert depuis la dernière copie de récupération (les toutes dernières modifications peuvent manquer) : {names}.", { names: fromSnapshot.join(", ") }));
+        if (lost.length) parts.push(t("Modifications non enregistrées perdues : {names}.", { names: lost.join(", ") }));
+        if (closed.length) parts.push(t("Fermé, car il fait s'arrêter le moteur PDF : {names}.", { names: closed.join(", ") }));
+        // Rien d'ouvert n'est touché (le moteur est tombé en ouvrant un fichier) : l'ouverture le dit déjà.
+        if (e.reason !== "unavailable" && !e.docs.length && !closed.length) return;
+        toast({ tone: lost.length || closed.length || e.reason === "unavailable" ? "error" : "info", message: parts.join(" ") });
+      })
+      .then((u) => {
+        if (cancelled) u();
+        else off = u;
+      });
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, [engine, toast]);
+
   // ------------------------------------------------------------ mises à jour (sur consentement)
   // Vérification automatique : seulement si l'utilisateur l'a acceptée, au plus une fois par jour,
   // jamais pendant les tests de bout en bout.
@@ -490,6 +548,7 @@ export function App({ engine }: { engine: EngineClient }) {
           save,
           closeDoc: async (id) => reallyClose(id),
           activeId: () => Number(activeRef.current) || null,
+          openDocs: () => docsRef.current.map((d) => ({ id: d.info.id, dirty: d.dirty, generation: d.info.generation, path: d.info.path })),
           setImmersive,
           immersive: () => immersiveRef.current,
           setPropertiesOpen: (open) => setPropertiesFor(open ? Number(activeRef.current) || null : null),

@@ -156,8 +156,9 @@ l'interface et le cœur Rust.
 - **Robustesse face aux PDF malveillants** : PDFium est du C++ qui parse des fichiers non fiables.
   En cas de plantage du moteur, toute l'app tombe. Mesures : PDFium à jour (mise à jour
   hebdomadaire de bblanchon/pdfium-binaries suivie en CI), aucun JavaScript de PDF exécuté en
-  phase 1, liens externes confirmés, pièces jointes jamais exécutées. Cible M3 : moteur dans un
-  **processus séparé** et redémarrable, pour qu'un PDF piégé ne fasse tomber que son onglet.
+  phase 1, liens externes confirmés, pièces jointes jamais exécutées. Fait en M3 : moteur dans un
+  **processus séparé** et redémarrable (voir le journal, lot « moteur séparé ») ; un PDF piégé
+  n'emporte plus l'application, les documents sont rouverts et celui qui récidive est fermé.
 - **Gros fichiers** : lecture par blocs (`FPDF_LoadCustomDocument`), jamais tout en mémoire.
   Objectif : un PDF de 2 Go s'ouvre et reste fluide.
 - **Machines modestes** : moins de 300 Mo de mémoire en lecture courante, démarrage à froid en
