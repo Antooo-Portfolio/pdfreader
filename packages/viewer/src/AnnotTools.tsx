@@ -1,8 +1,8 @@
 import { t, Button, ColorSwatches, IconButton, Toolbar, ToolbarSeparator, Slider } from "@pdfreader/ui";
 import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { formatDate, fromHex, hitTest, KIND_LABELS, parsePdfDate, type Tool, type ToolStyle, toHex } from "./annot";
-import type { Annot, Box, Rotation } from "./engine";
+import { formatDate, fromHex, hitTest, isMultiPoint, KIND_LABELS, parsePdfDate, tint, type Tool, type ToolStyle, toHex } from "./annot";
+import type { Annot, Box, Rotation, ShapeKind } from "./engine";
 import { type PageBox, rotateBox, unrotatePoint } from "./layout";
 
 /* ---------------------------------------------------------------- calque d'une page */
@@ -22,6 +22,10 @@ interface LayerProps {
   onPlace: (tool: Tool, x: number, y: number) => void;
   onCreateInk: (strokes: [number, number][][]) => void;
   onErase: (id: string) => void;
+  /** Outil Formes : forme choisie, remplissage, et création (points en points depuis le haut). */
+  shapeKind: ShapeKind;
+  shapeFill: boolean;
+  onCreateShape: (points: [number, number][]) => void;
 }
 
 /** Calque des outils Note, Dessin et Gomme (au-dessus de la page, qui n'est pas tournée) et
@@ -36,6 +40,42 @@ export function AnnotLayer(p: LayerProps) {
   const [pending, setPending] = useState<[number, number][] | null>(null);
   const erased = useRef(new Set<string>());
   const down = useRef<{ x: number; y: number } | null>(null);
+  // Formes : glisser (rectangle, ellipse, ligne, flèche) ou sommets cliqués (polygone…).
+  const [drag, setDrag] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
+  const [verts, setVerts] = useState<[number, number][]>([]);
+  const [hover, setHover] = useState<[number, number] | null>(null);
+  const shaping = p.tool === "shape";
+  const multi = shaping && isMultiPoint(p.shapeKind);
+  const finishMulti = (pts: [number, number][]) => {
+    const need = p.shapeKind === "polyline" ? 2 : 3;
+    setVerts([]);
+    setHover(null);
+    if (pts.length >= need) p.onCreateShape(pts);
+  };
+  const finishRef = useRef(finishMulti);
+  finishRef.current = finishMulti;
+  const vertsRef = useRef(verts);
+  vertsRef.current = verts;
+  // Entrée termine le polygone, Échap l'abandonne ; changer d'outil ou de forme aussi.
+  useEffect(() => {
+    if (!multi) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (vertsRef.current.length === 0) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finishRef.current(vertsRef.current);
+      } else if (e.key === "Escape") {
+        setVerts([]);
+        setHover(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [multi]);
+  useEffect(() => {
+    setVerts([]);
+    setDrag(null);
+  }, [p.tool, p.shapeKind]);
 
   // Le tracé provisoire reste affiché jusqu'à ce que la page relue le contienne.
   useEffect(() => setPending(null), [p.annots]);
@@ -57,8 +97,8 @@ export function AnnotLayer(p: LayerProps) {
     }
   };
 
-  const placing = p.tool === "note" || p.tool === "text" || p.tool === "textbox" || p.tool === "callout" || p.tool === "check" || p.tool === "sign";
-  const active = placing || p.tool === "ink" || p.tool === "eraser";
+  const placing = p.tool === "note" || p.tool === "text" || p.tool === "textbox" || p.tool === "callout" || p.tool === "check" || p.tool === "sign" || p.tool === "stamp";
+  const active = placing || p.tool === "ink" || p.tool === "eraser" || shaping;
   const cssW = pw * p.k;
   const cssH = ph * p.k;
   const transform = p.rotation ? rotationCss(p.rotation, cssW, cssH) : undefined;
@@ -82,11 +122,22 @@ export function AnnotLayer(p: LayerProps) {
             />
           </svg>
         )}
+        {shaping && (drag || verts.length > 0) && (
+          <ShapePreview kind={p.shapeKind} drag={drag} verts={hover ? [...verts, hover] : verts} k={p.k} style={p.style} fill={p.shapeFill} w={cssW} h={cssH} />
+        )}
       </div>
       {active && (
         <div
           className="absolute inset-0 touch-none"
-          style={{ cursor: p.tool === "text" || p.tool === "textbox" ? "text" : p.tool === "callout" ? "crosshair" : placing ? "copy" : p.tool === "ink" ? "crosshair" : "cell" }}
+          data-draw-layer
+          style={{ cursor: p.tool === "text" || p.tool === "textbox" ? "text" : p.tool === "callout" || shaping ? "crosshair" : placing ? "copy" : p.tool === "ink" ? "crosshair" : "cell" }}
+          onDoubleClick={(e) => {
+            if (!multi) return;
+            e.preventDefault();
+            // Le double-clic a déjà posé deux sommets au même endroit : un seul compte.
+            const pts = vertsRef.current.filter((v, i, arr) => i === 0 || Math.hypot(v[0] - (arr[i - 1]?.[0] ?? 0), v[1] - (arr[i - 1]?.[1] ?? 0)) * p.k > 3);
+            finishMulti(pts);
+          }}
           onPointerDown={(e) => {
             if (e.button !== 0) return;
             e.preventDefault();
@@ -105,10 +156,13 @@ export function AnnotLayer(p: LayerProps) {
               erased.current = new Set();
               erase(x, y);
             }
+            if (shaping && !multi) setDrag({ a: [x, y], b: [x, y] });
           }}
           onPointerMove={(e) => {
+            if (multi && verts.length > 0) setHover(toPt(e));
             if (!down.current) return;
             const [x, y] = toPt(e);
+            if (shaping && !multi) setDrag((d) => (d ? { a: d.a, b: [x, y] } : d));
             const cur = strokeRef.current;
             if (p.tool === "ink" && cur) {
               const last = cur[cur.length - 1];
@@ -125,6 +179,17 @@ export function AnnotLayer(p: LayerProps) {
             if (!start) return;
             const [x, y] = toPt(e);
             if (placing && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6) p.onPlace(p.tool, x, y);
+            if (shaping && !multi) {
+              const d = drag;
+              setDrag(null);
+              if (d && Math.hypot(x - d.a[0], y - d.a[1]) * p.k >= 4) p.onCreateShape([d.a, [x, y]]);
+            }
+            if (multi) {
+              // Clic près du premier sommet : la forme se ferme.
+              const first = verts[0];
+              if (first && verts.length >= 3 && Math.hypot(x - first[0], y - first[1]) * p.k < 8) finishMulti(verts);
+              else setVerts((v) => [...v, [x, y]]);
+            }
             const done = strokeRef.current;
             strokeRef.current = null;
             if (p.tool === "ink" && done && done[0]) {
@@ -138,6 +203,56 @@ export function AnnotLayer(p: LayerProps) {
         />
       )}
     </>
+  );
+}
+
+/** Aperçu de la forme en cours (points en points PDF depuis le haut, `k` px par point). */
+function ShapePreview({
+  kind,
+  drag,
+  verts,
+  k,
+  style,
+  fill,
+  w,
+  h,
+}: {
+  kind: ShapeKind;
+  drag: { a: [number, number]; b: [number, number] } | null;
+  verts: [number, number][];
+  k: number;
+  style: ToolStyle;
+  fill: boolean;
+  w: number;
+  h: number;
+}) {
+  const stroke = toHex(style.color);
+  const common = { stroke, strokeOpacity: style.opacity, strokeWidth: style.width * k, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  let shape: React.ReactNode = null;
+  if (drag) {
+    const [x0, y0] = drag.a;
+    const [x1, y1] = drag.b;
+    const fillColor = fill && (kind === "square" || kind === "circle") ? toHex(tint(style.color)) : "none";
+    if (kind === "square") shape = <rect x={Math.min(x0, x1) * k} y={Math.min(y0, y1) * k} width={Math.abs(x1 - x0) * k} height={Math.abs(y1 - y0) * k} fill={fillColor} {...common} />;
+    else if (kind === "circle")
+      shape = <ellipse cx={((x0 + x1) / 2) * k} cy={((y0 + y1) / 2) * k} rx={(Math.abs(x1 - x0) / 2) * k} ry={(Math.abs(y1 - y0) / 2) * k} fill={fillColor} {...common} />;
+    else shape = <line x1={x0 * k} y1={y0 * k} x2={x1 * k} y2={y1 * k} markerEnd={kind === "arrow" ? "url(#shape-arrow)" : undefined} {...common} />;
+  } else if (verts.length) {
+    const pts = verts.map(([x, y]) => `${x * k},${y * k}`).join(" ");
+    shape = kind === "polyline" ? <polyline points={pts} fill="none" {...common} /> : <polygon points={pts} fill="none" strokeDasharray={kind === "cloud" ? `${4 * k} ${3 * k}` : undefined} {...common} />;
+  }
+  return (
+    <svg className="absolute inset-0 overflow-visible" width={w} height={h} data-shape-preview>
+      <defs>
+        <marker id="shape-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10" fill="none" stroke={stroke} strokeWidth="1.5" />
+        </marker>
+      </defs>
+      {shape}
+      {verts.map(([x, y], i) => (
+        <circle key={i} cx={x * k} cy={y * k} r={3} fill="var(--bg)" stroke={stroke} strokeWidth={1.5} />
+      ))}
+    </svg>
   );
 }
 

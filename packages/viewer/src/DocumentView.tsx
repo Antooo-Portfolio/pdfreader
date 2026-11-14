@@ -1,8 +1,17 @@
-import { t, PageNavigator, Banner, Button, Checkbox, Dialog, FindBar, IconButton, isModalOpen, Menu, MenuItem, MenuSection, MenuSeparator, MenuTrigger, Toolbar, ToolbarSeparator, ToolButton, ToolGroup, useToast, ZoomControl, msg } from "@pdfreader/ui";
+import { t, locale, Select, PageNavigator, Banner, Button, Checkbox, Dialog, FindBar, IconButton, isModalOpen, Menu, MenuItem, MenuSection, MenuSeparator, MenuTrigger, Toolbar, ToolbarSeparator, ToolButton, ToolGroup, useToast, ZoomControl, msg } from "@pdfreader/ui";
 import { clsx } from "clsx";
 import {
   ArrowLeft,
   ArrowRight,
+  Circle,
+  Cloud,
+  Minus,
+  MoveUpRight,
+  Pentagon,
+  Shapes,
+  Spline,
+  Square as SquareIcon,
+  Stamp as StampIcon,
   BookOpenText,
   Check,
   BookOpen,
@@ -37,11 +46,11 @@ import {
   Underline,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_STYLES, hitTest, isMarkupTool, KIND_LABELS, type Tool, type ToolStyle, type ToolStyles, toHex } from "./annot";
+import { DEFAULT_STYLES, hitTest, isMarkupTool, isMultiPoint, KIND_LABELS, SHAPE_KINDS, STAMP_LABELS, STROKE_KINDS, type Tool, type ToolStyle, type ToolStyles, tint, toHex } from "./annot";
 import { PropertyBar } from "./AnnotTools";
 import { CommentsPanel } from "./CommentsPanel";
 import { SignatureDialog } from "./FillTools";
-import type { Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
+import type { ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
 import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
 import { PageView } from "./PageView";
@@ -127,6 +136,13 @@ export interface DocActions {
   /** Vue protégée active. */
   isProtected: () => boolean;
   enableEditing: () => void;
+  createShape: (page: number, kind: ShapeKind, points: [number, number][], fill: boolean) => Promise<string | null>;
+  placeStamp: (page: number, x: number, y: number, preset: StampPreset, withDate: boolean) => Promise<string | null>;
+  reply: (page: number, parent: string, text: string) => Promise<string | null>;
+  setStatus: (page: number, id: string, status: ReviewStatus | "") => Promise<boolean>;
+  setMarked: (page: number, id: string, marked: boolean) => Promise<boolean>;
+  setShapeKind: (k: ShapeKind) => void;
+  setTool: (t: Tool) => void;
 }
 
 /** Point d'ancrage : garde la même portion du document sous les yeux quand le zoom, la rotation
@@ -168,6 +184,18 @@ const TOOL_LABELS: Record<Exclude<Tool, "select" | "eraser">, string> = {
   callout: msg("Légende"),
   check: msg("Coche"),
   sign: msg("Signer"),
+  shape: msg("Formes"),
+  stamp: msg("Tampon"),
+};
+
+const SHAPE_ICONS: Record<ShapeKind, React.ReactNode> = {
+  square: <SquareIcon size={16} />,
+  circle: <Circle size={16} />,
+  line: <Minus size={16} />,
+  arrow: <MoveUpRight size={16} />,
+  polygon: <Pentagon size={16} />,
+  polyline: <Spline size={16} />,
+  cloud: <Cloud size={16} />,
 };
 const STAMP_KINDS = new Set(["text", "mark", "signature", "stamp", "textbox", "callout"]);
 /** Largeur d'une nouvelle zone de texte, en points. */
@@ -974,6 +1002,60 @@ export function DocumentView({
     [attempt, engine, info.id, apply],
   );
 
+  // ------------------------------------------------------------ formes, tampons, réponses, statuts
+  const [shapeKind, setShapeKind] = useState<ShapeKind>("square");
+  const [shapeFill, setShapeFill] = useState(false);
+  const shapeFillRef = useRef(shapeFill);
+  shapeFillRef.current = shapeFill;
+  const shapeKindRef = useRef(shapeKind);
+  shapeKindRef.current = shapeKind;
+  const [stampPreset, setStampPreset] = useState<StampPreset>("approved");
+  const [stampDated, setStampDated] = useState(true);
+  const stampRef = useRef({ preset: stampPreset, dated: stampDated });
+  stampRef.current = { preset: stampPreset, dated: stampDated };
+  const authorRef = useRef(author);
+  authorRef.current = author;
+
+  const createShape = useCallback(
+    async (p: number, points: [number, number][], kind = shapeKindRef.current, fill = shapeFillRef.current): Promise<string | null> => {
+      const st = stylesRef.current.shape;
+      const filled = fill && (kind === "square" || kind === "circle") ? tint(st.color) : null;
+      const r = await attempt(() => engine.addShape(info.id, p, kind, points, st.color, st.opacity, st.width, filled), t("La forme n'a pas pu être ajoutée"));
+      if (!r) return null;
+      apply(p, r);
+      return r.id;
+    },
+    [attempt, engine, info.id, apply],
+  );
+  const placeStamp = useCallback(
+    async (p: number, x: number, y: number, preset = stampRef.current.preset, dated = stampRef.current.dated): Promise<string | null> => {
+      const when = new Date().toLocaleDateString(locale(), { day: "numeric", month: "long", year: "numeric" });
+      const subtitle = dated ? `${authorRef.current} · ${when}` : null;
+      const r = await attempt(() => engine.addStamp(info.id, p, x, y, preset, t(STAMP_LABELS[preset]), subtitle), t("Le tampon n'a pas pu être posé"));
+      if (!r) return null;
+      apply(p, r);
+      return r.id;
+    },
+    [attempt, engine, info.id, apply],
+  );
+  const replyTo = useCallback(
+    async (p: number, parent: string, text: string): Promise<string | null> => {
+      const r = await attempt(() => engine.addReply(info.id, p, parent, text), t("La réponse n'a pas pu être ajoutée"));
+      if (!r) return null;
+      apply(p, r);
+      return r.id;
+    },
+    [attempt, engine, info.id, apply],
+  );
+  const setStatus = useCallback(
+    async (p: number, id: string, status: ReviewStatus | "" | null, marked: boolean | null): Promise<boolean> => {
+      const r = await attempt(() => engine.setStatus(info.id, p, id, status, marked), t("Le statut n'a pas pu être modifié"));
+      if (r) apply(p, r);
+      return !!r;
+    },
+    [attempt, engine, info.id, apply],
+  );
+
   const markCrossRef = useRef(markCross);
   markCrossRef.current = markCross;
   const addMark = useCallback(
@@ -1073,8 +1155,9 @@ export function DocumentView({
       }
       else if (t === "check") void addMark(p, x, y);
       else if (t === "sign") void signAt(p, x, y, sigKind);
+      else if (t === "stamp") void placeStamp(p, x, y);
     },
-    [createNote, addMark, signAt, sigKind, info.pages],
+    [createNote, addMark, signAt, sigKind, info.pages, placeStamp],
   );
 
   /** Clic sur la page avec l'outil de sélection : sélectionne le commentaire sous le pointeur. */
@@ -1101,7 +1184,7 @@ export function DocumentView({
     const W = sideways ? r.height : r.width;
     const H = sideways ? r.width : r.height;
     const [u, v] = unrotatePoint(e.clientX - r.left, e.clientY - r.top, W, H, rotation);
-    const hit = hitTest(annotsRef.current.get(p) ?? [], (u / W) * pw, (v / H) * ph, 3 / (PT_TO_CSS * zoom));
+    const hit = hitTest((annotsRef.current.get(p) ?? []).filter((a) => !a.replyTo), (u / W) * pw, (v / H) * ph, 3 / (PT_TO_CSS * zoom));
     if (hit) {
       setSelected({ page: p, id: hit.id });
       setEditing(hit.kind === "note" ? { page: p, id: hit.id, isNew: false } : null);
@@ -1223,8 +1306,15 @@ export function DocumentView({
       reading: () => speechRef.current?.page ?? null,
       isProtected: () => protectedRef.current,
       enableEditing: () => setProtectedOn(false),
+      createShape: (p, kind, points, fill) => createShape(p, points, kind, fill),
+      placeStamp: (p, x, y, preset, dated) => placeStamp(p, x, y, preset, dated),
+      reply: replyTo,
+      setStatus: (p, id, status) => setStatus(p, id, status, null),
+      setMarked: (p, id, marked) => setStatus(p, id, null, marked),
+      setShapeKind,
+      setTool: onToolChange,
     });
-  }, [register, jump, goBack, goForward, openAdvanced, readPage, stopReading, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, addTextBox, saveSignature, placeSignature]);
+  }, [register, onToolChange, jump, goBack, goForward, openAdvanced, readPage, stopReading, createShape, placeStamp, replyTo, setStatus, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, addTextBox, saveSignature, placeSignature]);
   useEffect(() => () => register?.(null), [register]);
 
   // ------------------------------------------------------------ sélection du texte au clavier
@@ -1410,6 +1500,12 @@ export function DocumentView({
     }
   }, [visibleKey, isActive, loadAnnots, loadFields, annots, fields]);
   const selectedAnnot = selected ? annots.get(selected.page)?.find((a) => a.id === selected.id) : undefined;
+  // Les réponses n'existent que dans la liste des commentaires.
+  const pageAnnots = useMemo(() => {
+    const m = new Map<number, Annot[]>();
+    annots.forEach((list, p) => m.set(p, list.some((a) => a.replyTo) ? list.filter((a) => !a.replyTo) : list));
+    return m;
+  }, [annots]);
   const styleTool = tool === "select" || tool === "eraser" ? null : tool;
   const sig = sigs[sigKind];
   const notice = !search.searching && search.flat.length === 0 && search.pagesWithText === 0 ? t("Aucun texte dans ce document (numérisé ?)") : null;
@@ -1447,6 +1543,8 @@ export function DocumentView({
           <ToolButton id="text" label={t("Ajouter du texte (cliquez sur la page)")} shortcut="T" icon={<Type size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="textbox" label={t("Zone de texte encadrée")} icon={<SquarePen size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="callout" label={t("Légende (cliquez sur le point à désigner)")} icon={<MessageSquareText size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="shape" label={t("Formes (rectangle, ellipse, ligne, flèche, polygone, nuage)")} icon={<Shapes size={18} />} isDisabled={!canAnnotate} />
+          <ToolButton id="stamp" label={t("Tampon (Approuvé, Brouillon, Confidentiel…)")} icon={<StampIcon size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="check" label={t("Ajouter une coche ou une croix")} icon={<Check size={18} />} isDisabled={!canAnnotate} />
           <ToolButton id="sign" label={t("Signer (cliquez sur la page)")} shortcut="S" icon={<SignatureIcon size={18} />} isDisabled={!canAnnotate} />
         </ToolGroup>
@@ -1532,14 +1630,39 @@ export function DocumentView({
           style={{ color: selectedAnnot.color ?? DEFAULT_STYLES.highlight.color, opacity: selectedAnnot.opacity, width: selectedAnnot.width }}
           showColor={!STAMP_KINDS.has(selectedAnnot.kind)}
           showOpacity={!STAMP_KINDS.has(selectedAnnot.kind) && selectedAnnot.kind !== "note"}
-          showWidth={selectedAnnot.kind === "ink"}
+          showWidth={STROKE_KINDS.includes(selectedAnnot.kind) || selectedAnnot.kind === "square" || selectedAnnot.kind === "circle"}
           onChange={patchSelected}
           onDelete={() => void deleteAnnot(selectedAnnot.page, selectedAnnot.id)}
         />
       ) : (
         canAnnotate &&
         styleTool &&
-        (styleTool === "sign" ? (
+        (styleTool === "stamp" ? (
+          <PropertyBar
+            title={t("Tampon")}
+            style={styles.text}
+            showColor={false}
+            showOpacity={false}
+            showWidth={false}
+            onChange={() => undefined}
+            extra={
+              <div className="flex flex-wrap items-center gap-3">
+                <Select
+                  aria-label={t("Tampon")}
+                  size="sm"
+                  options={(Object.keys(STAMP_LABELS) as StampPreset[]).map((id) => ({ id, label: t(STAMP_LABELS[id]) }))}
+                  selectedKey={stampPreset}
+                  onSelectionChange={(k) => setStampPreset(k as StampPreset)}
+                  className="w-48"
+                />
+                <Checkbox isSelected={stampDated} onChange={setStampDated}>
+                  {t("Ajouter mon nom et la date")}
+                </Checkbox>
+                <span className="text-sm text-muted">{t("Cliquez sur la page pour le poser.")}</span>
+              </div>
+            }
+          />
+        ) : styleTool === "sign" ? (
           <PropertyBar
             title={t("Signer")}
             style={styles.text}
@@ -1591,12 +1714,28 @@ export function DocumentView({
             title={t(TOOL_LABELS[styleTool])}
             style={styles[styleTool === "textbox" || styleTool === "callout" ? "text" : styleTool]}
             showOpacity={!["note", "text", "check", "textbox", "callout"].includes(styleTool)}
-            showWidth={["ink", "text", "check", "textbox", "callout"].includes(styleTool)}
-            widthLabel={styleTool === "ink" ? t("Épaisseur") : t("Taille")}
-            widthRange={styleTool === "ink" ? [0.5, 12, 0.5] : [6, 48, 1]}
+            showWidth={["ink", "text", "check", "textbox", "callout", "shape"].includes(styleTool)}
+            widthLabel={styleTool === "ink" || styleTool === "shape" ? t("Épaisseur") : t("Taille")}
+            widthRange={styleTool === "ink" || styleTool === "shape" ? [0.5, 12, 0.5] : [6, 48, 1]}
             onChange={(patch) => onStyleChange(styleTool === "textbox" || styleTool === "callout" ? "text" : styleTool, patch)}
             extra={
-              styleTool === "textbox" || styleTool === "callout" ? (
+              styleTool === "shape" ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <ToolGroup aria-label={t("Forme")} selectionMode="single" disallowEmptySelection selectedKeys={new Set([shapeKind])} onSelectionChange={(k) => setShapeKind([...k][0] as ShapeKind)}>
+                    {SHAPE_KINDS.map((k) => (
+                      <ToolButton key={k} id={k} label={t(KIND_LABELS[k])} icon={SHAPE_ICONS[k]} size="sm" />
+                    ))}
+                  </ToolGroup>
+                  {(shapeKind === "square" || shapeKind === "circle") && (
+                    <Checkbox isSelected={shapeFill} onChange={setShapeFill}>
+                      {t("Remplir")}
+                    </Checkbox>
+                  )}
+                  <span className="text-sm text-muted">
+                    {isMultiPoint(shapeKind) ? t("Cliquez pour chaque sommet ; double-clic ou Entrée pour terminer.") : t("Faites glisser sur la page.")}
+                  </span>
+                </div>
+              ) : styleTool === "textbox" || styleTool === "callout" ? (
                 <Checkbox isSelected={boxFilled} onChange={setBoxFilled}>
                   {t("Fond blanc")}
                 </Checkbox>
@@ -1765,7 +1904,7 @@ export function DocumentView({
                       hits={search.perPage.get(i)}
                       currentHit={currentHit && currentHit[0] === i ? currentHit[1] : -1}
                       onLink={onLink}
-                      annots={annots.get(i) ?? null}
+                      annots={pageAnnots.get(i) ?? null}
                       selectedId={selected?.page === i ? selected.id : null}
                       editing={editing?.page === i ? editing : null}
                       tool={canAnnotate && !immersive ? tool : "select"}
@@ -1789,6 +1928,9 @@ export function DocumentView({
                       }}
                       onCancelText={() => setTextDraft(null)}
                       onCreateInk={createInk}
+                      shapeKind={shapeKind}
+                      shapeFill={shapeFill}
+                      onCreateShape={(pg, pts) => void createShape(pg, pts)}
                       onDeleteAnnot={deleteAnnot}
                       onSaveNote={saveNote}
                       onCloseEditor={() => setEditing(null)}
@@ -1852,6 +1994,9 @@ export function DocumentView({
                 onSelect={selectAnnot}
                 onSave={(a, t) => void saveComment(a, t)}
                 onDelete={(a) => void deleteAnnot(a.page, a.id)}
+                onReply={(a, text) => void replyTo(a.page, a.id, text)}
+                onStatus={(a, status) => void setStatus(a.page, a.id, status, null)}
+                onMarked={(a, marked) => void setStatus(a.page, a.id, null, marked)}
                 onClose={() => setPanel(null)}
               />
             )}

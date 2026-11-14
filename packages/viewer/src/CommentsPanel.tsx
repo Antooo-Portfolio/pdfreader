@@ -1,9 +1,9 @@
-import { t, PanelHeader, Button, IconButton, EmptyState, ProgressBar, SearchField, Select, TextField, locale, msg } from "@pdfreader/ui";
+import { t, PanelHeader, Button, Checkbox, IconButton, EmptyState, Menu, MenuItem, MenuTrigger, ProgressBar, SearchField, Select, TextField, locale, msg } from "@pdfreader/ui";
 import { clsx } from "clsx";
-import { MessageSquare, Pencil, Trash2, X } from "lucide-react";
+import { CircleCheck, MessageSquare, Pencil, Reply, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { formatDate, KIND_LABELS, parsePdfDate, toHex } from "./annot";
-import type { Annot, AnnotKind } from "./engine";
+import { formatDate, KIND_LABELS, parsePdfDate, STATUS_LABELS, toHex } from "./annot";
+import type { Annot, AnnotKind, ReviewStatus } from "./engine";
 
 type Sort = "page" | "newest" | "oldest" | "author";
 
@@ -13,14 +13,27 @@ const TYPE_FILTERS: { id: string; label: string; kinds?: AnnotKind[] }[] = [
   { id: "underline", label: msg("Soulignés et barrés"), kinds: ["underline", "strikeout", "squiggly"] },
   { id: "note", label: msg("Notes"), kinds: ["note"] },
   { id: "ink", label: msg("Dessins"), kinds: ["ink"] },
-  { id: "other", label: msg("Autres"), kinds: ["freetext", "line", "square", "circle", "polygon", "polyline", "stamp", "other"] },
+  { id: "shapes", label: msg("Formes"), kinds: ["line", "arrow", "square", "circle", "polygon", "polyline", "cloud"] },
+  { id: "stamp", label: msg("Tampons"), kinds: ["stamp"] },
+  { id: "other", label: msg("Autres"), kinds: ["freetext", "text", "textbox", "callout", "mark", "signature", "other"] },
+];
+
+const STATUS_FILTERS: { id: string; label: string }[] = [
+  { id: "all", label: msg("Tous les statuts") },
+  { id: "none", label: msg("Sans statut") },
+  { id: "accepted", label: STATUS_LABELS.accepted },
+  { id: "rejected", label: STATUS_LABELS.rejected },
+  { id: "cancelled", label: STATUS_LABELS.cancelled },
+  { id: "completed", label: STATUS_LABELS.completed },
+  { id: "marked", label: msg("Cochés") },
 ];
 
 const time = (a: Annot) => parsePdfDate(a.modified ?? a.created)?.getTime() ?? 0;
+const unknownAuthor = () => t("Auteur inconnu");
 
-/** S08 : tous les commentaires du document, filtrés et triés ; modifier le texte, supprimer,
- *  aller au commentaire. C'est aussi la voie au clavier pour tout ce qui se fait à la souris
- *  sur la page. */
+/** S08 : tous les commentaires du document, filtrés et triés ; modifier le texte, répondre,
+ *  donner un statut, cocher, supprimer, aller au commentaire. C'est aussi la voie au clavier
+ *  pour tout ce qui se fait à la souris sur la page. */
 export function CommentsPanel({
   annots,
   pageCount,
@@ -32,6 +45,9 @@ export function CommentsPanel({
   onSelect,
   onSave,
   onDelete,
+  onReply,
+  onStatus,
+  onMarked,
   onClose,
 }: {
   annots: Map<number, Annot[]>;
@@ -44,36 +60,57 @@ export function CommentsPanel({
   onSelect: (a: Annot) => void;
   onSave: (a: Annot, text: string) => void;
   onDelete: (a: Annot) => void;
+  onReply: (a: Annot, text: string) => void;
+  onStatus: (a: Annot, status: ReviewStatus | "") => void;
+  onMarked: (a: Annot, marked: boolean) => void;
   onClose: () => void;
 }) {
   const [type, setType] = useState("all");
   const [who, setWho] = useState("all");
+  const [status, setStatus] = useState("all");
   const [sort, setSort] = useState<Sort>("page");
   const [query, setQuery] = useState("");
   const [editingAuthor, setEditingAuthor] = useState<string | null>(null);
 
-  const all = useMemo(() => [...annots.values()].flat().filter((a) => !a.replyTo), [annots]);
-  const authors = useMemo(() => [...new Set(all.map((a) => a.author || "Auteur inconnu"))].sort((a, b) => a.localeCompare(b, locale())), [all]);
+  const flat = useMemo(() => [...annots.values()].flat(), [annots]);
+  const all = useMemo(() => flat.filter((a) => !a.replyTo), [flat]);
+  // Réponses de chaque commentaire, de la plus ancienne à la plus récente.
+  const replies = useMemo(() => {
+    const m = new Map<string, Annot[]>();
+    for (const a of flat) {
+      if (!a.replyTo) continue;
+      const key = `${a.page}:${a.replyTo}`;
+      m.set(key, [...(m.get(key) ?? []), a]);
+    }
+    m.forEach((list) => list.sort((x, y) => time(x) - time(y)));
+    return m;
+  }, [flat]);
+  const authors = useMemo(() => [...new Set(all.map((a) => a.author || unknownAuthor()))].sort((a, b) => a.localeCompare(b, locale())), [all]);
   const shown = useMemo(() => {
     const kinds = TYPE_FILTERS.find((f) => f.id === type)?.kinds;
     const q = query.trim().toLocaleLowerCase(locale());
+    const matches = (a: Annot) => a.contents.toLocaleLowerCase(locale()).includes(q) || a.author.toLocaleLowerCase(locale()).includes(q);
     const list = all.filter(
       (a) =>
         (!kinds || kinds.includes(a.kind)) &&
-        (who === "all" || (a.author || "Auteur inconnu") === who) &&
-        (!q || a.contents.toLocaleLowerCase(locale()).includes(q) || a.author.toLocaleLowerCase(locale()).includes(q)),
+        (who === "all" || (a.author || unknownAuthor()) === who) &&
+        (status === "all" || (status === "none" ? !a.status : status === "marked" ? a.marked : a.status === status)) &&
+        (!q || matches(a) || (replies.get(`${a.page}:${a.id}`) ?? []).some(matches)),
     );
     const byPage = (a: Annot, b: Annot) => a.page - b.page || a.rect[1] - b.rect[1] || a.rect[0] - b.rect[0];
     return list.sort((a, b) =>
       sort === "page" ? byPage(a, b) : sort === "newest" ? time(b) - time(a) : sort === "oldest" ? time(a) - time(b) : a.author.localeCompare(b.author, locale()) || byPage(a, b),
     );
-  }, [all, type, who, sort, query]);
+  }, [all, replies, type, who, status, sort, query]);
 
   const loading = pagesLoaded < pageCount;
 
   return (
     <section aria-label={t("Commentaires")} className="flex min-h-0 flex-1 flex-col">
-      <PanelHeader title={`Commentaires${all.length ? ` (${all.length})` : ""}`} actions={<IconButton label={t("Fermer le panneau")} size="sm" icon={<X size={16} />} onPress={onClose} />} />
+      <PanelHeader
+        title={all.length ? t("Commentaires ({count})", { count: all.length }) : t("Commentaires")}
+        actions={<IconButton label={t("Fermer le panneau")} size="sm" icon={<X size={16} />} onPress={onClose} />}
+      />
       <div className="flex flex-col gap-2 border-b border-border p-3">
         {editingAuthor === null ? (
           <div className="flex items-center gap-1 text-sm text-muted">
@@ -110,6 +147,7 @@ export function CommentsPanel({
             selectedKey={who}
             onSelectionChange={(k) => setWho(String(k))}
           />
+          <Select aria-label={t("Statut")} size="sm" options={STATUS_FILTERS.map((f) => ({ id: f.id, label: t(f.label) }))} selectedKey={status} onSelectionChange={(k) => setStatus(String(k))} />
         </div>
         <Select
           aria-label={t("Tri")}
@@ -138,6 +176,7 @@ export function CommentsPanel({
                 onPress={() => {
                   setType("all");
                   setWho("all");
+                  setStatus("all");
                   setQuery("");
                 }}
               >
@@ -151,11 +190,18 @@ export function CommentsPanel({
               <CommentItem
                 key={`${a.page}:${a.id}`}
                 a={a}
+                replies={replies.get(`${a.page}:${a.id}`) ?? []}
                 selected={selected?.page === a.page && selected.id === a.id}
                 canEdit={canEdit && !a.locked}
+                canReply={canEdit}
                 onSelect={() => onSelect(a)}
-                onSave={(t) => onSave(a, t)}
+                onSave={(text) => onSave(a, text)}
                 onDelete={() => onDelete(a)}
+                onReply={(text) => onReply(a, text)}
+                onStatus={(s) => onStatus(a, s)}
+                onMarked={(m) => onMarked(a, m)}
+                onSaveReply={(r, text) => onSave(r, text)}
+                onDeleteReply={(r) => onDelete(r)}
               />
             ))}
           </ul>
@@ -165,73 +211,193 @@ export function CommentsPanel({
   );
 }
 
-function CommentItem({ a, selected, canEdit, onSelect, onSave, onDelete }: { a: Annot; selected: boolean; canEdit: boolean; onSelect: () => void; onSave: (t: string) => void; onDelete: () => void }) {
-  const [draft, setDraft] = useState<string | null>(null);
+/** Zone de saisie d'un texte (commentaire ou réponse) : Ctrl+Entrée enregistre, Échap annule. */
+function Draft({ label, initial, onSave, onCancel }: { label: string; initial: string; onSave: (text: string) => void; onCancel: () => void }) {
+  const [draft, setDraft] = useState(initial);
+  return (
+    <form
+      className="flex flex-col gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (draft.trim()) onSave(draft);
+      }}
+    >
+      <textarea
+        aria-label={label}
+        value={draft}
+        autoFocus
+        rows={3}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            onCancel();
+          } else if (e.key === "Enter" && e.ctrlKey) {
+            e.preventDefault();
+            if (draft.trim()) onSave(draft);
+          }
+        }}
+        className="focus-ring resize-y rounded-md border border-border-input bg-bg p-2 text-base"
+      />
+      <div className="flex justify-end gap-1">
+        <Button size="sm" onPress={onCancel}>
+          {t("Annuler")}
+        </Button>
+        <Button size="sm" variant="primary" type="submit">
+          {t("Enregistrer")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function CommentItem({
+  a,
+  replies,
+  selected,
+  canEdit,
+  canReply,
+  onSelect,
+  onSave,
+  onDelete,
+  onReply,
+  onStatus,
+  onMarked,
+  onSaveReply,
+  onDeleteReply,
+}: {
+  a: Annot;
+  replies: Annot[];
+  selected: boolean;
+  canEdit: boolean;
+  canReply: boolean;
+  onSelect: () => void;
+  onSave: (t: string) => void;
+  onDelete: () => void;
+  onReply: (t: string) => void;
+  onStatus: (s: ReviewStatus | "") => void;
+  onMarked: (m: boolean) => void;
+  onSaveReply: (r: Annot, t: string) => void;
+  onDeleteReply: (r: Annot) => void;
+}) {
+  const [mode, setMode] = useState<"edit" | "reply" | null>(null);
+  const [editingReply, setEditingReply] = useState<string | null>(null);
   const date = formatDate(parsePdfDate(a.modified ?? a.created));
   return (
     <li
       className={clsx("flex flex-col gap-1.5 rounded-lg border bg-bg p-2.5 transition-control", selected ? "border-accent shadow-raised" : "border-border")}
       data-comment={a.id}
     >
-      <button type="button" onClick={onSelect} className="focus-ring flex cursor-default flex-col gap-1 rounded-sm text-left" aria-current={selected ? "true" : undefined}>
-        <span className="flex items-center gap-2">
-          <span aria-hidden className="size-3 shrink-0 rounded-pill shadow-[inset_0_0_0_1px_rgba(0,0,0,.2)]" style={{ background: a.color ? toHex(a.color) : "transparent" }} />
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{a.author || "Auteur inconnu"}</span>
-          <span className="shrink-0 text-xs text-muted">
-            {t(KIND_LABELS[a.kind])} · {t("p. {page}", { page: a.page + 1 })}
+      <div className="flex items-start gap-1.5">
+        <Checkbox isSelected={a.marked} isDisabled={!canReply} onChange={onMarked} aria-label={t("Cocher ce commentaire")} className="mt-0.5 min-h-0">
+          <span className="sr-only">{t("Cocher ce commentaire")}</span>
+        </Checkbox>
+        <button type="button" onClick={onSelect} className="focus-ring flex min-w-0 flex-1 cursor-default flex-col gap-1 rounded-sm text-left" aria-current={selected ? "true" : undefined}>
+          <span className="flex items-center gap-2">
+            <span aria-hidden className="size-3 shrink-0 rounded-pill shadow-[inset_0_0_0_1px_rgba(0,0,0,.2)]" style={{ background: a.color ? toHex(a.color) : "transparent" }} />
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{a.author || unknownAuthor()}</span>
+            <span className="shrink-0 text-xs text-muted">
+              {t(KIND_LABELS[a.kind])} · {t("p. {page}", { page: a.page + 1 })}
+            </span>
           </span>
-        </span>
-        {date && <span className="text-xs text-muted">{date}</span>}
-        {a.contents && draft === null && <span className="text-base break-words whitespace-pre-wrap">{a.contents}</span>}
-      </button>
-      {draft !== null ? (
-        <form
-          className="flex flex-col gap-1.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSave(draft);
-            setDraft(null);
+          <span className="flex flex-wrap items-center gap-2 text-xs text-muted">
+            {date}
+            {a.status && (
+              <span data-status={a.status} className="inline-flex items-center gap-1 rounded-pill bg-surface px-1.5 py-0.5 font-medium text-fg">
+                <CircleCheck size={12} aria-hidden />
+                {t(STATUS_LABELS[a.status])}
+              </span>
+            )}
+          </span>
+          {a.contents && mode !== "edit" && <span className="text-base break-words whitespace-pre-wrap">{a.contents}</span>}
+        </button>
+      </div>
+      {mode === "edit" && (
+        <Draft
+          label={t("Texte du commentaire")}
+          initial={a.contents}
+          onSave={(text) => {
+            onSave(text);
+            setMode(null);
           }}
-        >
-          <textarea
-            aria-label={t("Texte du commentaire")}
-            value={draft}
-            autoFocus
-            rows={3}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                setDraft(null);
-              } else if (e.key === "Enter" && e.ctrlKey) {
-                e.preventDefault();
-                onSave(draft);
-                setDraft(null);
-              }
-            }}
-            className="focus-ring resize-y rounded-md border border-border-input bg-bg p-2 text-base"
-          />
-          <div className="flex justify-end gap-1">
-            <Button size="sm" onPress={() => setDraft(null)}>
-              {t("Annuler")}
+          onCancel={() => setMode(null)}
+        />
+      )}
+      {replies.length > 0 && (
+        <ul className="ml-3 flex flex-col gap-1.5 border-l-2 border-border pl-2.5" aria-label={t("Réponses")}>
+          {replies.map((r) => (
+            <li key={r.id} data-reply={r.id} className="flex flex-col gap-0.5">
+              <span className="flex items-center gap-2 text-xs">
+                <span className="font-semibold">{r.author || unknownAuthor()}</span>
+                <span className="text-muted">{formatDate(parsePdfDate(r.modified ?? r.created))}</span>
+              </span>
+              {editingReply === r.id ? (
+                <Draft
+                  label={t("Texte de la réponse")}
+                  initial={r.contents}
+                  onSave={(text) => {
+                    onSaveReply(r, text);
+                    setEditingReply(null);
+                  }}
+                  onCancel={() => setEditingReply(null)}
+                />
+              ) : (
+                <span className="text-sm break-words whitespace-pre-wrap">{r.contents}</span>
+              )}
+              {selected && canReply && editingReply !== r.id && (
+                <span className="flex gap-1">
+                  <IconButton label={t("Modifier la réponse")} size="sm" icon={<Pencil size={14} />} onPress={() => setEditingReply(r.id)} />
+                  <IconButton label={t("Supprimer la réponse")} size="sm" icon={<Trash2 size={14} />} onPress={() => onDeleteReply(r)} />
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {mode === "reply" && (
+        <Draft
+          label={t("Votre réponse")}
+          initial=""
+          onSave={(text) => {
+            onReply(text);
+            setMode(null);
+          }}
+          onCancel={() => setMode(null)}
+        />
+      )}
+      {selected && mode === null && (canEdit || canReply) && (
+        <div className="flex flex-wrap gap-1">
+          {canReply && (
+            <Button size="sm" variant="ghost" icon={<Reply size={14} />} onPress={() => setMode("reply")}>
+              {t("Répondre")}
             </Button>
-            <Button size="sm" variant="primary" type="submit">
-              {t("Enregistrer")}
-            </Button>
-          </div>
-        </form>
-      ) : (
-        canEdit &&
-        selected && (
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" icon={<Pencil size={14} />} onPress={() => setDraft(a.contents)}>
+          )}
+          {canReply && (
+            <MenuTrigger>
+              <Button size="sm" variant="ghost" icon={<CircleCheck size={14} />}>
+                {t("Statut")}
+              </Button>
+              <Menu aria-label={t("Statut")} selectionMode="single" selectedKeys={[a.status ?? "none"]} onAction={(k) => onStatus(k === "none" ? "" : (k as ReviewStatus))}>
+                <MenuItem id="none">{t("Aucun")}</MenuItem>
+                {(Object.keys(STATUS_LABELS) as ReviewStatus[]).map((s) => (
+                  <MenuItem key={s} id={s}>
+                    {t(STATUS_LABELS[s])}
+                  </MenuItem>
+                ))}
+              </Menu>
+            </MenuTrigger>
+          )}
+          {canEdit && (
+            <Button size="sm" variant="ghost" icon={<Pencil size={14} />} onPress={() => setMode("edit")}>
               {a.contents ? t("Modifier") : t("Ajouter un commentaire")}
             </Button>
+          )}
+          {canEdit && (
             <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onPress={onDelete}>
               {t("Supprimer")}
             </Button>
-          </div>
-        )
+          )}
+        </div>
       )}
     </li>
   );

@@ -32,14 +32,14 @@ Restaurer la dernière page et le zoom à la réouverture,accueil,should,yes,yes
 Surligner / souligner / barrer du texte,annotation,must,yes,yes,"M2 : trois outils, appliqués à la sélection (ou au texte déjà sélectionné quand on choisit l'outil), couleur et opacité par outil, mémorisées"
 Note (commentaire épinglé),annotation,must,yes,yes,"M2 : clic sur la page, éditeur qui s'ouvre à la création, modification et suppression ; icône générée par PDFium"
 Zone de texte et légende,annotation,must,yes,yes,"M2 : zone de texte encadrée (texte renvoyé à la ligne, fond blanc facultatif) et légende fléchée, posées comme tampons ; texte modifiable depuis le panneau Commentaires"
-Formes (rectangle / ellipse / ligne / flèche / polygone / nuage),annotation,should,yes,no,
+Formes (rectangle / ellipse / ligne / flèche / polygone / nuage),annotation,should,yes,yes,"M3 : outil Formes ; rectangle et ellipse en commentaires standards (remplissage facultatif) ; ligne, flèche, polygone, ligne brisée et nuage en tracés d'encre marqués de leur nature (PDFium ne génère pas l'apparence des /Line et /Polygon ni n'écrit leurs coordonnées) : affichés et imprimés partout, présentés comme dessins par les autres lecteurs"
 Dessin à main levée et gomme,annotation,must,yes,yes,"M2 : tracé à la souris ou au stylet (couleur, opacité, épaisseur), gomme qui efface les tracés touchés"
-Tampons prédéfinis,annotation,should,yes,no,
+Tampons prédéfinis,annotation,should,yes,yes,"M3 : neuf tampons (Approuvé, Non approuvé, Brouillon, Final, Confidentiel, Pour commentaire, Pour diffusion, Diffusion interne, Expiré), avec nom et date en option ; libellé dans la langue de l'interface"
 Tampons personnalisés et dynamiques (date / nom),annotation,could,yes,no,
 Pièce jointe en commentaire,annotation,could,yes,no,
 Propriétés d'annotation (couleur / opacité / épaisseur),annotation,must,yes,yes,M2 : barre de propriétés pour l'outil actif et pour le commentaire sélectionné (apparence régénérée par PDFium) ; touche Suppr
 Panneau Commentaires (liste / filtre / tri),annotation,must,yes,yes,"M2 : S08 : tous les commentaires, filtre par type et auteur, recherche, tri page / date / auteur, modifier le texte, supprimer, aller au commentaire ; vide et « aucun ne correspond »"
-Répondre à un commentaire / statut (résolu / coché),annotation,should,yes,no,IRT et State de la norme
+Répondre à un commentaire / statut (résolu / coché),annotation,should,yes,yes,"M3 : fil de réponses, statut (accepté, refusé, annulé, terminé) et coche dans le panneau Commentaires, filtre par statut ; fils et statuts d'autres logiciels (/IRT, /State) lus ; les nôtres reliés par une clé privée (PDFium n'écrit pas /IRT) : ailleurs, nos réponses apparaissent comme des notes séparées"
 Réactions et non lu sur les commentaires,annotation,could,yes,no,hors norme : données de l'app
 Nom d'auteur des commentaires,annotation,must,yes,yes,"M2 : nom de session Windows par défaut, modifiable dans le panneau Commentaires (préférence « author ») ; reportera dans S14"
 Remplir un formulaire AcroForm,formulaires,must,yes,yes,"M2 : S11 : texte (une ou plusieurs lignes, mot de passe), case, bouton radio, liste déroulante et liste, par de vrais contrôles HTML ; saisie confiée au moteur interactif de PDFium (valeur et apparence) ; lecture seule et droits respectés ; bandeau et surlignage des champs. Listes à choix multiples et calculs JavaScript : non"

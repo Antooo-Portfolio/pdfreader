@@ -75,6 +75,10 @@ pub enum AnnotOp {
     TextBox { rect: [f32; 4], text: String, size: f32, color: [u8; 3], filled: bool, anchor: Option<[f32; 2]>, author: String },
     Image { rect: [f32; 4], png: Vec<u8>, kind: String, author: String },
     Delete { id: String },
+    Shape { kind: String, points: Vec<[f32; 2]>, color: [u8; 3], opacity: f32, width: f32, fill: Option<[u8; 3]>, author: String },
+    Stamp { x: f32, y: f32, preset: String, label: String, subtitle: Option<String>, author: String },
+    Reply { parent: String, contents: String, author: String },
+    Status { id: String, status: Option<String>, marked: Option<bool> },
 }
 
 /// Commentaire créé (s'il y en a un) et liste à jour des commentaires de la page.
@@ -346,6 +350,15 @@ fn run(lib_dir: PathBuf, rx: mpsc::Receiver<Cmd>) {
                         }
                         AnnotOp::Delete { id } => {
                             an::delete(&mut p, &id).map_err(|e| e.to_string())?;
+                            None
+                        }
+                        AnnotOp::Shape { kind, points, color, opacity, width, fill, author } => Some(an::add_shape(&mut p, &kind, &points, color, opacity, width, fill, &author)),
+                        AnnotOp::Stamp { x, y, preset, label, subtitle, author } => {
+                            Some(eng::fill::add_preset_stamp(&e.doc, &mut p, x, y, &preset, &label, subtitle.as_deref(), &author))
+                        }
+                        AnnotOp::Reply { parent, contents, author } => Some(an::add_reply(&mut p, &parent, &contents, &author)),
+                        AnnotOp::Status { id, status, marked } => {
+                            an::set_status(&mut p, &id, status.as_deref(), marked).map_err(|e| e.to_string())?;
                             None
                         }
                     };

@@ -1,9 +1,9 @@
 import { locale, msg, t } from "@pdfreader/ui";
 /** Outils de commentaire, styles par outil et fonctions utilitaires (libellés, couleurs, dates,
  *  détection du commentaire sous le pointeur). */
-import type { Annot, AnnotKind, MarkupKind, Rgb } from "./engine";
+import type { Annot, AnnotKind, MarkupKind, ReviewStatus, Rgb, ShapeKind, StampPreset } from "./engine";
 
-export type Tool = "select" | MarkupKind | "note" | "ink" | "eraser" | "text" | "textbox" | "callout" | "check" | "sign";
+export type Tool = "select" | MarkupKind | "note" | "ink" | "eraser" | "text" | "textbox" | "callout" | "check" | "sign" | "shape" | "stamp";
 export const MARKUP_TOOLS: MarkupKind[] = ["highlight", "underline", "strikeout"];
 export const isMarkupTool = (t: Tool): t is MarkupKind => (MARKUP_TOOLS as string[]).includes(t);
 
@@ -14,7 +14,7 @@ export interface ToolStyle {
   width: number;
 }
 
-export type ToolStyles = Record<MarkupKind | "note" | "ink" | "text" | "check", ToolStyle>;
+export type ToolStyles = Record<MarkupKind | "note" | "ink" | "text" | "check" | "shape", ToolStyle>;
 
 export const DEFAULT_STYLES: ToolStyles = {
   highlight: { color: [255, 225, 77], opacity: 1, width: 1 },
@@ -25,7 +25,36 @@ export const DEFAULT_STYLES: ToolStyles = {
   // Texte et coche : « width » est la taille en points.
   text: { color: [22, 24, 28], opacity: 1, width: 12 },
   check: { color: [22, 24, 28], opacity: 1, width: 14 },
+  shape: { color: [229, 72, 77], opacity: 1, width: 2 },
 };
+
+export const SHAPE_KINDS: ShapeKind[] = ["square", "circle", "line", "arrow", "polygon", "polyline", "cloud"];
+/** Formes dessinées sommet par sommet (clic par sommet, double-clic ou Entrée pour finir). */
+export const isMultiPoint = (k: ShapeKind) => k === "polygon" || k === "polyline" || k === "cloud";
+/** Formes tracées comme des dessins (sommets lus dans les tracés). */
+export const STROKE_KINDS: AnnotKind[] = ["ink", "line", "arrow", "polygon", "polyline", "cloud"];
+
+export const STAMP_LABELS: Record<StampPreset, string> = {
+  approved: msg("Approuvé"),
+  notApproved: msg("Non approuvé"),
+  draft: msg("Brouillon"),
+  final: msg("Final"),
+  confidential: msg("Confidentiel"),
+  forComment: msg("Pour commentaire"),
+  forPublicRelease: msg("Pour diffusion"),
+  notForPublicRelease: msg("Diffusion interne"),
+  expired: msg("Expiré"),
+};
+
+export const STATUS_LABELS: Record<ReviewStatus, string> = {
+  accepted: msg("Accepté"),
+  rejected: msg("Refusé"),
+  cancelled: msg("Annulé"),
+  completed: msg("Terminé"),
+};
+
+/** Teinte claire d'une couleur (remplissage d'une forme). */
+export const tint = ([r, g, b]: Rgb, k = 0.75): Rgb => [r, g, b].map((v) => Math.round(v + (255 - v) * k)) as Rgb;
 
 export const KIND_LABELS: Record<AnnotKind, string> = {
   highlight: msg("Surlignage"),
@@ -41,6 +70,8 @@ export const KIND_LABELS: Record<AnnotKind, string> = {
   polygon: msg("Polygone"),
   polyline: msg("Ligne brisée"),
   stamp: msg("Tampon"),
+  arrow: msg("Flèche"),
+  cloud: msg("Nuage"),
   text: msg("Texte"),
   mark: msg("Coche"),
   signature: msg("Signature"),
@@ -94,7 +125,7 @@ export function hitTest(annots: Annot[], x: number, y: number, tolerance: number
   for (let i = annots.length - 1; i >= 0; i--) {
     const a = annots[i];
     if (!a || (inkOnly && a.kind !== "ink")) continue;
-    if (a.kind === "ink") {
+    if (a.strokes.length) {
       const reach = a.width / 2 + tolerance;
       if (a.strokes.some((s) => s.some((p, j) => j > 0 && distToSegment(x, y, s[j - 1] ?? p, p) <= reach) || (s.length === 1 && s[0] && Math.hypot(x - s[0][0], y - s[0][1]) <= reach))) return a;
     } else if (a.boxes.length) {

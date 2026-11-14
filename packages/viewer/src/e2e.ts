@@ -70,6 +70,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.settings = await runSettings(engine, actions, path, await engine.e2ePause());
     steps.m3reading = await runM3Reading(engine, actions, path);
     steps.m3navigation = await runM3Navigation(engine, actions, path);
+    steps.m3comments = await runM3Comments(actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -77,7 +78,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.fill as { ok: boolean }).ok &&
       (steps.settings as { ok: boolean }).ok &&
       (steps.m3reading as { ok: boolean }).ok &&
-      (steps.m3navigation as { ok: boolean }).ok;
+      (steps.m3navigation as { ok: boolean }).ok &&
+      (steps.m3comments as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -832,6 +834,117 @@ async function runM3Navigation(engine: EngineClient, actions: AppActions, path: 
   return r;
 }
 
+/** M3, lot « commentaires » : formes (à la souris et par les actions), tampon prédéfini,
+ *  réponse et statut depuis le panneau Commentaires, persistance après enregistrement. */
+async function runM3Comments(actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  try {
+    const doc = await actions.openPath(dir + "03-courier-non-embarquee.pdf");
+    if (!doc) throw new Error("03-courier-non-embarquee.pdf introuvable");
+    let a = await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    const page0 = await waitFor(() => Array.from(document.querySelectorAll<HTMLElement>('[data-page-index="0"]')).find((el) => !el.closest("[hidden]") && el.querySelector("img")), 8000);
+    const kinds = async () => (await a.annots(0)).map((x) => x.kind);
+    const waitKind = (k: string, n: number) => until(async () => (await kinds()).filter((x) => x === k).length >= n || null, 5000);
+
+    // Rectangle tracé à la souris (aperçu pendant le glisser), polygone par clics puis Entrée.
+    a.setTool("shape");
+    a.setShapeKind("square");
+    const layer = await waitFor(() => page0.querySelector<HTMLElement>("[data-draw-layer]"), 4000);
+    const lr = layer.getBoundingClientRect();
+    const at = (fx: number, fy: number) => ({ clientX: lr.left + lr.width * fx, clientY: lr.top + lr.height * fy, pointerId: 9, button: 0, bubbles: true, cancelable: true });
+    layer.dispatchEvent(new PointerEvent("pointerdown", at(0.15, 0.6)));
+    for (let i = 1; i <= 6; i++) layer.dispatchEvent(new PointerEvent("pointermove", at(0.15 + i * 0.03, 0.6 + i * 0.02)));
+    await sleep(50);
+    const preview = !!page0.querySelector("[data-shape-preview] rect");
+    layer.dispatchEvent(new PointerEvent("pointerup", at(0.33, 0.72)));
+    const squareDrawn = !!(await waitKind("square", 1));
+    a.setShapeKind("polygon");
+    await sleep(100);
+    const layer2 = await waitFor(() => page0.querySelector<HTMLElement>("[data-draw-layer]"), 4000);
+    for (const [fx, fy] of [
+      [0.5, 0.6],
+      [0.7, 0.62],
+      [0.62, 0.75],
+    ] as const) {
+      layer2.dispatchEvent(new PointerEvent("pointerdown", at(fx, fy)));
+      layer2.dispatchEvent(new PointerEvent("pointerup", at(fx, fy)));
+    }
+    await sleep(50);
+    key("Enter");
+    const polygonDrawn = !!(await waitKind("polygon", 1));
+    a.setTool("select");
+
+    // Autres formes et tampon par les actions.
+    await a.createShape(0, "circle", [[350, 100], [450, 160]], true);
+    await a.createShape(0, "line", [[100, 200], [250, 200]], false);
+    await a.createShape(0, "arrow", [[100, 240], [250, 260]], false);
+    await a.createShape(0, "cloud", [[300, 200], [450, 200], [450, 280], [300, 280]], false);
+    const stampId = await a.placeStamp(0, 300, 360, "draft", true);
+    const list = await a.annots(0);
+    const circle = list.find((x) => x.kind === "circle");
+    const stamp = list.find((x) => x.id === stampId);
+    r.shapes = { preview, squareDrawn, polygonDrawn, kinds: list.map((x) => x.kind), circleFill: circle?.fill, stamp: stamp?.contents };
+    checks.shapes = preview && squareDrawn && polygonDrawn && ["circle", "line", "arrow", "cloud"].every((k) => list.some((x) => x.kind === k)) && !!circle?.fill;
+    checks.stamp = !!stamp && stamp.kind === "stamp" && stamp.contents.startsWith("BROUILLON");
+
+    // Réponse depuis le panneau, statut, coche.
+    const noteId = await a.createNote(0, 520, 60, "Faut-il garder ce paragraphe ?");
+    key("Escape");
+    if (!noteId) throw new Error("note non créée");
+    a.openPanel("comments");
+    const item = await waitFor(() => Array.from(document.querySelectorAll<HTMLElement>(`[data-comment="${noteId}"]`)).find((el) => !el.closest("[hidden]")), 6000);
+    item.querySelector<HTMLElement>("button[aria-current], button")?.click();
+    const replyBtn = await waitFor(() => Array.from(item.querySelectorAll("button")).find((b) => b.textContent === "Répondre"), 3000);
+    replyBtn.click();
+    const box = await waitFor(() => item.querySelector<HTMLTextAreaElement>('textarea[aria-label="Votre réponse"]'), 3000);
+    setNativeValue(box, "Oui, on le garde.");
+    await sleep(50);
+    Array.from(item.querySelectorAll("button")).find((b) => b.textContent === "Enregistrer")?.click();
+    const replyShown = !!(await waitFor(() => item.querySelector("[data-reply]"), 4000).catch(() => null));
+    if (!replyShown) {
+      r.replyDebug = {
+        textareaLeft: !!item.querySelector("textarea"),
+        value: item.querySelector("textarea")?.value,
+        buttons: Array.from(item.querySelectorAll("button")).map((b) => b.textContent),
+        toasts: Array.from(document.querySelectorAll('[role="alert"], [role="status"], [role="log"]')).map((x) => x.textContent).join(" | ").slice(0, 400),
+        direct: await a.reply(0, noteId, "réponse directe"),
+      };
+    }
+    await a.setStatus(0, noteId, "accepted");
+    const statusShown = !!(await waitFor(() => item.querySelector('[data-status="accepted"]'), 3000).catch(() => null));
+    item.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click();
+    const marked = !!(await until(async () => (await a.annots(0)).find((x) => x.id === noteId)?.marked || null, 3000));
+    // La réponse ne se dessine pas et ne se sélectionne pas sur la page.
+    r.thread = { replyShown, statusShown, marked };
+    checks.thread = replyShown && statusShown && marked;
+
+    // Enregistrement : tout est relu à l'identique.
+    const saved = await actions.save(doc.id);
+    a = await waitFor(() => actions.doc());
+    const after = await until(async () => {
+      const l = await a.annots(0);
+      return l.length ? l : null;
+    }, 5000);
+    const note = after?.find((x) => x.id === noteId);
+    const reply = after?.find((x) => x.replyTo === noteId);
+    r.saved = { saved, status: note?.status, marked: note?.marked, reply: reply?.contents, count: after?.length };
+    checks.persisted = saved && note?.status === "accepted" && !!note?.marked && reply?.contents === "Oui, on le garde.";
+
+    // Supprimer le commentaire emporte sa réponse.
+    await a.deleteAnnot(0, noteId);
+    const left = await a.annots(0);
+    checks.cascade = !left.some((x) => x.id === noteId || x.replyTo === noteId);
+    await actions.save(doc.id);
+  } catch (e) {
+    r.error = String(e);
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 5;
+  return r;
+}
+
 /** Scénarios en deux lancements : « crash » modifie un document, fait sa copie de récupération et
  *  quitte sans rien nettoyer ; « recover » vérifie qu'au lancement suivant la copie est proposée,
  *  rouverte avec la modification, puis effacée à l'enregistrement. */
@@ -869,7 +982,22 @@ export async function runStage(stage: string, engine: EngineClient, actions: App
       const pause = (await engine.e2ePause()) || 3000;
       const d = actions.doc()!;
       // Document avec pièces jointes : recherche avancée puis pièces jointes ; sinon propriétés puis mode lecture.
-      if ((await engine.e2eStage()) === "shots" && first.attachmentCount > 0) {
+      if (first.name.includes("courier")) {
+        // Formes, tampon et fil de réponses.
+        await d.createShape(0, "square", [[80, 330], [230, 400]], true);
+        await d.createShape(0, "circle", [[260, 330], [380, 400]], false);
+        await d.createShape(0, "arrow", [[90, 450], [230, 520]], false);
+        await d.createShape(0, "cloud", [[260, 440], [420, 440], [420, 530], [260, 530]], false);
+        await d.placeStamp(0, 470, 380, "approved", true);
+        const note = await d.createNote(0, 470, 470, "Faut-il garder ce paragraphe ?");
+        key("Escape");
+        if (note) {
+          await d.reply(0, note, "Oui, on le garde.");
+          await d.setStatus(0, note, "accepted");
+        }
+        d.openPanel("comments");
+        await sleep(pause);
+      } else if (first.attachmentCount > 0) {
         d.advancedSearch("contrat");
         await sleep(pause);
         d.openPanel("attachments");

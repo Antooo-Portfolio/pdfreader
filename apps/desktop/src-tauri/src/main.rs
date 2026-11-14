@@ -110,6 +110,52 @@ async fn annot_add_note(
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
+async fn annot_add_shape(
+    doc: u32,
+    page: i32,
+    kind: String,
+    points: Vec<[f32; 2]>,
+    color: [u8; 3],
+    opacity: f32,
+    width: f32,
+    fill: Option<[u8; 3]>,
+    engine: State<'_, EngineHandle>,
+    db: State<'_, db::Db>,
+) -> Result<AnnotResult, String> {
+    let author = comment_author(&db);
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Shape { kind, points, color, opacity, width, fill, author }, reply }).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn annot_add_stamp(
+    doc: u32,
+    page: i32,
+    x: f32,
+    y: f32,
+    preset: String,
+    label: String,
+    subtitle: Option<String>,
+    engine: State<'_, EngineHandle>,
+    db: State<'_, db::Db>,
+) -> Result<AnnotResult, String> {
+    let author = comment_author(&db);
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Stamp { x, y, preset, label, subtitle, author }, reply }).await
+}
+
+#[tauri::command]
+async fn annot_reply(doc: u32, page: i32, parent: String, contents: String, engine: State<'_, EngineHandle>, db: State<'_, db::Db>) -> Result<AnnotResult, String> {
+    let author = comment_author(&db);
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Reply { parent, contents, author }, reply }).await
+}
+
+#[tauri::command]
+async fn annot_set_status(doc: u32, page: i32, id: String, status: Option<String>, marked: Option<bool>, engine: State<'_, EngineHandle>) -> Result<AnnotResult, String> {
+    ask(&engine, |reply| Cmd::Annot { doc, page, op: AnnotOp::Status { id, status, marked }, reply }).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn annot_add_ink(
     doc: u32,
     page: i32,
@@ -886,6 +932,10 @@ fn main() {
             annot_add_markup,
             annot_add_note,
             annot_add_ink,
+            annot_add_shape,
+            annot_add_stamp,
+            annot_reply,
+            annot_set_status,
             annot_update,
             annot_delete,
             recent_star,

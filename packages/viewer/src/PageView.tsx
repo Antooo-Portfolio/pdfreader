@@ -4,7 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Tool, ToolStyle } from "./annot";
 import { AnnotLayer, NoteEditor } from "./AnnotTools";
 import { FormLayer, TextDraft } from "./FillTools";
-import { type Annot, type Box, type Field, type FieldInput, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextWord, thumbScale } from "./engine";
+import { type Annot, type Box, type ShapeKind, type Field, type FieldInput, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextWord, thumbScale } from "./engine";
 import { type PageBox, rotationTransform } from "./layout";
 
 const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
@@ -49,6 +49,9 @@ interface Props {
   onCommitText: (page: number, x: number, y: number, text: string) => void;
   onCancelText: () => void;
   onCreateInk: (page: number, strokes: [number, number][][]) => void;
+  shapeKind: ShapeKind;
+  shapeFill: boolean;
+  onCreateShape: (page: number, points: [number, number][]) => void;
   onDeleteAnnot: (page: number, id: string) => void;
   onSaveNote: (page: number, id: string, text: string) => void;
   onCloseEditor: () => void;
@@ -200,6 +203,9 @@ export const PageView = memo(function PageView(p: Props) {
           selectedId={p.selectedId}
           onPlace={(t, x, y) => p.onPlace(index, t, x, y)}
           onCreateInk={(s) => p.onCreateInk(index, s)}
+          shapeKind={p.shapeKind}
+          shapeFill={p.shapeFill}
+          onCreateShape={(pts) => p.onCreateShape(index, pts)}
           onErase={(id) => p.onDeleteAnnot(index, id)}
         />
       )}

@@ -5,8 +5,14 @@
 //! Coordonnées échangées avec l'interface : points PDF depuis le HAUT à gauche de la page.
 //!
 //! Apparences : PDFium génère lui-même l'apparence (/AP) des surlignages, soulignés, barrés,
-//! ondulés, notes et tracés d'encre au rendu suivant. Après une modification, on retire l'ancienne
-//! apparence pour qu'il la régénère (voir `regenerate`).
+//! ondulés, notes, rectangles, ellipses et tracés d'encre au rendu suivant. Après une
+//! modification, on retire l'ancienne apparence pour qu'il la régénère (voir `regenerate`).
+//!
+//! M3 : formes, réponses et statuts. PDFium ne sait ni générer l'apparence d'une ligne ou d'un
+//! polygone, ni écrire leurs coordonnées (/L, /Vertices) : lignes, flèches, polygones et nuages
+//! sont des tracés d'encre marqués de leur nature (clé privée). Il ne sait pas non plus écrire une
+//! référence (/IRT) : nos réponses sont reliées à leur commentaire par une clé privée ; les fils et
+//! statuts écrits par d'autres logiciels (/IRT, /State) sont lus normalement.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -71,6 +77,7 @@ fn subtype_of(kind: &str) -> Option<i32> {
 
 /// Un commentaire d'une page.
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Annot {
     /// Identifiant stable : /NM s'il existe, sinon `#rang` (valable jusqu'à la prochaine
     /// suppression sur la page ; l'interface relit la liste après chaque modification).
@@ -101,7 +108,19 @@ pub struct Annot {
     pub anchor: Option<[f32; 2]>,
     /// Zone de texte avec un fond blanc.
     pub filled: bool,
+    /// Statut de révision : accepted, rejected, cancelled, completed (absent : aucun).
+    pub status: Option<String>,
+    /// Coché (« marqué ») dans la liste des commentaires.
+    pub marked: bool,
+    /// Rectangle ou ellipse rempli.
+    pub fill: Option<[u8; 3]>,
 }
+
+/// Clés privées de PDFReader.
+const REPLY_KEY: &str = "PDFReaderReplyTo";
+const STATE_KEY: &str = "PDFReaderState";
+const MARKED_KEY: &str = "PDFReaderMarked";
+pub const STATUSES: [&str; 4] = ["accepted", "rejected", "cancelled", "completed"];
 
 struct Raw<'a> {
     b: &'a dyn PdfiumLibraryBindings,
@@ -157,7 +176,8 @@ impl Raw<'_> {
         if unsafe { self.b.FPDFAnnot_GetColor(self.annot, 0, &mut r, &mut g, &mut bl, &mut a) } != 0 {
             return Some([r as u8, g as u8, bl as u8]);
         }
-        let fill_first = matches!(self.subtype(), HIGHLIGHT | TEXT | SQUARE | CIRCLE);
+        // Rectangle et ellipse : /C est la couleur du contour (l'intérieur est /IC).
+        let fill_first = matches!(self.subtype(), HIGHLIGHT | TEXT);
         let n = unsafe { self.b.FPDFAnnot_GetObjectCount(self.annot) };
         for i in 0..n.min(64) {
             let obj = unsafe { self.b.FPDFAnnot_GetObject(self.annot, i) };
@@ -193,6 +213,27 @@ impl Raw<'_> {
             // L'alpha de FPDFAnnot_SetColor devient l'opacité /CA de l'annotation.
             self.b.FPDFAnnot_SetColor(self.annot, 0, rgb[0] as u32, rgb[1] as u32, rgb[2] as u32, a);
         }
+    }
+
+    fn interior(&self) -> Option<[u8; 3]> {
+        let (mut r, mut g, mut bl, mut a) = (0u32, 0u32, 0u32, 0u32);
+        if unsafe { self.b.FPDFAnnot_GetColor(self.annot, 1, &mut r, &mut g, &mut bl, &mut a) } != 0 {
+            return Some([r as u8, g as u8, bl as u8]);
+        }
+        // Apparence présente : le remplissage du premier tracé rempli.
+        let n = unsafe { self.b.FPDFAnnot_GetObjectCount(self.annot) };
+        for i in 0..n.min(16) {
+            let obj = unsafe { self.b.FPDFAnnot_GetObject(self.annot, i) };
+            if obj.is_null() {
+                continue;
+            }
+            let (mut mode, mut stroke) = (0, 0);
+            let filled = unsafe { self.b.FPDFPath_GetDrawMode(obj, &mut mode, &mut stroke) } != 0 && mode != 0;
+            if filled && unsafe { self.b.FPDFPageObj_GetFillColor(obj, &mut r, &mut g, &mut bl, &mut a) } != 0 && a > 0 {
+                return Some([r as u8, g as u8, bl as u8]);
+            }
+        }
+        None
     }
 
     fn border_width(&self) -> f32 {
@@ -254,10 +295,11 @@ fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
     let reply_to = {
         let parent = unsafe { raw.b.FPDFAnnot_GetLinkedAnnot(raw.annot, "IRT") };
         if parent.is_null() {
-            None
+            raw.string(REPLY_KEY).filter(|s| !s.is_empty())
         } else {
             let p = Raw { b: raw.b, page: raw.page, annot: parent };
-            Some(p.string("NM").filter(|s| !s.is_empty()).unwrap_or_else(|| "?".into()))
+            let idx = unsafe { raw.b.FPDFPage_GetAnnotIndex(raw.page, parent) };
+            Some(p.string("NM").filter(|s| !s.is_empty()).unwrap_or_else(|| format!("#{idx}")))
         }
     };
     let id = raw.string("NM").filter(|s| !s.is_empty()).unwrap_or_else(|| format!("#{index}"));
@@ -268,6 +310,11 @@ fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
         (STAMP, Some("callout")) => "callout",
         (STAMP, Some("check" | "cross")) => "mark",
         (STAMP, Some("signature" | "initials")) => "signature",
+        (INK, Some("line")) => "line",
+        (INK, Some("arrow")) => "arrow",
+        (INK, Some("polygon")) => "polygon",
+        (INK, Some("polyline")) => "polyline",
+        (INK, Some("cloud")) => "cloud",
         _ => kind_name(subtype),
     };
     Some(Annot {
@@ -291,7 +338,26 @@ fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
         text_box: raw.string("PDFReaderBox").and_then(|s| floats::<4>(&s)),
         anchor: raw.string("PDFReaderAnchor").and_then(|s| floats::<2>(&s)),
         filled: raw.string("PDFReaderFill").is_some(),
+        status: raw.string(STATE_KEY).filter(|s| STATUSES.contains(&s.as_str())),
+        marked: raw.string(MARKED_KEY).as_deref() == Some("1"),
+        fill: if matches!(subtype, SQUARE | CIRCLE) { raw.interior() } else { None },
     })
+}
+
+/// Statut écrit par un autre logiciel : une réponse portant /State (modèle Review ou Marked).
+fn foreign_state(raw: &Raw) -> Option<(String, &'static str)> {
+    let state = raw.string("State")?;
+    let model = raw.string("StateModel").unwrap_or_default();
+    let v = match (model.as_str(), state.as_str()) {
+        ("Marked", "Marked") => "marked",
+        ("Marked", _) => "unmarked",
+        (_, "Accepted") => "accepted",
+        (_, "Rejected") => "rejected",
+        (_, "Cancelled") => "cancelled",
+        (_, "Completed") => "completed",
+        _ => "none",
+    };
+    Some((state, v))
 }
 
 fn floats<const N: usize>(s: &str) -> Option<[f32; N]> {
@@ -303,9 +369,30 @@ fn floats<const N: usize>(s: &str) -> Option<[f32; N]> {
 pub fn list(page: &PdfPage, page_index: i32) -> Vec<Annot> {
     let b = raw_bindings();
     let page_h = page.height().value;
-    (0..count(page).min(5000))
-        .filter_map(|i| open_annot(b, page, i).and_then(|raw| info(&raw, i, page_index, page_h)))
-        .collect()
+    let mut out = Vec::new();
+    let mut states: Vec<(String, &'static str, String)> = Vec::new();
+    for i in 0..count(page).min(5000) {
+        let Some(raw) = open_annot(b, page, i) else { continue };
+        let Some(a) = info(&raw, i, page_index, page_h) else { continue };
+        if let (Some(parent), Some((_, v))) = (a.reply_to.clone(), foreign_state(&raw)) {
+            states.push((parent, v, a.modified.clone().unwrap_or_default()));
+            continue;
+        }
+        out.push(a);
+    }
+    // Le statut le plus récent l'emporte (dates PDF comparables comme des chaînes).
+    states.sort_by(|x, y| x.2.cmp(&y.2));
+    for (parent, v, _) in states {
+        if let Some(a) = out.iter_mut().find(|a| a.id == parent) {
+            match v {
+                "marked" => a.marked = true,
+                "unmarked" => a.marked = false,
+                "none" => a.status = None,
+                s => a.status = Some(s.to_string()),
+            }
+        }
+    }
+    out
 }
 
 fn find<'a>(b: &'a dyn PdfiumLibraryBindings, page: &PdfPage, id: &str) -> Option<(i32, Raw<'a>)> {
@@ -428,6 +515,10 @@ pub fn add_note(page: &mut PdfPage, x: f32, y: f32, contents: &str, rgb: [u8; 3]
 
 /// Dessin à main levée : un ou plusieurs tracés, points depuis le haut à gauche.
 pub fn add_ink(page: &mut PdfPage, strokes: &[Vec<[f32; 2]>], rgb: [u8; 3], opacity: f32, width: f32, author: &str) -> Result<String> {
+    add_ink_kind(page, strokes, rgb, opacity, width, author, None)
+}
+
+fn add_ink_kind(page: &mut PdfPage, strokes: &[Vec<[f32; 2]>], rgb: [u8; 3], opacity: f32, width: f32, author: &str, kind: Option<&str>) -> Result<String> {
     let strokes: Vec<&Vec<[f32; 2]>> = strokes.iter().filter(|s| !s.is_empty()).collect();
     if strokes.is_empty() {
         bail!("tracé vide");
@@ -452,10 +543,172 @@ pub fn add_ink(page: &mut PdfPage, strokes: &[Vec<[f32; 2]>], rgb: [u8; 3], opac
         set_rect(&raw, l - pad, bt - pad, r + pad, t + pad);
         unsafe { b.FPDFAnnot_SetBorder(raw.annot, 0.0, 0.0, width) };
         raw.set_color(rgb, opacity);
+        if let Some(k) = kind {
+            raw.set_string(crate::fill::KIND_KEY, k);
+        }
         stamp_new(&raw, author)
     };
     render_for_ap(page)?;
     Ok(name)
+}
+
+/* ------------------------------------------------------------------ formes */
+
+/// Festons d'un nuage le long d'un polygone fermé (points PDF) : un demi-cercle par segment de
+/// longueur ~2r, bombé vers l'extérieur.
+fn cloud_path(poly: &[[f32; 2]], r: f32) -> Vec<[f32; 2]> {
+    let n = poly.len();
+    // Sens du polygone (aire signée) : l'extérieur est à droite pour un sens trigonométrique.
+    let area: f32 = (0..n).map(|i| {
+        let (a, b) = (poly[i], poly[(i + 1) % n]);
+        a[0] * b[1] - b[0] * a[1]
+    }).sum();
+    let out_sign = if area > 0.0 { -1.0 } else { 1.0 };
+    let mut pts = Vec::new();
+    for i in 0..n {
+        let (a, b) = (poly[i], poly[(i + 1) % n]);
+        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 0.5 {
+            continue;
+        }
+        let k = ((len / (2.0 * r)).round() as usize).clamp(1, 400);
+        let seg = len / k as f32;
+        let (ux, uy) = (dx / len, dy / len);
+        // Normale sortante.
+        let (nx, ny) = (uy * out_sign, -ux * out_sign);
+        for j in 0..k {
+            let (sx, sy) = (a[0] + ux * seg * j as f32, a[1] + uy * seg * j as f32);
+            let (cx, cy) = (sx + ux * seg / 2.0, sy + uy * seg / 2.0);
+            let rr = seg / 2.0;
+            for t in 0..=8 {
+                // De l'angle « arrière » (-u) à l'angle « avant » (+u) en passant par la normale.
+                let th = std::f32::consts::PI * t as f32 / 8.0;
+                let (c, s) = (th.cos(), th.sin());
+                pts.push([cx - ux * rr * c + nx * rr * s, cy - uy * rr * c + ny * rr * s]);
+            }
+        }
+    }
+    if let Some(&first) = pts.first() {
+        pts.push(first);
+    }
+    pts
+}
+
+/// Forme dessinée : `points` depuis le haut à gauche de la page. Rectangle et ellipse : deux
+/// coins opposés (commentaires standards, remplissage facultatif). Ligne et flèche : départ et
+/// arrivée. Polygone, polyligne, nuage : les sommets.
+#[allow(clippy::too_many_arguments)]
+pub fn add_shape(page: &mut PdfPage, kind: &str, points: &[[f32; 2]], rgb: [u8; 3], opacity: f32, width: f32, fill: Option<[u8; 3]>, author: &str) -> Result<String> {
+    let page_h = page.height().value;
+    let width = width.clamp(0.25, 48.0);
+    let pts: Vec<[f32; 2]> = points.iter().take(2000).copied().collect();
+    let need = match kind {
+        "square" | "circle" | "line" | "arrow" => 2,
+        "polyline" => 2,
+        "polygon" | "cloud" => 3,
+        _ => bail!("forme inconnue : {kind}"),
+    };
+    if pts.len() < need {
+        bail!("pas assez de points pour cette forme");
+    }
+    match kind {
+        "square" | "circle" => {
+            let b = raw_bindings();
+            let (x0, x1) = (pts[0][0].min(pts[1][0]), pts[0][0].max(pts[1][0]));
+            let (y0, y1) = (pts[0][1].min(pts[1][1]), pts[0][1].max(pts[1][1]));
+            if x1 - x0 < 1.0 || y1 - y0 < 1.0 {
+                bail!("forme trop petite");
+            }
+            let name = {
+                let raw = create(b, page, if kind == "square" { SQUARE } else { CIRCLE })?;
+                set_rect(&raw, x0, page_h - y1, x1, page_h - y0);
+                unsafe { b.FPDFAnnot_SetBorder(raw.annot, 0.0, 0.0, width) };
+                raw.set_color(rgb, opacity);
+                if let Some(f) = fill {
+                    let a = (opacity.clamp(0.05, 1.0) * 255.0).round() as u32;
+                    unsafe { b.FPDFAnnot_SetColor(raw.annot, 1, f[0] as u32, f[1] as u32, f[2] as u32, a) };
+                }
+                stamp_new(&raw, author)
+            };
+            render_for_ap(page)?;
+            Ok(name)
+        }
+        "line" => add_ink_kind(page, &[vec![pts[0], pts[1]]], rgb, opacity, width, author, Some("line")),
+        "arrow" => {
+            let ([ax, ay], [bx, by]) = (pts[0], pts[1]);
+            let (dx, dy) = (bx - ax, by - ay);
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 2.0 {
+                bail!("flèche trop courte");
+            }
+            let (ux, uy) = (dx / len, dy / len);
+            let head = (width * 4.0 + 6.0).min(len * 0.6);
+            let (hx, hy) = (bx - ux * head, by - uy * head);
+            let (px, py) = (-uy * head * 0.5, ux * head * 0.5);
+            let strokes = vec![vec![[ax, ay], [bx, by]], vec![[hx + px, hy + py], [bx, by], [hx - px, hy - py]]];
+            add_ink_kind(page, &strokes, rgb, opacity, width, author, Some("arrow"))
+        }
+        "polyline" => add_ink_kind(page, &[pts], rgb, opacity, width, author, Some("polyline")),
+        "polygon" => {
+            let mut closed = pts.clone();
+            closed.push(pts[0]);
+            add_ink_kind(page, &[closed], rgb, opacity, width, author, Some("polygon"))
+        }
+        _ => {
+            // Nuage : calculé en coordonnées PDF (y vers le haut), puis ramené depuis le haut.
+            let poly: Vec<[f32; 2]> = pts.iter().map(|p| [p[0], page_h - p[1]]).collect();
+            let r = (width * 3.0).max(6.0);
+            let path: Vec<[f32; 2]> = cloud_path(&poly, r).into_iter().map(|p| [p[0], page_h - p[1]]).collect();
+            add_ink_kind(page, &[path], rgb, opacity, width, author, Some("cloud"))
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ réponses et statuts */
+
+/// Réponse à un commentaire : une note sans apparence (invisible sur la page, comme dans les
+/// autres lecteurs), reliée à son commentaire.
+pub fn add_reply(page: &mut PdfPage, parent: &str, contents: &str, author: &str) -> Result<String> {
+    if contents.trim().is_empty() {
+        bail!("réponse vide");
+    }
+    let b = raw_bindings();
+    let (rect, parent_id) = {
+        let Some((_, p)) = find(b, page, parent) else { bail!("commentaire introuvable") };
+        let r = p.rect().unwrap_or(FS_RECTF { left: 0.0, top: 20.0, right: 20.0, bottom: 0.0 });
+        let id = p.string("NM").filter(|s| !s.is_empty());
+        (r, id)
+    };
+    let Some(parent_id) = parent_id else { bail!("ce commentaire n'a pas d'identifiant : enregistrez puis réessayez") };
+    let raw = create(b, page, TEXT)?;
+    let (l, t) = (rect.left.min(rect.right), rect.top.max(rect.bottom));
+    set_rect(&raw, l, t - 20.0, l + 20.0, t);
+    raw.set_string("Contents", contents);
+    raw.set_string("Name", "Comment");
+    raw.set_string(REPLY_KEY, &parent_id);
+    let name = stamp_new(&raw, author);
+    // Apparence vide : la réponse ne se dessine pas sur la page.
+    let empty: Vec<u16> = vec![0];
+    unsafe { b.FPDFAnnot_SetAP(raw.annot, 0, empty.as_ptr()) };
+    Ok(name)
+}
+
+/// Statut de révision (`Some("")` : aucun) et coche d'un commentaire.
+pub fn set_status(page: &mut PdfPage, id: &str, status: Option<&str>, marked: Option<bool>) -> Result<()> {
+    let b = raw_bindings();
+    let Some((_, raw)) = find(b, page, id) else { bail!("commentaire introuvable") };
+    if let Some(s) = status {
+        if !s.is_empty() && !STATUSES.contains(&s) {
+            bail!("statut inconnu : {s}");
+        }
+        raw.set_string(STATE_KEY, s);
+    }
+    if let Some(m) = marked {
+        raw.set_string(MARKED_KEY, if m { "1" } else { "" });
+    }
+    raw.set_string("M", &pdf_date_now());
+    Ok(())
 }
 
 /// Modification d'un commentaire existant. Les champs absents ne changent pas.
@@ -526,6 +779,24 @@ pub fn delete(page: &mut PdfPage, id: &str) -> Result<()> {
     if let Some(p) = popup {
         let p = if p > index { p - 1 } else { p };
         unsafe { b.FPDFPage_RemoveAnnot(page.raw_handle(), p) };
+    }
+    // Réponses (et statuts) de ce commentaire : supprimées aussi, en partant de la fin.
+    if !id.starts_with('#') {
+        let replies: Vec<i32> = (0..count(page))
+            .filter(|&i| {
+                open_annot(b, page, i).is_some_and(|r| {
+                    let linked = unsafe { b.FPDFAnnot_GetLinkedAnnot(r.annot, "IRT") };
+                    let by_link = !linked.is_null() && {
+                        let p = Raw { b, page: r.page, annot: linked };
+                        p.string("NM").as_deref() == Some(id)
+                    };
+                    by_link || r.string(REPLY_KEY).as_deref() == Some(id)
+                })
+            })
+            .collect();
+        for i in replies.into_iter().rev() {
+            unsafe { b.FPDFPage_RemoveAnnot(page.raw_handle(), i) };
+        }
     }
     Ok(())
 }

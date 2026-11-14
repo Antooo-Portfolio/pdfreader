@@ -336,3 +336,27 @@ Corpus : `12-pieces-jointes.pdf` (texte, PDF, nom piégé `..\..\danger.exe`).
 | Lecture à voix haute | 2026-11-13 | fait | choix de la voix et de la vitesse | les voix de Windows coupent les textes longs : lecture par morceaux de 240 caractères, aux fins de phrase |
 | Vue protégée | 2026-11-13 | fait | — | — |
 | Modifier les signets | — | reporté | créer, renommer, supprimer | PDFium ne sait pas écrire de signets : il faudra écrire le dictionnaire /Outlines nous-mêmes (mise à jour incrémentale) |
+
+## M3 — lot « commentaires » (2026-11-14)
+
+Branche `m3-commentaires`. Formes, tampons prédéfinis, réponses et statuts. Partie `m3comments`
+du scénario : rectangle tracé à la souris (aperçu pendant le glisser), polygone posé par clics
+puis Entrée, ellipse remplie, ligne, flèche, nuage, tampon « Brouillon » daté ; réponse saisie
+dans le panneau Commentaires, statut « Accepté », coche ; tout relu à l'identique après
+enregistrement ; supprimer le commentaire emporte sa réponse. Test du moteur
+`shapes_stamps_replies_status` (rendu vérifié au pixel : contour, intérieur, ligne, festons du
+nuage ; enregistrement et relecture).
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Formes | 2026-11-14 | fait | modifier les sommets d'une forme posée ; remplissage des polygones | PDFium ne génère l'apparence que des rectangles et ellipses, et ne sait écrire ni /L ni /Vertices : les autres formes sont des tracés d'encre marqués de leur nature |
+| Tampons prédéfinis | 2026-11-14 | fait | tampons personnalisés (could) | — |
+| Réponses et statuts | 2026-11-14 | fait | — | PDFium ne sait pas écrire la référence /IRT : nos réponses sont reliées par une clé privée et n'ont pas d'apparence (invisibles sur la page, comme ailleurs) ; les fils d'autres logiciels sont lus normalement |
+
+**Défaut ancien trouvé par ce lot** : la liste des commentaires arrivait du moteur avec des noms
+de champs en `snake_case` (`reply_to`, `text_box`, `font_size`) alors que l'interface attend du
+`camelCase`. Aucune réponse n'était donc rattachée à son commentaire, et la modification du texte
+d'une zone de texte (M2) passait par le mauvais chemin (texte du commentaire changé, texte affiché
+inchangé). Corrigé dans la sérialisation. Corrigé aussi : la pastille de couleur des rectangles
+et ellipses montrait le remplissage au lieu du contour ; trois textes du panneau Commentaires
+n'étaient pas traduits.

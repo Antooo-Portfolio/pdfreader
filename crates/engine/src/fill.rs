@@ -455,11 +455,15 @@ pub fn add_image(doc: &PdfDocument, page: &mut PdfPage, rect: [f32; 4], png: &[u
 
 /// Largeur d'un texte en Helvetica à la taille donnée (objet de mesure jeté aussitôt).
 fn text_width(b: &dyn PdfiumLibraryBindings, doc: &PdfDocument, text: &str, size: f32) -> f32 {
+    text_width_in(b, doc, text, size, "Helvetica")
+}
+
+fn text_width_in(b: &dyn PdfiumLibraryBindings, doc: &PdfDocument, text: &str, size: f32, font: &str) -> f32 {
     if text.is_empty() {
         return 0.0;
     }
     unsafe {
-        let h = b.FPDFPageObj_NewTextObj(doc.raw_handle(), "Helvetica", size);
+        let h = b.FPDFPageObj_NewTextObj(doc.raw_handle(), font, size);
         if h.is_null() {
             return text.chars().count() as f32 * size * 0.5;
         }
@@ -618,6 +622,102 @@ pub fn add_textbox(
     }
     for h in objs {
         append(&a, Obj { b, h })?;
+    }
+    Ok(name)
+}
+
+/* ------------------------------------------------------------------ tampons prédéfinis */
+
+/// Tampons prédéfinis : identifiant de l'interface, nom standard PDF (/Name, reconnu par les
+/// autres lecteurs), couleur.
+pub const PRESETS: [(&str, &str, [u8; 3]); 9] = [
+    ("approved", "Approved", [22, 120, 60]),
+    ("notApproved", "NotApproved", [190, 30, 45]),
+    ("draft", "Draft", [31, 78, 158]),
+    ("final", "Final", [22, 120, 60]),
+    ("confidential", "Confidential", [190, 30, 45]),
+    ("forComment", "ForComment", [31, 78, 158]),
+    ("forPublicRelease", "ForPublicRelease", [31, 78, 158]),
+    ("notForPublicRelease", "NotForPublicRelease", [190, 30, 45]),
+    ("expired", "Expired", [190, 30, 45]),
+];
+
+/// Rectangle aux coins arrondis (contour seul).
+fn rounded_rect(b: &dyn PdfiumLibraryBindings, l: f32, bt: f32, r: f32, t: f32, radius: f32, rgb: [u8; 3], width: f32) -> Result<FPDF_PAGEOBJECT> {
+    let k = 0.5523 * radius; // approximation d'un quart de cercle par une courbe de Bézier
+    unsafe {
+        let h = b.FPDFPageObj_CreateNewPath(l + radius, bt);
+        if h.is_null() {
+            bail!("tracé impossible");
+        }
+        b.FPDFPath_LineTo(h, r - radius, bt);
+        b.FPDFPath_BezierTo(h, r - radius + k, bt, r, bt + radius - k, r, bt + radius);
+        b.FPDFPath_LineTo(h, r, t - radius);
+        b.FPDFPath_BezierTo(h, r, t - radius + k, r - radius + k, t, r - radius, t);
+        b.FPDFPath_LineTo(h, l + radius, t);
+        b.FPDFPath_BezierTo(h, l + radius - k, t, l, t - radius + k, l, t - radius);
+        b.FPDFPath_LineTo(h, l, bt + radius);
+        b.FPDFPath_BezierTo(h, l, bt + radius - k, l + radius - k, bt, l + radius, bt);
+        b.FPDFPath_Close(h);
+        b.FPDFPageObj_SetStrokeColor(h, rgb[0] as u32, rgb[1] as u32, rgb[2] as u32, 255);
+        b.FPDFPageObj_SetStrokeWidth(h, width);
+        b.FPDFPath_SetDrawMode(h, 0, 1);
+        Ok(h)
+    }
+}
+
+/// Tampon prédéfini centré en (`x`, `y`) depuis le haut : `label` (déjà traduit) en capitales,
+/// `subtitle` facultatif (nom et date). Renvoie l'identifiant du commentaire.
+#[allow(clippy::too_many_arguments)]
+pub fn add_preset_stamp(doc: &PdfDocument, page: &mut PdfPage, x: f32, y: f32, preset: &str, label: &str, subtitle: Option<&str>, author: &str) -> Result<String> {
+    let Some(&(_, pdf_name, rgb)) = PRESETS.iter().find(|p| p.0 == preset) else { bail!("tampon inconnu : {preset}") };
+    let label: String = label.trim().chars().take(40).collect::<String>().to_uppercase();
+    if label.is_empty() {
+        bail!("tampon sans texte");
+    }
+    let subtitle = subtitle.map(|s| s.trim().chars().take(80).collect::<String>()).filter(|s| !s.is_empty());
+    let b = raw_bindings();
+    let page_h = page.height().value;
+    let (size, small) = (18.0f32, 8.0f32);
+    let pad = 8.0f32;
+    let tw = text_width_in(b, doc, &label, size, "Helvetica-Bold");
+    let sw = subtitle.as_deref().map(|s| text_width_in(b, doc, s, small, "Helvetica")).unwrap_or(0.0);
+    let w = tw.max(sw) + pad * 2.0;
+    let h = size + pad * 2.0 + if subtitle.is_some() { small + 3.0 } else { 0.0 };
+    let (cx, cy) = (x, page_h - y);
+    let (l, bt) = (cx - w / 2.0, cy - h / 2.0);
+    let (r, t) = (l + w, bt + h);
+    let mut objs = vec![rounded_rect(b, l, bt, r, t, 5.0, rgb, 2.0)?, rounded_rect(b, l + 3.0, bt + 3.0, r - 3.0, t - 3.0, 3.0, rgb, 0.75)?];
+    let mut line = |text: &str, font: &str, sz: f32, width: f32, base: f32| -> Result<()> {
+        let hobj = unsafe { b.FPDFPageObj_NewTextObj(doc.raw_handle(), font, sz) };
+        if hobj.is_null() {
+            bail!("police indisponible");
+        }
+        let wt = wide(text);
+        unsafe {
+            b.FPDFText_SetText(hobj, wt.as_ptr() as _);
+            b.FPDFPageObj_SetFillColor(hobj, rgb[0] as u32, rgb[1] as u32, rgb[2] as u32, 255);
+            b.FPDFPageObj_Transform(hobj, 1.0, 0.0, 0.0, 1.0, (cx - width / 2.0) as f64, base as f64);
+        }
+        objs.push(hobj);
+        Ok(())
+    };
+    line(&label, "Helvetica-Bold", size, tw, t - pad - size * 0.8)?;
+    if let Some(sub) = subtitle.as_deref() {
+        line(sub, "Helvetica", small, sw, bt + pad - 1.0)?;
+    }
+    let a = new_stamp(b, page)?;
+    let contents = match subtitle.as_deref() {
+        Some(sub) => format!("{label} — {sub}"),
+        None => label.clone(),
+    };
+    let name = finish_stamp(&a, "preset", &contents, author, (l - 1.0, bt - 1.0, r + 1.0, t + 1.0))?;
+    unsafe { b.FPDFAnnot_SetStringValue_str(a.h, "PDFReaderPreset", preset) };
+    // /Name est un nom PDF ; l'API ne sait écrire que des chaînes : on garde le nom standard
+    // dans une clé privée lisible (les autres lecteurs utilisent l'apparence, toujours présente).
+    unsafe { b.FPDFAnnot_SetStringValue_str(a.h, "PDFReaderStampName", pdf_name) };
+    for hobj in objs {
+        append(&a, Obj { b, h: hobj })?;
     }
     Ok(name)
 }

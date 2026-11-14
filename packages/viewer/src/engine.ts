@@ -140,6 +140,8 @@ export type AnnotKind =
   | "polygon"
   | "polyline"
   | "stamp"
+  | "arrow"
+  | "cloud"
   | "text"
   | "mark"
   | "signature"
@@ -176,7 +178,17 @@ export interface Annot {
   textBox: Box | null;
   anchor: [number, number] | null;
   filled: boolean;
+  /** Statut de révision, null si aucun. */
+  status: ReviewStatus | null;
+  /** Coché dans la liste des commentaires. */
+  marked: boolean;
+  /** Intérieur d'un rectangle ou d'une ellipse. */
+  fill: Rgb | null;
 }
+
+export type ReviewStatus = "accepted" | "rejected" | "cancelled" | "completed";
+export type ShapeKind = "square" | "circle" | "line" | "arrow" | "polygon" | "polyline" | "cloud";
+export type StampPreset = "approved" | "notApproved" | "draft" | "final" | "confidential" | "forComment" | "forPublicRelease" | "notForPublicRelease" | "expired";
 
 export type FieldKind = "text" | "checkbox" | "radio" | "combo" | "list" | "button" | "signature" | "unknown";
 
@@ -315,6 +327,13 @@ export interface EngineClient {
   /** Note dont le coin haut gauche est en (x, y), points depuis le haut. */
   addNote(doc: number, page: number, x: number, y: number, contents: string, color: Rgb): Promise<AnnotResult>;
   addInk(doc: number, page: number, strokes: [number, number][][], color: Rgb, opacity: number, width: number): Promise<AnnotResult>;
+  /** Forme : points depuis le haut à gauche (deux coins pour un rectangle ou une ellipse). */
+  addShape(doc: number, page: number, kind: ShapeKind, points: [number, number][], color: Rgb, opacity: number, width: number, fill: Rgb | null): Promise<AnnotResult>;
+  /** Tampon prédéfini centré en (x, y) ; `label` déjà traduit, `subtitle` facultatif (nom, date). */
+  addStamp(doc: number, page: number, x: number, y: number, preset: StampPreset, label: string, subtitle: string | null): Promise<AnnotResult>;
+  addReply(doc: number, page: number, parent: string, contents: string): Promise<AnnotResult>;
+  /** Statut ("" : aucun) et coche ; null : inchangé. */
+  setStatus(doc: number, page: number, id: string, status: ReviewStatus | "" | null, marked: boolean | null): Promise<AnnotResult>;
   updateAnnot(doc: number, page: number, id: string, patch: AnnotPatch): Promise<AnnotResult>;
   fields(doc: number, page: number): Promise<Field[]>;
   /** Saisie dans un champ ; renvoie les champs à jour de la page. */
