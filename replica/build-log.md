@@ -448,3 +448,33 @@ au repos.
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | Moteur séparé | 2026-11-14 | fait | modifications faites depuis la dernière copie de récupération perdues au plantage (copie toutes les N minutes) ; pas de restriction des droits du moteur (jeton restreint, AppContainer) | le numéro de document de l'ouverture portait le même nom que celui de la demande dans l'en-tête : la première version ne répondait jamais (trouvé par le test du processus) |
+
+## M3 — lot « setup hors ligne » (2026-11-14)
+
+Branche `m3-setup-hors-ligne`. PDFReader affiche son interface avec WebView2. Windows 11 l'a
+toujours ; le setup normal (8 Mo) le télécharge s'il manque, ce qui échoue sans Internet.
+`python tools/release/build.py --offline` construit un second setup,
+`PDFReader_<v>_x64-offline-setup.exe` (217 Mo), qui embarque l'installeur autonome « Evergreen »
+de Microsoft (210 Mo) : extrait et lancé en silence (`/silent /install`) seulement si WebView2
+n'est pas déjà inscrit, sans connexion ; le runtime installé se met ensuite à jour comme celui de
+Windows. Pas de runtime figé (« fixed version ») : il ne recevrait jamais les correctifs de
+sécurité.
+
+- La signature Authenticode de l'installeur de Microsoft est vérifiée après la construction
+  (« Valid », émise pour Microsoft Corporation), sinon le setup est supprimé.
+- Le setup normal et sa signature d'updater sont mis de côté pendant la construction (même nom de
+  fichier en sortie de Tauri) puis remis : la construction hors ligne ne les touche jamais.
+- Pas proposé à l'updater (217 Mo pour une mise à jour) ; `prepare.py` le copie avec la version et
+  ajoute au site (fr, en) le paragraphe qui l'annonce, à la première version qui le contient
+  (avant, le lien de téléchargement mène à une version qui ne l'a pas).
+
+Vérifié : installation silencieuse du setup hors ligne sur ce poste (17,5 s ; WebView2 déjà
+présent, donc branche « déjà installé » ; aucun fichier laissé dans %TEMP%) ; scénario complet
+vert sur l'application **installée** (moteur séparé compris : pdfium.dll trouvé dans le dossier
+d'installation) ; puis 0.2.0 officielle réinstallée (empreinte SHA-256 identique à celle de la
+Release). Non vérifié : la branche « WebView2 absent » sur un poste vierge — il faudrait Windows
+Sandbox (non activé ici) ou une machine sans WebView2.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Setup hors ligne | 2026-11-14 | fait | essai sur un poste sans WebView2 et sans Internet | le site ne peut annoncer la version hors ligne qu'avec la version qui la contient : annonce confiée à prepare.py |
