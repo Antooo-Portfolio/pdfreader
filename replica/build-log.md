@@ -494,3 +494,17 @@ l'utilisateur identiques octet pour octet, lecteur PDF par défaut (Acrobat) inc
 complet vert sur la 0.3.0 installée ; la 0.3.0 lit le flux publié (rien à proposer, la 0.2.0 étant
 la dernière) ; 0.2.0 réinstallée pour essayer la vraie mise à jour par l'updater une fois la 0.3.0
 publiée.
+
+## Version 0.3.0 — publiée (2026-11-14)
+
+Release `v0.3.0` (Antooo-Portfolio/pdfreader) : les deux setups, la signature, latest.json ;
+empreintes SHA-256 identiques aux fichiers testés. Flux de mises à jour (nouvelle adresse et
+ancienne adresse redirigée) : 0.3.0. Site redéployé (9 Mo, version hors ligne annoncée).
+
+Vraie mise à jour essayée de bout en bout : la 0.2.0 installée (dossier de données à part) accepte
+la vérification, propose la 0.3.0, « Installer et redémarrer » (cliqué par UI Automation) :
+téléchargement, signature vérifiée, installeur en mode passif, application relancée en 0.3.0
+avec son moteur séparé. Le setup téléchargé depuis la Release passe aussi le test
+`updater_signature`. Note : ces installations d'essai ont eu lieu dans l'espace de l'application
+Claude (Windows redirige ses écritures dans AppData et HKCU vers son propre dossier) ; l'installation
+de PDFReader faite hors de cet espace n'a pas été touchée.
