@@ -546,3 +546,27 @@ par pypdf : 2, 3, 1, 4…
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | Organiser les pages | 2026-11-17 | fait | remplacer des pages ; insérer une partie seulement d'un autre PDF ; champs de formulaire d'un PDF inséré non fusionnés | glisser-déposer natif bloqué par la réception des fichiers de Tauri : déplacement réécrit au pointeur |
+
+## Phase 2 — lot « exporter en image » (2026-11-17)
+
+Branche `phase2-export-image`. `crates/engine/src/export.rs` : page rendue par PDFium à la
+résolution choisie (taille cible exacte), puis PNG (sans perte) ou JPEG (qualité réglable,
+résolution inscrite dans l'en-tête JFIF) avec la crate `image` (fonction JPEG activée : ajoute
+zune-jpeg, MIT / Apache-2.0 / Zlib, dans les mentions). Plafond : 100 millions de pixels et 30 000
+pixels de côté, la résolution est réduite au besoin (le moteur a 4 Go au plus). Une demande par
+page : la boîte affiche la progression et peut s'arrêter. Plusieurs pages : un dossier, noms
+« nom - page 001.png » sans jamais écraser un fichier (« (2) » ajouté). Refusé si l'auteur
+interdit la copie (bouton désactivé, et refus du moteur).
+
+Tests : `export_images` (moteur) : PNG 595 × 842 à 72 ppp avec du texte et un fond opaque, JPEG
+1240 × 1754 à 150 ppp et deux fois plus léger que le PNG, surlignage rouge présent avec les
+commentaires et absent sans, pages pivotées exportées dans leur sens, page A0 à 2400 ppp ramenée
+sous les plafonds. Partie `phase2image` du scénario (3 passages verts) : boîte ouverte depuis la
+barre et depuis l'organisation (« Pages choisies (2) »), images aux bonnes dimensions, second
+export renommé « (2) », document dont la copie est interdite : bouton désactivé, export refusé.
+Parcours réel (UI Automation) : JPEG choisi, 300 ppp, « Exporter… », vraie fenêtre « Enregistrer
+sous » de Windows : image JPEG 2480 × 3508 marquée 300 ppp (A4 exact).
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Exporter en image | 2026-11-17 | fait | TIFF ; une seule image pour plusieurs pages | — |

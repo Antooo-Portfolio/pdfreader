@@ -78,6 +78,9 @@ export const tauriEngine: EngineClient = {
     const r = await open({ multiple: false, directory: true });
     return Array.isArray(r) ? (r[0] ?? null) : r;
   },
+  pickImagePath: (defaultPath, format) =>
+    save({ defaultPath, filters: [format === "png" ? { name: t("Image PNG"), extensions: ["png"] } : { name: t("Image JPEG"), extensions: ["jpg", "jpeg"] }] }),
+  exportImage: (doc, page, options, path, unique) => invoke("doc_export_image", { doc, page, options, path, unique }),
   pages: (doc, op) => invoke<PagesResult>("doc_pages", { doc, op }),
   extractPages: (doc, pages, path) => invoke<number>("doc_extract_pages", { doc, pages, path }),
   splitPages: (doc, perFile, folder) => invoke<string[]>("doc_split_pages", { doc, perFile, folder }),

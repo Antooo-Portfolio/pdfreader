@@ -615,6 +615,16 @@ async fn doc_split_pages(doc: u32, per_file: i32, folder: String, engine: State<
     engine.ask(Request::SplitPages { doc, per_file, folder: PathBuf::from(folder) }).await
 }
 
+/// Exporte une page en image (PNG ou JPEG) ; renvoie le chemin écrit et les dimensions.
+#[tauri::command]
+async fn doc_export_image(doc: u32, page: i32, options: pdfreader_engine::export::ImageOptions, path: String, unique: bool, engine: State<'_, Engine>) -> Result<Value, String> {
+    let lower = path.to_ascii_lowercase();
+    if ![".png", ".jpg", ".jpeg"].iter().any(|e| lower.ends_with(e)) {
+        return Err("fichier image attendu".into());
+    }
+    engine.ask(Request::ExportImage { doc, page, options, target: PathBuf::from(path), unique }).await
+}
+
 /// Combine des fichiers, dans l'ordre, en un nouveau fichier ; renvoie le nombre de pages.
 #[tauri::command]
 async fn pdf_combine(paths: Vec<String>, path: String, engine: State<'_, Engine>) -> Result<i32, String> {
@@ -1030,6 +1040,7 @@ fn main() {
             doc_extract_pages,
             doc_split_pages,
             pdf_combine,
+            doc_export_image,
             doc_set_bookmarks,
             doc_attachments,
             attachment_save,

@@ -2450,6 +2450,20 @@
   "url": "https://github.com/dtolnay/zmij"
  },
  {
+  "name": "zune-core",
+  "version": "0.5.3",
+  "license": "MIT OR Apache-2.0 OR Zlib",
+  "kind": "Rust",
+  "url": "https://github.com/etemesi254/zune-image"
+ },
+ {
+  "name": "zune-jpeg",
+  "version": "0.5.15",
+  "license": "MIT OR Apache-2.0 OR Zlib",
+  "kind": "Rust",
+  "url": "https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg"
+ },
+ {
   "name": "@fontsource-variable/caveat",
   "version": "5.3.0",
   "license": "OFL-1.1",

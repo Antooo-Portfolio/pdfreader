@@ -121,6 +121,8 @@ pub enum Request {
     SplitPages { doc: u32, per_file: i32, folder: PathBuf },
     /// Combine des fichiers (dans l'ordre) en un nouveau fichier ; renvoie le nombre de pages.
     Combine { sources: Vec<PathBuf>, target: PathBuf },
+    /// Exporte une page en image. `unique` : si le fichier existe, « nom (2).ext »…
+    ExportImage { doc: u32, page: i32, options: eng::export::ImageOptions, target: PathBuf, unique: bool },
     /// Tests de bout en bout seulement (PDFREADER_E2E) : arrêt brutal ou blocage du moteur.
     TestCrash { doc: Option<u32> },
     TestHang { doc: Option<u32> },
@@ -154,6 +156,7 @@ impl Request {
             | Pages { doc, .. }
             | ExtractPages { doc, .. }
             | SplitPages { doc, .. }
+            | ExportImage { doc, .. }
             | Tile { doc, .. } => Some(*doc),
             TestCrash { doc } | TestHang { doc } => *doc,
             CancelPrint | Combine { .. } => None,
@@ -175,6 +178,7 @@ impl Request {
             | Pages { .. }
             | ExtractPages { .. }
             | SplitPages { .. }
+            | ExportImage { .. }
             | Combine { .. } => 600,
             _ => 30,
         };

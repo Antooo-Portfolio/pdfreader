@@ -254,6 +254,19 @@ pub fn main(lib_dir: PathBuf) {
             Request::Combine { sources, target } => {
                 out.reply(id, combine(pdfium, &sources, &target));
             }
+            Request::ExportImage { doc, page, options, target, unique } => {
+                let r = get(&docs, doc).and_then(|e| {
+                    // Une image du contenu en est une copie : refusée si l'auteur interdit la copie.
+                    if !eng::permissions(&e.doc).copy {
+                        return Err("copy_forbidden".to_string());
+                    }
+                    let target = if unique { free_file(&target) } else { target };
+                    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
+                    let result = eng::export::export_page(&p, &options, &target).map_err(|e| e.to_string())?;
+                    Ok(ExportedImage { path: target.display().to_string(), result })
+                });
+                out.reply(id, r);
+            }
             Request::CountHighlights { doc, page } => {
                 let r = get(&docs, doc).and_then(|e| {
                     let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
@@ -621,6 +634,25 @@ fn may_copy_out(doc: &PdfDocument) -> Result<(), String> {
         return Err("assemble_forbidden".into());
     }
     Ok(())
+}
+
+/// Image écrite : chemin final (renommé si le fichier existait) et dimensions.
+#[derive(Debug, Serialize)]
+struct ExportedImage {
+    path: String,
+    #[serde(flatten)]
+    result: eng::export::ImageResult,
+}
+
+/// Le chemin s'il est libre, sinon « nom (2).ext », « nom (3).ext »…
+fn free_file(p: &Path) -> PathBuf {
+    if !p.exists() {
+        return p.to_path_buf();
+    }
+    let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let ext = p.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let dir = p.parent().unwrap_or(Path::new("."));
+    (2..).map(|n| dir.join(format!("{stem} ({n}).{ext}"))).find(|c| !c.exists()).unwrap()
 }
 
 /// Nom libre dans `folder` : « nom.pdf », sinon « nom (2).pdf »…

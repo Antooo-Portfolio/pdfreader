@@ -75,6 +75,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.m3forms = await runM3FormCalc(actions, path);
     steps.m3engine = await runM3Engine(engine, actions, path);
     steps.phase2pages = await runPhase2Pages(engine, actions, path);
+    steps.phase2image = await runPhase2Image(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -87,7 +88,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.m3bookmarks as { ok: boolean }).ok &&
       (steps.m3forms as { ok: boolean }).ok &&
       (steps.m3engine as { ok: boolean }).ok &&
-      (steps.phase2pages as { ok: boolean }).ok;
+      (steps.phase2pages as { ok: boolean }).ok &&
+      (steps.phase2image as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -1335,6 +1337,81 @@ async function runPhase2Pages(engine: EngineClient, actions: AppActions, path: s
   }
   r.checks = checks;
   r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 4;
+  return r;
+}
+
+/** Phase 2, « Exporter en image » : boîte ouverte depuis la barre d'outils (pages, format,
+ *  résolution) et depuis l'organisation (pages choisies) ; images écrites aux bonnes dimensions,
+ *  renommées si le fichier existe ; refus si l'auteur interdit la copie (bouton désactivé). */
+async function runPhase2Image(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  const visible = <T extends Element>(sel: string) => Array.from(document.querySelectorAll<T>(sel)).find((el) => !el.closest("[hidden]") && !el.closest(".hidden"));
+  const button = (label: string) => visible<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  let step = "début";
+  try {
+    const doc = await actions.openPath(dir + "07-tailles-mixtes-rotation.pdf");
+    if (!doc) throw new Error("07 introuvable");
+    await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    step = "boîte depuis la barre";
+    (await waitFor(() => button("Exporter en image"), 6000)).click();
+    const dlg = await waitFor(() => visible<HTMLElement>("[data-export-image]"), 4000);
+    const radios = Array.from(dlg.querySelectorAll("label")).map((l) => l.textContent ?? "");
+    const fromBar = { radios: radios.filter((x) => x.startsWith("Page") || x.startsWith("Toutes")), hasFormat: !!dlg.textContent?.includes("Format"), hasDpi: !!dlg.textContent?.includes("Résolution") };
+    Array.from(document.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")).find((b) => b.textContent === "Annuler")?.click();
+    await waitFor(() => (visible("[data-export-image]") ? null : true), 3000);
+    step = "boîte depuis l'organisation";
+    (await waitFor(() => button("Organiser les pages"), 3000)).click();
+    const grid = await waitFor(() => visible<HTMLElement>("[data-organize] [role='grid']"), 6000);
+    const row = grid.querySelectorAll<HTMLElement>("[role='row']")[1];
+    if (row) {
+      const b = row.getBoundingClientRect();
+      const init: PointerEventInit = { bubbles: true, cancelable: true, pointerType: "mouse", pointerId: 1, isPrimary: true, button: 0, buttons: 1, clientX: b.left + b.width / 2, clientY: b.top + b.height / 3 };
+      row.dispatchEvent(new PointerEvent("pointerdown", init));
+      row.dispatchEvent(new PointerEvent("pointerup", { ...init, buttons: 0 }));
+      row.dispatchEvent(new MouseEvent("click", { ...init, buttons: 0, detail: 1 }));
+    }
+    await sleep(150);
+    (await waitFor(() => button("Exporter les pages choisies en image"), 3000)).click();
+    const dlg2 = await waitFor(() => visible<HTMLElement>("[data-export-image]"), 4000);
+    const chosenLabel = Array.from(dlg2.querySelectorAll("label")).map((l) => l.textContent ?? "").find((x) => x.startsWith("Pages choisies")) ?? null;
+    Array.from(document.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")).find((b) => b.textContent === "Annuler")?.click();
+    await waitFor(() => (visible("[data-export-image]") ? null : true), 3000);
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await sleep(150);
+    if (visible("[data-organize]")) grid.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    r.dialog = { fromBar, chosenLabel };
+    checks.dialog = fromBar.radios.length >= 3 && fromBar.hasFormat && fromBar.hasDpi && chosenLabel === "Pages choisies (2)";
+
+    step = "fichiers";
+    const png = await engine.exportImage(doc.id, 0, { format: "png", dpi: 72, quality: 85, annotations: true }, dir + "image-p1.png", false);
+    const jpg1 = await engine.exportImage(doc.id, 1, { format: "jpeg", dpi: 150, quality: 80, annotations: true }, dir + "image-p2.jpg", true);
+    const jpg2 = await engine.exportImage(doc.id, 1, { format: "jpeg", dpi: 150, quality: 80, annotations: true }, dir + "image-p2.jpg", true);
+    const size = doc.pages[1] ?? [0, 0];
+    r.files = { png: [png.width, png.height], jpg: [jpg1.width, jpg1.height, jpg1.bytes], second: jpg2.path.split(/[\\/]/).pop() };
+    checks.files =
+      Math.abs(png.width - Math.round(doc.pages[0]?.[0] ?? 0)) <= 1 &&
+      Math.abs(jpg1.width - Math.round(((size[0] ?? 0) * 150) / 72)) <= 1 &&
+      jpg2.path.endsWith("image-p2 (2).jpg") &&
+      jpg1.bytes > 1000;
+    await actions.closeDoc(doc.id);
+
+    step = "copie interdite";
+    const locked = await actions.openPath(dir + "09-chiffre-aes256.pdf", "test1234");
+    if (!locked) throw new Error("document protégé non ouvert");
+    await waitFor(() => (actions.activeId() === locked.id ? true : null), 4000);
+    await sleep(200);
+    const disabled = button("Export en image désactivé par l'auteur")?.disabled ?? null;
+    const refused = await engine.exportImage(locked.id, 0, { format: "png", dpi: 72, quality: 85, annotations: true }, dir + "image-fuite.png", false).then(() => "accepté", (e) => String(e));
+    r.locked = { disabled, refused };
+    checks.locked = disabled === true && refused.includes("copy_forbidden");
+    await actions.closeDoc(locked.id);
+  } catch (err) {
+    r.error = `${step} : ${String(err)}`;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 3;
   return r;
 }
 

@@ -419,6 +419,10 @@ export interface EngineClient {
   pickSavePath(defaultPath: string): Promise<string | null>;
   /** Choix d'un dossier (null : annulé). */
   pickFolder(): Promise<string | null>;
+  /** Choix du fichier image à écrire (null : annulé). */
+  pickImagePath(defaultPath: string, format: ImageFormat): Promise<string | null>;
+  /** Exporte une page en image ; `unique` : renomme si le fichier existe. */
+  exportImage(doc: number, page: number, options: ImageOptions, path: string, unique: boolean): Promise<{ path: string; width: number; height: number; dpi: number; bytes: number }>;
 
   /** Organiser les pages du document ouvert (annulable) ; la génération du document change. */
   pages(doc: number, op: PageOp): Promise<PagesResult>;
@@ -480,6 +484,17 @@ export interface EngineClient {
   onEngineRestarted(cb: (e: EngineRestart) => void): Promise<() => void>;
   /** Tests seulement : fait planter ou bloquer le moteur pendant une demande sur `doc`. */
   e2eEngineFault(kind: "crash" | "hang", doc: number | null): Promise<void>;
+}
+
+export type ImageFormat = "png" | "jpeg";
+export interface ImageOptions {
+  format: ImageFormat;
+  /** Points par pouce (72 : taille réelle à l'écran). */
+  dpi: number;
+  /** Qualité JPEG (1 à 100). */
+  quality: number;
+  /** Commentaires et champs remplis inclus. */
+  annotations: boolean;
 }
 
 /** Opération sur les pages (index à partir de 0, dans l'ordre actuel). */

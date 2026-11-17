@@ -24,6 +24,7 @@ import {
   ChevronRight,
   FileOutput,
   FilePlus2,
+  ImageDown,
   Redo2,
   RotateCcw,
   RotateCw,
@@ -85,6 +86,7 @@ export function OrganizeView({
   onHistory,
   onChanged,
   onOpenPath,
+  onExportImage,
   onClose,
 }: {
   engine: EngineClient;
@@ -95,6 +97,8 @@ export function OrganizeView({
   onHistory: (h: { canUndo: boolean; canRedo: boolean }) => void;
   onChanged: (info: DocInfo) => void;
   onOpenPath: (path: string) => void;
+  /** Exporter les pages choisies en image (absent si l'auteur interdit la copie). */
+  onExportImage?: (chosen: number[]) => void;
   /** Retour à la lecture, éventuellement sur une page (à partir de 1). */
   onClose: (page?: number) => void;
 }) {
@@ -489,6 +493,9 @@ export function OrganizeView({
           onPress={() => void extract()}
           isDisabled={!chosen.length || busy}
         />
+        {onExportImage && (
+          <IconButton label={t("Exporter les pages choisies en image")} icon={<ImageDown size={18} />} onPress={() => onExportImage(chosen)} isDisabled={!chosen.length || busy} />
+        )}
         <IconButton
           label={t("Diviser le document")}
           icon={<Scissors size={18} />}

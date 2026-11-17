@@ -16,6 +16,7 @@ import {
   BookOpenText,
   Check,
   BookOpen,
+  ImageDown,
   LayoutGrid,
   FileSearch,
   Info,
@@ -55,6 +56,7 @@ import { SignatureDialog } from "./FillTools";
 import type { DocInfo, ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
 import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
+import { ExportImageDialog } from "./ExportImageDialog";
 import { OrganizeView } from "./OrganizeView";
 import { PageView } from "./PageView";
 import { AttachmentsPanel, BookmarksPanel, ThumbnailsPanel } from "./Panels";
@@ -749,6 +751,8 @@ export function DocumentView({
   const organizingRef = useRef(organizing);
   organizingRef.current = organizing;
   const [pageHistory, setPageHistory] = useState({ canUndo: false, canRedo: false });
+  /** Boîte « Exporter en image » : pages choisies dans l'organisation, s'il y en a. */
+  const [exportImage, setExportImage] = useState<{ chosen?: number[] } | null>(null);
   const [annots, setAnnots] = useState<Map<number, Annot[]>>(() => new Map());
   const annotsRef = useRef(annots);
   annotsRef.current = annots;
@@ -1617,6 +1621,7 @@ export function DocumentView({
           onHistory={setPageHistory}
           onChanged={onPagesChanged}
           onOpenPath={onOpenPath}
+          onExportImage={perms.copy ? (chosen) => setExportImage({ chosen }) : undefined}
           onClose={(p) => {
             setOrganizing(false);
             if (p) requestAnimationFrame(() => jump(p));
@@ -1731,6 +1736,12 @@ export function DocumentView({
             icon={<LayoutGrid size={18} />}
             onPress={() => setOrganizing(true)}
             isDisabled={!canOrganize}
+          />
+          <IconButton
+            label={perms.copy ? t("Exporter en image") : t("Export en image désactivé par l'auteur")}
+            icon={<ImageDown size={18} />}
+            onPress={() => setExportImage({})}
+            isDisabled={!perms.copy}
           />
           <IconButton label={t("Imprimer")} shortcut="Ctrl+P" icon={<Printer size={18} />} onPress={onPrint} />
           <IconButton label={t("Rechercher")} shortcut="Ctrl+F" icon={<Search size={18} />} onPress={openFind} />
@@ -2222,6 +2233,7 @@ export function DocumentView({
 
       </div>
 
+      {exportImage && <ExportImageDialog engine={engine} info={info} currentPage={page} chosen={exportImage.chosen} onClose={() => setExportImage(null)} />}
       {sigDialog && (
         <SignatureDialog
           kind={sigDialog.kind}

@@ -223,6 +223,7 @@ pub mod navigation;
 pub mod outline;
 pub mod formcalc;
 pub mod pages;
+pub mod export;
 
 #[cfg(windows)]
 pub mod print_win;

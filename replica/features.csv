@@ -76,7 +76,7 @@ Créer un PDF depuis une image,création,must,yes,no,S20 F11
 Créer un PDF depuis Word / Excel / PowerPoint,création,should,yes,no,traitement local obligatoire : LibreOffice embarqué sur desktop ; web à trancher
 Créer un PDF depuis le presse-papiers / une page web / une page blanche,création,could,yes,no,
 Imprimante virtuelle « Enregistrer en PDF » (Windows),création,could,yes,no,pilote d'impression : coûteux
-Exporter en image (PNG / JPEG),conversion,must,yes,no,S19
+Exporter en image (PNG / JPEG),conversion,must,yes,yes,"Phase 2 : boîte « Exporter en image » (barre d'outils, et pages choisies dans « Organiser les pages ») : page affichée, toutes, plage ou sélection ; PNG sans perte ou JPEG (qualité 50 à 100 %, résolution inscrite dans le fichier) ; 72 à 600 ppp, plafonné à 100 Mpx ; commentaires et champs inclus ou non ; une page : fichier choisi, plusieurs : dossier, « nom - page 001.png » sans écraser ; progression annulable ; refusé si l'auteur interdit la copie"
 Exporter en texte brut,conversion,should,yes,no,
 Exporter vers Word,conversion,should,yes,no,F10 ; fidélité de mise en page difficile ; traitement local
 Exporter vers Excel / PowerPoint,conversion,could,yes,no,
