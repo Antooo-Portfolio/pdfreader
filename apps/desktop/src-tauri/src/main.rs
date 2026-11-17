@@ -625,11 +625,11 @@ async fn doc_export_image(doc: u32, page: i32, options: pdfreader_engine::export
     engine.ask(Request::ExportImage { doc, page, options, target: PathBuf::from(path), unique }).await
 }
 
-/// Combine des fichiers, dans l'ordre, en un nouveau fichier ; renvoie le nombre de pages.
+/// Combine des PDF et des images, dans l'ordre, en un nouveau fichier ; renvoie le nombre de pages.
 #[tauri::command]
-async fn pdf_combine(paths: Vec<String>, path: String, engine: State<'_, Engine>) -> Result<i32, String> {
+async fn pdf_combine(paths: Vec<String>, path: String, image_page: pdfreader_engine::images::ImagePageOptions, engine: State<'_, Engine>) -> Result<i32, String> {
     let target = pdf_target(&path)?;
-    engine.ask(Request::Combine { sources: paths.into_iter().map(PathBuf::from).collect(), target }).await
+    engine.ask(Request::Combine { sources: paths.into_iter().map(PathBuf::from).collect(), target, image_page }).await
 }
 
 #[tauri::command]

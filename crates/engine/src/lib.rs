@@ -224,6 +224,7 @@ pub mod outline;
 pub mod formcalc;
 pub mod pages;
 pub mod export;
+pub mod images;
 
 #[cfg(windows)]
 pub mod print_win;

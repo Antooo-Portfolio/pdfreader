@@ -1,5 +1,6 @@
 import { t } from "@pdfreader/ui";
 import type { AnnotResult, EngineRestart, PagesResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Attachment, Bookmark, DocInfo, DocProperties, SetFieldResult, SnippetHit, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
+import { IMAGE_EXTENSIONS } from "@pdfreader/viewer";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -69,8 +70,11 @@ export const tauriEngine: EngineClient = {
   author: () => invoke<string>("author"),
   tileUrl: (doc, gen, ver, page, scale, x, y) => `${BASE}/tile/${doc}/${gen}/${ver}/${page}/${scale.toFixed(4)}/${x}/${y}`,
   thumbUrl: (id, bust) => `${BASE}/thumb/${id}?v=${bust}`,
-  async pickFiles() {
-    const r = await open({ multiple: true, directory: false, filters: [{ name: t("Documents PDF"), extensions: ["pdf"] }] });
+  async pickFiles(kind = "pdf") {
+    const pdf = { name: t("Documents PDF"), extensions: ["pdf"] };
+    const images = { name: t("Images"), extensions: IMAGE_EXTENSIONS };
+    const filters = kind === "pdf" ? [pdf] : kind === "images" ? [images] : [{ name: t("PDF et images"), extensions: ["pdf", ...IMAGE_EXTENSIONS] }, pdf, images];
+    const r = await open({ multiple: true, directory: false, filters });
     return r === null ? [] : Array.isArray(r) ? r : [r];
   },
   pickSavePath: (defaultPath) => save({ defaultPath, filters: [{ name: t("Document PDF"), extensions: ["pdf"] }] }),
@@ -84,7 +88,7 @@ export const tauriEngine: EngineClient = {
   pages: (doc, op) => invoke<PagesResult>("doc_pages", { doc, op }),
   extractPages: (doc, pages, path) => invoke<number>("doc_extract_pages", { doc, pages, path }),
   splitPages: (doc, perFile, folder) => invoke<string[]>("doc_split_pages", { doc, perFile, folder }),
-  combine: (paths, path) => invoke<number>("pdf_combine", { paths, path }),
+  combine: (paths, path, imagePage) => invoke<number>("pdf_combine", { paths, path, imagePage }),
   async onExternalFiles(cb) {
     const off1 = await listen<string[]>("open-files", (e) => cb(e.payload));
     const off2 = await getCurrentWebview().onDragDropEvent((e) => {

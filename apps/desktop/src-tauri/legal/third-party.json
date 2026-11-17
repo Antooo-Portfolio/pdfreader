@@ -364,6 +364,13 @@
   "url": "https://github.com/RustCrypto/traits"
  },
  {
+  "name": "color_quant",
+  "version": "1.1.0",
+  "license": "MIT",
+  "kind": "Rust",
+  "url": "https://github.com/image-rs/color_quant.git"
+ },
+ {
   "name": "const-oid",
   "version": "0.10.2",
   "license": "Apache-2.0 OR MIT",
@@ -644,6 +651,13 @@
   "url": "https://github.com/smol-rs/fastrand"
  },
  {
+  "name": "fax",
+  "version": "0.2.7",
+  "license": "MIT",
+  "kind": "Rust",
+  "url": "https://github.com/pdf-rs/fax"
+ },
+ {
   "name": "fdeflate",
   "version": "0.3.7",
   "license": "MIT OR Apache-2.0",
@@ -756,11 +770,25 @@
   "url": "https://github.com/rust-random/getrandom"
  },
  {
+  "name": "gif",
+  "version": "0.14.2",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/image-rs/image-gif"
+ },
+ {
   "name": "glob",
   "version": "0.3.4",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
   "url": "https://github.com/rust-lang/glob"
+ },
+ {
+  "name": "half",
+  "version": "2.7.1",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/VoidStarKat/half-rs"
  },
  {
   "name": "hashbrown",
@@ -1897,6 +1925,13 @@
   "url": "https://github.com/dtolnay/thiserror"
  },
  {
+  "name": "tiff",
+  "version": "0.11.3",
+  "license": "MIT",
+  "kind": "Rust",
+  "url": "https://github.com/image-rs/image-tiff"
+ },
+ {
   "name": "time",
   "version": "0.3.55",
   "license": "MIT OR Apache-2.0",
@@ -2206,6 +2241,13 @@
  },
  {
   "name": "weezl",
+  "version": "0.1.12",
+  "license": "MIT OR Apache-2.0",
+  "kind": "Rust",
+  "url": "https://github.com/image-rs/weezl"
+ },
+ {
+  "name": "weezl",
   "version": "0.2.1",
   "license": "MIT OR Apache-2.0",
   "kind": "Rust",
@@ -2378,6 +2420,20 @@
   "license": "Unicode-3.0",
   "kind": "Rust",
   "url": "https://github.com/unicode-org/icu4x"
+ },
+ {
+  "name": "zerocopy",
+  "version": "0.8.63",
+  "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
+  "kind": "Rust",
+  "url": "https://github.com/google/zerocopy"
+ },
+ {
+  "name": "zerocopy-derive",
+  "version": "0.8.63",
+  "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
+  "kind": "Rust",
+  "url": "https://github.com/google/zerocopy"
  },
  {
   "name": "zerofrom",

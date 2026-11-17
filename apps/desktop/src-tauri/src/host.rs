@@ -251,8 +251,8 @@ pub fn main(lib_dir: PathBuf) {
             Request::SplitPages { doc, per_file, folder } => {
                 out.reply(id, get(&docs, doc).and_then(|e| split(pdfium, e, per_file, &folder)));
             }
-            Request::Combine { sources, target } => {
-                out.reply(id, combine(pdfium, &sources, &target));
+            Request::Combine { sources, target, image_page } => {
+                out.reply(id, combine(pdfium, &sources, &target, &image_page));
             }
             Request::ExportImage { doc, page, options, target, unique } => {
                 let r = get(&docs, doc).and_then(|e| {
@@ -580,6 +580,13 @@ fn page_op(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, op:
                 PageOp::Delete { pages } => pages::delete(&e.doc, &pages).inspect(|_| e.full_save = true),
                 PageOp::Move { pages, before } => pages::move_pages(&e.doc, &pages, before),
                 PageOp::InsertBlank { at, width, height } => pages::insert_blank(&e.doc, at, width, height),
+                PageOp::InsertFile { at, path, .. } if eng::images::is_image_path(&path) => {
+                    // Image : une page de la taille de la page voisine.
+                    let near = e.doc.pages().get((at - 1).max(0)).map(|p| (p.width().value, p.height().value)).unwrap_or((595.28, 841.89));
+                    let opts = eng::images::ImagePageOptions { size: eng::images::PageSize::Fixed { width: near.0, height: near.1 }, margin: 0.0 };
+                    let n = e.doc.pages().len();
+                    eng::images::add_image_page(&e.doc, at, &path, &opts).map(|_| (0..n).map(|p| Some(if p >= at { p + 1 } else { p })).collect())
+                }
                 PageOp::InsertFile { at, path, password, pages: wanted } => {
                     let src = eng::open_typed(pdfium, &path, password.as_deref()).map_err(|err| match err {
                         eng::OpenError::PasswordRequired | eng::OpenError::WrongPassword => "source_password".to_string(),
@@ -686,22 +693,37 @@ fn split(pdfium: &'static Pdfium, e: &Entry, per_file: i32, folder: &Path) -> Re
     Ok(written)
 }
 
-fn combine(pdfium: &'static Pdfium, sources: &[PathBuf], target: &Path) -> Result<i32, String> {
+fn combine(pdfium: &'static Pdfium, sources: &[PathBuf], target: &Path, image_page: &eng::images::ImagePageOptions) -> Result<i32, String> {
     if sources.is_empty() || sources.len() > 500 {
         return Err("aucun fichier".into());
     }
     let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let mut docs = Vec::new();
+    let out = pdfium.create_new_pdf().map_err(|e| format!("{e:?}"))?;
+    let mut prefs_from: Option<PdfDocument> = None;
     for p in sources {
+        let at = out.pages().len();
+        if eng::images::is_image_path(p) {
+            eng::images::add_image_page(&out, at, p, image_page).map_err(|err| format!("image_unreadable: {} ({err})", name(p)))?;
+            continue;
+        }
         let d = eng::open_typed(pdfium, p, None).map_err(|err| match err {
             eng::OpenError::PasswordRequired => format!("encrypted: {}", name(p)),
             other => format!("source_unreadable: {} ({other})", name(p)),
         })?;
         may_copy_out(&d).map_err(|err| format!("{err}: {}", name(p)))?;
-        docs.push(d);
+        if !d.pages().is_empty() {
+            eng::pages::insert_from(&out, &d, None, at).map_err(|e| e.to_string())?;
+        }
+        // Préférences d'affichage reprises du premier PDF.
+        if prefs_from.is_none() {
+            prefs_from = Some(d);
+        }
     }
-    let refs: Vec<&PdfDocument> = docs.iter().collect();
-    eng::pages::combine(pdfium, &refs, target).map_err(|e| e.to_string())
+    if let Some(first) = &prefs_from {
+        unsafe { raw_bindings().FPDF_CopyViewerPreferences(out.raw_handle(), first.raw_handle()) };
+    }
+    eng::save(&out, target, false).map_err(|e| e.to_string())?;
+    Ok(out.pages().len())
 }
 
 fn heights(doc: &PdfDocument) -> Vec<f32> {

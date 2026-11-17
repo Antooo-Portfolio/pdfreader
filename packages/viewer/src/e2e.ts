@@ -76,6 +76,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.m3engine = await runM3Engine(engine, actions, path);
     steps.phase2pages = await runPhase2Pages(engine, actions, path);
     steps.phase2image = await runPhase2Image(engine, actions, path);
+    steps.phase2images = await runPhase2Images(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -89,7 +90,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.m3forms as { ok: boolean }).ok &&
       (steps.m3engine as { ok: boolean }).ok &&
       (steps.phase2pages as { ok: boolean }).ok &&
-      (steps.phase2image as { ok: boolean }).ok;
+      (steps.phase2image as { ok: boolean }).ok &&
+      (steps.phase2images as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -1228,7 +1230,7 @@ async function runPhase2Pages(engine: EngineClient, actions: AppActions, path: s
   try {
     // Copie fraîche du document de 10 pages (la combinaison d'un seul fichier en fait une copie).
     const work = dir + "pages-organiser.pdf";
-    await engine.combine([dir + "01-texte-10p.pdf"], work);
+    await engine.combine([dir + "01-texte-10p.pdf"], work, { size: { kind: "a4" }, margin: 0 });
     const doc = await actions.openPath(work);
     if (!doc) throw new Error("copie introuvable");
     await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
@@ -1314,7 +1316,7 @@ async function runPhase2Pages(engine: EngineClient, actions: AppActions, path: s
     await engine.extractPages(back.id, [0, 1], ext);
     const split = await engine.splitPages(back.id, 4, dir.replace(/[\\/]$/, ""));
     const comb = dir + "pages-combine.pdf";
-    const combined = await engine.combine([ext, dir + "07-tailles-mixtes-rotation.pdf"], comb);
+    const combined = await engine.combine([ext, dir + "07-tailles-mixtes-rotation.pdf"], comb, { size: { kind: "a4" }, margin: 0 });
     const e = await engine.open(ext);
     const extCount = e.pageCount;
     engine.close(e.id);
@@ -1412,6 +1414,71 @@ async function runPhase2Image(engine: EngineClient, actions: AppActions, path: s
   }
   r.checks = checks;
   r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 3;
+  return r;
+}
+
+/** Phase 2, « Créer un PDF depuis des images » : images produites par l'export, PDF créé en A4
+ *  (sens de l'image) ou à la taille de l'image, mélange PDF + image, image insérée dans un document
+ *  ouvert (page de la taille des voisines), image absente refusée. */
+async function runPhase2Images(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  let step = "début";
+  try {
+    step = "images de test";
+    const src = await engine.open(dir + "07-tailles-mixtes-rotation.pdf");
+    const portrait = await engine.exportImage(src.id, 0, { format: "png", dpi: 72, quality: 85, annotations: true }, dir + "img-portrait.png", false);
+    const landscape = await engine.exportImage(src.id, 1, { format: "jpeg", dpi: 150, quality: 85, annotations: true }, dir + "img-paysage.jpg", false);
+    engine.close(src.id);
+
+    step = "A4";
+    const a4 = dir + "images-a4.pdf";
+    const n1 = await engine.combine([portrait.path, landscape.path], a4, { size: { kind: "a4" }, margin: 0 });
+    const d1 = await engine.open(a4);
+    const sizes1 = d1.pages.map(([w, h]) => [Math.round(w), Math.round(h)]);
+    engine.close(d1.id);
+    r.a4 = { n1, sizes1 };
+    checks.a4 = n1 === 2 && sizes1[0]?.join("x") === "595x842" && sizes1[1]?.join("x") === "842x595";
+
+    step = "taille de l'image";
+    const natural = dir + "images-naturel.pdf";
+    await engine.combine([portrait.path], natural, { size: { kind: "image" }, margin: 0 });
+    const d2 = await engine.open(natural);
+    // PNG sans résolution inscrite : 96 ppp, soit les trois quarts des pixels en points.
+    const [w2, h2] = d2.pages[0] ?? [0, 0];
+    engine.close(d2.id);
+    r.natural = { px: [portrait.width, portrait.height], pt: [Math.round(w2), Math.round(h2)] };
+    checks.natural = Math.abs(w2 - (portrait.width * 72) / 96) < 1 && Math.abs(h2 - (portrait.height * 72) / 96) < 1;
+
+    step = "mélange PDF et image";
+    const mixed = dir + "images-melange.pdf";
+    const n3 = await engine.combine([dir + "01-texte-10p.pdf", landscape.path], mixed, { size: { kind: "letter" }, margin: 28.35 });
+    r.mixed = n3;
+    checks.mixed = n3 === 11;
+
+    step = "image insérée";
+    const doc = await actions.openPath(mixed);
+    if (!doc) throw new Error("mélange non ouvert");
+    const ins = await engine.pages(doc.id, { kind: "insertFile", at: 1, path: portrait.path, password: null, pages: null });
+    const [iw, ih] = ins.info.pages[1] ?? [0, 0];
+    const [nw, nh] = ins.info.pages[0] ?? [1, 1];
+    r.inserted = { count: ins.info.pageCount, size: [Math.round(iw), Math.round(ih)], canUndo: ins.canUndo };
+    checks.inserted = ins.info.pageCount === 12 && Math.round(iw) === Math.round(nw) && Math.round(ih) === Math.round(nh) && ins.canUndo;
+
+    step = "fichier refusé";
+    const bad = await engine.combine([dir + "img-absente.png"], dir + "images-faux.pdf", { size: { kind: "a4" }, margin: 0 }).then(
+      () => "accepté",
+      (e) => String(e),
+    );
+    r.bad = bad;
+    checks.bad = bad !== "accepté";
+    await actions.closeDoc(doc.id);
+  } catch (err) {
+    r.error = `${step} : ${String(err)}`;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 5;
   return r;
 }
 

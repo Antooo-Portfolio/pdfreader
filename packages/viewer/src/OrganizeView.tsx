@@ -194,7 +194,7 @@ export function OrganizeView({
     );
   };
   const insertFile = async () => {
-    const files = await engine.pickFiles();
+    const files = await engine.pickFiles("pdfAndImages");
     const path = files[0];
     if (!path) return;
     await apply(
@@ -482,7 +482,7 @@ export function OrganizeView({
               {t("Page blanche")}
             </MenuItem>
             <MenuItem id="file" onAction={() => void insertFile()}>
-              {t("Pages d'un autre PDF…")}
+              {t("Pages d'un autre PDF ou une image…")}
             </MenuItem>
           </Menu>
         </MenuTrigger>

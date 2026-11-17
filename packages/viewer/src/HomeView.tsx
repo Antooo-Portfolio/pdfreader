@@ -1,9 +1,9 @@
-import { t, Button, Dialog, GridList, GridListItem, IconButton, Kbd, EmptyState, ToolButton, ToolGroup, SearchField, Spinner, locale, useToast } from "@pdfreader/ui";
+import { t, Button, Checkbox, Dialog, GridList, GridListItem, IconButton, Kbd, EmptyState, Select, ToolButton, ToolGroup, SearchField, Spinner, locale, useToast } from "@pdfreader/ui";
 import { clsx } from "clsx";
-import { ArrowDown, ArrowUp, Combine, FileText, FolderOpen, LayoutGrid, List, Star, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Combine, FileImage, FileText, FolderOpen, Image as ImageIcon, LayoutGrid, List, Star, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Tab, TabList, Tabs } from "react-aria-components";
-import type { EngineClient, RecentFile } from "./engine";
+import { type EngineClient, type ImagePageOptions, isImagePath, type RecentFile } from "./engine";
 
 function when(ms: number): string {
   const d = new Date(ms);
@@ -25,7 +25,7 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
   const [filter, setFilter] = useState<Filter>("recent");
   const [view, setView] = useState<View>("list");
   const [query, setQuery] = useState("");
-  const [combining, setCombining] = useState<string[] | null>(null);
+  const [combining, setCombining] = useState<{ files: string[]; images: boolean } | null>(null);
 
   const load = () =>
     engine
@@ -80,10 +80,19 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
           </h1>
           <div className="flex flex-wrap gap-2">
             <Button
+              icon={<FileImage size={16} />}
+              onPress={async () => {
+                const files = await engine.pickFiles("images");
+                if (files.length) setCombining({ files, images: true });
+              }}
+            >
+              {t("PDF depuis des images…")}
+            </Button>
+            <Button
               icon={<Combine size={16} />}
               onPress={async () => {
-                const files = await engine.pickFiles();
-                if (files.length) setCombining(files);
+                const files = await engine.pickFiles("pdfAndImages");
+                if (files.length) setCombining({ files, images: false });
               }}
             >
               {t("Combiner des fichiers…")}
@@ -93,7 +102,7 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
             </Button>
           </div>
         </header>
-        {combining && <CombineDialog engine={engine} initial={combining} onDone={(path) => (setCombining(null), path && onOpenPath(path))} />}
+        {combining && <CombineDialog engine={engine} initial={combining.files} fromImages={combining.images} onDone={(path) => (setCombining(null), path && onOpenPath(path))} />}
 
         <div className="flex flex-wrap items-end justify-between gap-3">
           <Tabs selectedKey={filter} onSelectionChange={(k) => setFilter(k as Filter)}>
@@ -225,11 +234,18 @@ function StarButton({ f, onToggle }: { f: RecentFile; onToggle: (f: RecentFile) 
   );
 }
 
-/** Combiner des fichiers : ordre réglable, puis un nouveau fichier ouvert dans un onglet. */
-function CombineDialog({ engine, initial, onDone }: { engine: EngineClient; initial: string[]; onDone: (path: string | null) => void }) {
+type PageSizeKind = "a4" | "letter" | "image";
+
+/** Combiner des fichiers (PDF et images) ou créer un PDF depuis des images : ordre réglable, taille
+ *  des pages des images, puis un nouveau fichier ouvert dans un onglet. */
+function CombineDialog({ engine, initial, fromImages, onDone }: { engine: EngineClient; initial: string[]; fromImages: boolean; onDone: (path: string | null) => void }) {
   const toast = useToast();
   const [files, setFiles] = useState(initial);
   const [busy, setBusy] = useState(false);
+  const [size, setSize] = useState<PageSizeKind>(() => (navigator.language === "en-US" || navigator.language === "en-CA" ? "letter" : "a4"));
+  const [margins, setMargins] = useState(false);
+  const hasImages = files.some(isImagePath);
+  const enough = hasImages ? files.length >= 1 : files.length >= 2;
   const name = (p: string) => p.split(/[\\/]/).pop() ?? p;
   const move = (i: number, d: number) =>
     setFiles((f) => {
@@ -240,18 +256,25 @@ function CombineDialog({ engine, initial, onDone }: { engine: EngineClient; init
     });
   const run = async () => {
     const first = files[0] ?? "";
-    const target = await engine.pickSavePath(first.replace(/[^\\/]+$/, "") + t("Documents combinés.pdf"));
+    // Un seul fichier : même nom en .pdf ; plusieurs : un nom générique.
+    const suggested = files.length === 1 ? name(first).replace(/\.[^.]+$/, "") + ".pdf" : t("Documents combinés.pdf");
+    const target = await engine.pickSavePath(first.replace(/[^\\/]+$/, "") + suggested);
     if (!target) return;
     setBusy(true);
     try {
-      const pages = await engine.combine(files, target);
+      const imagePage: ImagePageOptions = { size: { kind: size }, margin: margins && size !== "image" ? 28.35 : 0 };
+      const pages = await engine.combine(files, target, imagePage);
       toast({ tone: "success", message: t("« {name} » créé ({count} pages).", { name: name(target), count: pages }) });
       onDone(target);
     } catch (e) {
       const m = String(e);
       toast({
         tone: "error",
-        message: m.includes("encrypted") ? t("Un des fichiers est protégé par un mot de passe ou des restrictions : il ne peut pas être combiné ({detail}).", { detail: m.split(": ").pop() ?? "" }) : t("La combinaison a échoué : {detail}", { detail: m }),
+        message: m.includes("encrypted")
+          ? t("Un des fichiers est protégé par un mot de passe ou des restrictions : il ne peut pas être combiné ({detail}).", { detail: m.split(": ").pop() ?? "" })
+          : m.includes("image_unreadable")
+            ? t("Une image n'a pas pu être lue (format non pris en charge, fichier endommagé ou image démesurée) : {detail}", { detail: m.replace(/^.*image_unreadable: /, "") })
+            : t("La combinaison a échoué : {detail}", { detail: m }),
       });
     } finally {
       setBusy(false);
@@ -259,7 +282,7 @@ function CombineDialog({ engine, initial, onDone }: { engine: EngineClient; init
   };
   return (
     <Dialog
-      title={t("Combiner des fichiers")}
+      title={fromImages ? t("Créer un PDF depuis des images") : t("Combiner des fichiers")}
       isOpen
       isDismissable={!busy}
       onOpenChange={(o) => !o && !busy && onDone(null)}
@@ -270,26 +293,30 @@ function CombineDialog({ engine, initial, onDone }: { engine: EngineClient; init
           </Button>
           <Button
             onPress={async () => {
-              const more = await engine.pickFiles();
+              const more = await engine.pickFiles(fromImages ? "images" : "pdfAndImages");
               setFiles((f) => [...f, ...more]);
             }}
             isDisabled={busy}
           >
-            {t("Ajouter des fichiers…")}
+            {fromImages ? t("Ajouter des images…") : t("Ajouter des fichiers…")}
           </Button>
-          <Button variant="primary" onPress={() => void run()} isPending={busy} isDisabled={files.length < 2}>
-            {t("Combiner…")}
+          <Button variant="primary" onPress={() => void run()} isPending={busy} isDisabled={!enough}>
+            {fromImages ? t("Créer le PDF…") : t("Combiner…")}
           </Button>
         </>
       )}
     >
       <div className="flex flex-col gap-3 text-base">
-        <p className="text-sm text-muted">{t("Les fichiers sont mis bout à bout dans cet ordre, tels qu'ils sont enregistrés. Un nouveau fichier est créé ; les originaux ne changent pas.")}</p>
+        <p className="text-sm text-muted">
+          {fromImages
+            ? t("Une page par image, dans cet ordre. Les photos JPEG sont intégrées sans perte de qualité et redressées si elles ont été prises téléphone tourné.")
+            : t("Les fichiers sont mis bout à bout dans cet ordre, tels qu'ils sont enregistrés ; chaque image devient une page. Un nouveau fichier est créé ; les originaux ne changent pas.")}
+        </p>
         <ol className="flex max-h-80 flex-col gap-1 overflow-auto" aria-label={t("Fichiers à combiner")}>
           {files.map((f, i) => (
             <li key={`${f}-${i}`} className="flex items-center gap-2 rounded-md bg-surface px-2 py-1">
               <span className="w-6 text-right text-sm text-muted tabular-nums">{i + 1}</span>
-              <FileText size={16} aria-hidden className="shrink-0 text-muted" />
+              {isImagePath(f) ? <ImageIcon size={16} aria-hidden className="shrink-0 text-muted" /> : <FileText size={16} aria-hidden className="shrink-0 text-muted" />}
               <span className="min-w-0 flex-1 truncate" title={f}>
                 {name(f)}
               </span>
@@ -299,7 +326,26 @@ function CombineDialog({ engine, initial, onDone }: { engine: EngineClient; init
             </li>
           ))}
         </ol>
-        {files.length < 2 && <p className="text-sm text-muted">{t("Choisissez au moins deux fichiers.")}</p>}
+        {hasImages && (
+          <div className="flex flex-wrap items-end gap-4" data-image-page>
+            <Select
+              label={t("Pages des images")}
+              options={[
+                { id: "a4", label: t("A4 (dans le sens de l'image)") },
+                { id: "letter", label: t("Lettre US (dans le sens de l'image)") },
+                { id: "image", label: t("Taille de l'image") },
+              ]}
+              selectedKey={size}
+              onSelectionChange={(k) => setSize(k as PageSizeKind)}
+              isDisabled={busy}
+              className="w-72"
+            />
+            <Checkbox isSelected={margins && size !== "image"} onChange={setMargins} isDisabled={busy || size === "image"}>
+              {t("Marges de 1 cm")}
+            </Checkbox>
+          </div>
+        )}
+        {!enough && <p className="text-sm text-muted">{hasImages ? t("Choisissez au moins une image.") : t("Choisissez au moins deux fichiers.")}</p>}
       </div>
     </Dialog>
   );

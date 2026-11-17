@@ -570,3 +570,34 @@ sous » de Windows : image JPEG 2480 × 3508 marquée 300 ppp (A4 exact).
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | Exporter en image | 2026-11-17 | fait | TIFF ; une seule image pour plusieurs pages | — |
+
+## Phase 2 — lot « PDF depuis des images » (2026-11-17)
+
+Branche `phase2-pdf-depuis-images`. `crates/engine/src/images.rs` : une page par image. Un JPEG
+est intégré tel quel (FPDFImageObj_LoadJpegFileInline : ni recompression ni perte, ses octets se
+retrouvent dans le PDF), sauf s'il porte une orientation EXIF (photo prise téléphone tourné) : il
+est alors décodé, redressé et intégré sans perte. PNG, WebP, BMP, GIF, TIFF : décodés et intégrés
+sans perte (sans couche alpha s'ils sont opaques, plus légers). Taille des pages : A4 ou Lettre
+dans le sens de l'image (image centrée, jamais agrandie, marges de 1 cm au choix), taille fixe
+(insertion dans un document : celle de la page voisine), ou taille de l'image à sa résolution
+(JFIF ou pHYs du PNG, 96 ppp sinon). Plafonds : 256 Mo par fichier, 100 millions de pixels.
+
+Interface : « PDF depuis des images… » sur l'accueil ; « Combiner des fichiers » accepte PDF et
+images mélangés ; « Insérer des pages » accepte une image. Nouvelles dépendances (formats BMP,
+GIF, TIFF de la crate `image`) : gif, tiff, weezl, fax, color_quant, half, crunchy, zerocopy —
+licences MIT / Apache-2.0 / Zlib acceptées par cargo-deny, ajoutées aux mentions (381 composants).
+
+Tests : `pdf_from_images` (moteur) : page de 96 × 48 points pour 400 × 200 pixels à 300 ppp,
+rouge à gauche ; grande photo en A4 paysage réduite et centrée ; petite image jamais agrandie ;
+orientation EXIF 6 → page portrait, rouge en haut ; PNG transparent sur fond blanc dans une page
+de taille imposée ; faux fichier refusé sans abîmer le document ; JPEG retrouvé octet pour octet
+dans le PDF. Partie `phase2images` du scénario (3 passages verts) : images produites par l'export
+en image, PDF en A4 (portrait puis paysage), à la taille de l'image (96 ppp), mélange PDF + image
+(11 pages), image insérée dans un document ouvert à la taille des pages voisines (annulable),
+image absente refusée. Parcours réel : « PDF depuis des images… », vraie fenêtre « Ouvrir » (deux
+images), « Créer le PDF… », vraie fenêtre « Enregistrer sous » : nouvel onglet, PDF de deux pages
+(paysage, portrait).
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| PDF depuis des images | 2026-11-17 | fait | TIFF de plusieurs pages (seule la première est lue) ; HEIC des iPhone | — |

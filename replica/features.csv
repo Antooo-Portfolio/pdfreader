@@ -72,7 +72,7 @@ Protéger par mot de passe (AES-256),sécurité,must,yes,no,S22 F13
 Restreindre impression / copie / modification,sécurité,should,yes,no,
 Retirer la protection (avec le mot de passe),sécurité,should,yes,no,
 Chiffrement par certificat,sécurité,could,yes,no,
-Créer un PDF depuis une image,création,must,yes,no,S20 F11
+Créer un PDF depuis une image,création,must,yes,yes,"Phase 2 : « PDF depuis des images… » sur l'accueil (et images acceptées dans « Combiner des fichiers » et « Insérer des pages ») : PNG, JPEG, WebP, BMP, GIF, TIFF, une page par image ; A4 ou Lettre dans le sens de l'image (marges de 1 cm au choix, image jamais agrandie, centrée) ou taille de l'image à sa résolution (96 ppp par défaut) ; JPEG intégré sans recompression, photos redressées selon l'orientation EXIF ; transparence sur fond blanc ; plafond 100 Mpx / 256 Mo par image"
 Créer un PDF depuis Word / Excel / PowerPoint,création,should,yes,no,traitement local obligatoire : LibreOffice embarqué sur desktop ; web à trancher
 Créer un PDF depuis le presse-papiers / une page web / une page blanche,création,could,yes,no,
 Imprimante virtuelle « Enregistrer en PDF » (Windows),création,could,yes,no,pilote d'impression : coûteux

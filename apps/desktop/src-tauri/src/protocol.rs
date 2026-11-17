@@ -119,8 +119,9 @@ pub enum Request {
     ExtractPages { doc: u32, pages: Vec<i32>, target: PathBuf },
     /// Découpe le document en fichiers de `per_file` pages dans `folder` ; renvoie les chemins écrits.
     SplitPages { doc: u32, per_file: i32, folder: PathBuf },
-    /// Combine des fichiers (dans l'ordre) en un nouveau fichier ; renvoie le nombre de pages.
-    Combine { sources: Vec<PathBuf>, target: PathBuf },
+    /// Combine des fichiers PDF et des images (une page par image), dans l'ordre, en un nouveau
+    /// fichier ; renvoie le nombre de pages.
+    Combine { sources: Vec<PathBuf>, target: PathBuf, image_page: eng::images::ImagePageOptions },
     /// Exporte une page en image. `unique` : si le fichier existe, « nom (2).ext »…
     ExportImage { doc: u32, page: i32, options: eng::export::ImageOptions, target: PathBuf, unique: bool },
     /// Tests de bout en bout seulement (PDFREADER_E2E) : arrêt brutal ou blocage du moteur.
@@ -196,7 +197,8 @@ pub enum PageOp {
     /// Avant la page `before` (nombre de pages : à la fin).
     Move { pages: Vec<i32>, before: i32 },
     InsertBlank { at: i32, width: f32, height: f32 },
-    /// Pages d'un autre PDF (toutes si `pages` est absent).
+    /// Pages d'un autre PDF (toutes si `pages` est absent), ou une image (page de la taille des
+    /// pages voisines).
     InsertFile { at: i32, path: PathBuf, password: Option<String>, pages: Option<Vec<i32>> },
     Undo,
     Redo,

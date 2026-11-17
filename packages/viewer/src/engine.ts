@@ -415,7 +415,8 @@ export interface EngineClient {
   author(): Promise<string>;
   tileUrl(doc: number, generation: number, version: number, page: number, scale: number, x: number, y: number): string;
   thumbUrl(id: string, bust: number): string;
-  pickFiles(): Promise<string[]>;
+  /** Choix de fichiers : PDF (par défaut), images, ou les deux. */
+  pickFiles(kind?: FileKind): Promise<string[]>;
   pickSavePath(defaultPath: string): Promise<string | null>;
   /** Choix d'un dossier (null : annulé). */
   pickFolder(): Promise<string | null>;
@@ -430,8 +431,9 @@ export interface EngineClient {
   extractPages(doc: number, pages: number[], path: string): Promise<number>;
   /** Découpe en fichiers de `perFile` pages dans `folder` ; renvoie les fichiers écrits. */
   splitPages(doc: number, perFile: number, folder: string): Promise<string[]>;
-  /** Combine des fichiers (tels qu'enregistrés), dans l'ordre, en un nouveau fichier ; renvoie le nombre de pages. */
-  combine(paths: string[], path: string): Promise<number>;
+  /** Combine des PDF (tels qu'enregistrés) et des images (une page chacune), dans l'ordre, en un
+   *  nouveau fichier ; renvoie le nombre de pages. */
+  combine(paths: string[], path: string, imagePage: ImagePageOptions): Promise<number>;
   /** Fichiers ouverts par un second lancement (double-clic) ou déposés sur la fenêtre. */
   onExternalFiles(cb: (paths: string[]) => void): Promise<() => void>;
   /** Fermeture de la fenêtre : `cb` renvoie true pour laisser fermer. */
@@ -484,6 +486,17 @@ export interface EngineClient {
   onEngineRestarted(cb: (e: EngineRestart) => void): Promise<() => void>;
   /** Tests seulement : fait planter ou bloquer le moteur pendant une demande sur `doc`. */
   e2eEngineFault(kind: "crash" | "hang", doc: number | null): Promise<void>;
+}
+
+export type FileKind = "pdf" | "images" | "pdfAndImages";
+/** Extensions des images acceptées pour créer des pages. */
+export const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "jfif", "webp", "bmp", "gif", "tif", "tiff"];
+export const isImagePath = (p: string) => IMAGE_EXTENSIONS.includes(p.split(".").pop()?.toLowerCase() ?? "");
+/** Taille des pages créées pour des images. */
+export interface ImagePageOptions {
+  size: { kind: "a4" } | { kind: "letter" } | { kind: "image" } | { kind: "fixed"; width: number; height: number };
+  /** Marge autour de l'image (points). */
+  margin: number;
 }
 
 export type ImageFormat = "png" | "jpeg";
