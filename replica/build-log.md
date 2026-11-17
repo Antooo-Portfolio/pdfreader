@@ -631,3 +631,17 @@ de la protection depuis la même boîte, refus pour un document ouvert sans les 
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | Protéger par mot de passe | 2026-11-17 | fait | chiffrement par certificat ; protection des seules pièces jointes | — |
+
+## Version 0.4.0 — préparation (2026-11-17)
+
+Branche `release-0.4.0` : version 0.4.0, notes dans `tools/release/notes/0.4.0.md` (phase 2 :
+organiser les pages, combiner, PDF depuis des images, exporter en image, protéger par mot de
+passe), site : taille (10 Mo), deux nouvelles lignes dans « Ce qu'il fait » (fr, en).
+
+Construit : setup normal signé pour l'updater (9,7 Mo) et setup hors ligne (217 Mo, WebView2 signé
+Microsoft) ; `target/release-upload/` prêt. Vérifié : signature acceptée par la clé publique de
+l'application, aucun chemin personnel dans l'exécutable ; mise à niveau silencieuse 0.3.0 → 0.4.0
+en 2,5 s, données de l'utilisateur identiques, lecteur PDF par défaut inchangé ; scénario complet
+vert sur la 0.4.0 installée (toutes les parties, phase 2 comprise) ; la 0.4.0 lit le flux publié
+(rien à proposer) ; 0.3.0 officielle réinstallée (empreinte identique à la Release) pour essayer
+la vraie mise à jour par l'updater après publication.
