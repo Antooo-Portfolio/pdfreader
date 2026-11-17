@@ -417,6 +417,17 @@ export interface EngineClient {
   thumbUrl(id: string, bust: number): string;
   pickFiles(): Promise<string[]>;
   pickSavePath(defaultPath: string): Promise<string | null>;
+  /** Choix d'un dossier (null : annulé). */
+  pickFolder(): Promise<string | null>;
+
+  /** Organiser les pages du document ouvert (annulable) ; la génération du document change. */
+  pages(doc: number, op: PageOp): Promise<PagesResult>;
+  /** Écrit des pages dans un nouveau fichier ; renvoie sa taille. */
+  extractPages(doc: number, pages: number[], path: string): Promise<number>;
+  /** Découpe en fichiers de `perFile` pages dans `folder` ; renvoie les fichiers écrits. */
+  splitPages(doc: number, perFile: number, folder: string): Promise<string[]>;
+  /** Combine des fichiers (tels qu'enregistrés), dans l'ordre, en un nouveau fichier ; renvoie le nombre de pages. */
+  combine(paths: string[], path: string): Promise<number>;
   /** Fichiers ouverts par un second lancement (double-clic) ou déposés sur la fenêtre. */
   onExternalFiles(cb: (paths: string[]) => void): Promise<() => void>;
   /** Fermeture de la fenêtre : `cb` renvoie true pour laisser fermer. */
@@ -469,6 +480,24 @@ export interface EngineClient {
   onEngineRestarted(cb: (e: EngineRestart) => void): Promise<() => void>;
   /** Tests seulement : fait planter ou bloquer le moteur pendant une demande sur `doc`. */
   e2eEngineFault(kind: "crash" | "hang", doc: number | null): Promise<void>;
+}
+
+/** Opération sur les pages (index à partir de 0, dans l'ordre actuel). */
+export type PageOp =
+  | { kind: "rotate"; pages: number[]; quarters: number }
+  | { kind: "delete"; pages: number[] }
+  | { kind: "move"; pages: number[]; before: number }
+  | { kind: "insertBlank"; at: number; width: number; height: number }
+  | { kind: "insertFile"; at: number; path: string; password: string | null; pages: number[] | null }
+  | { kind: "undo" }
+  | { kind: "redo" };
+
+export interface PagesResult {
+  info: DocInfo;
+  /** Ancien index → nouvel index (null : page supprimée) ; absent après annuler / rétablir. */
+  map: (number | null)[] | null;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 /** Relance du moteur PDF après un arrêt. */

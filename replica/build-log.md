@@ -508,3 +508,41 @@ avec son moteur séparé. Le setup téléchargé depuis la Release passe aussi l
 `updater_signature`. Note : ces installations d'essai ont eu lieu dans l'espace de l'application
 Claude (Windows redirige ses écritures dans AppData et HKCU vers son propre dossier) ; l'installation
 de PDFReader faite hors de cet espace n'a pas été touchée.
+
+## Phase 2 — lot « organiser les pages » (2026-11-17)
+
+Branche `phase2-organiser-pages`. Premier lot des outils payants d'Acrobat, gratuits ici.
+
+- **Moteur** (`crates/engine/src/pages.rs`, fonctions natives de PDFium) : pivoter (/Rotate
+  enregistré), supprimer (il reste au moins une page), déplacer (FPDF_MovePages), page blanche,
+  insérer les pages d'un autre PDF (FPDF_ImportPagesByIndex), extraire, découper, combiner ;
+  correspondance ancien index → nouveau pour que les signets en attente suivent leurs pages.
+- **Processus moteur** : opérations annulables (copie complète en mémoire avant chaque
+  opération : 20 états, 512 Mo en tout, pas d'annulation au-delà de 128 Mo) ; une autre
+  modification (commentaire, champ, signet) efface l'historique ; après une suppression,
+  l'enregistrement est complet (en incrémental, l'ancienne version — et la page supprimée —
+  resterait lisible en tête du fichier) ; refus si l'auteur interdit l'assemblage ; extraire,
+  diviser et combiner refusés pour un document chiffré (la copie serait sans protection).
+- **Interface** : vue « Organiser les pages » (bouton de la barre d'outils) : grille de vignettes,
+  sélection multiple (clic, Ctrl, Maj), glisser-déposer, Alt+flèches, pivoter, supprimer (Suppr),
+  insérer (page blanche, autre PDF), extraire, diviser, annuler / rétablir (Ctrl+Z / Ctrl+Y),
+  double-clic pour ouvrir la page. « Combiner des fichiers… » sur l'accueil.
+
+Défaut trouvé par l'essai à la vraie souris : le glisser-déposer natif (HTML5) ne marche pas dans
+la WebView sous Windows tant que Tauri y reçoit les fichiers de l'Explorateur (option
+`dragDropEnabled`, nécessaire pour ouvrir un PDF déposé). Le déplacement est donc géré par
+l'application (pointeur, trait d'insertion, défilement au bord), et Alt+flèches au clavier.
+
+Tests : `organize_pages` (moteur) : ordre, rotation qui suit la page, signets remappés, page
+blanche, insertion, enregistrement complet sans objets de page supprimés (11 objets /Page pour
+11 pages), enregistrement incrémental qui garde l'ancienne version, extraction, découpage,
+combinaison, document chiffré qui le reste. Partie `phase2pages` du scénario (3 passages verts) :
+vue ouverte depuis la barre, clic + Suppr, rotation, page blanche par le menu, Ctrl+Z / Ctrl+Y,
+Alt+Début, Échap, enregistrement et relecture (ordre 10, 1, blanche, 3…9 ; page pivotée), fichiers
+extraits / découpés / combinés, document protégé sans copie. Vrai glisser-déposer à la souris
+(curseur et bouton pilotés par Windows) : page 1 déposée après la page 3, fichier enregistré relu
+par pypdf : 2, 3, 1, 4…
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Organiser les pages | 2026-11-17 | fait | remplacer des pages ; insérer une partie seulement d'un autre PDF ; champs de formulaire d'un PDF inséré non fusionnés | glisser-déposer natif bloqué par la réception des fichiers de Tauri : déplacement réécrit au pointeur |

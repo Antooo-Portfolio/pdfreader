@@ -14,7 +14,7 @@ use pdfreader_engine as eng;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::protocol::{AnnotOp, Answer, DocInfo, Envelope, OpenResult, Request, SaveResult, read_frame, write_frame};
+use crate::protocol::{AnnotOp, Answer, DocInfo, Envelope, OpenResult, PageOp, Request, SaveResult, read_frame, write_frame};
 
 /// Commentaire créé (s'il y en a un) et liste à jour des commentaires de la page.
 #[derive(Debug, Serialize)]
@@ -42,6 +42,35 @@ struct Entry {
     outline: Option<Vec<eng::outline::OutlineItem>>,
     /// Le formulaire porte-t-il des scripts (calcul, validation) ? Lu à la première saisie.
     form_scripts: Option<bool>,
+    /// États précédents (et suivants) des opérations sur les pages, pour annuler et rétablir.
+    undo: Vec<PageState>,
+    redo: Vec<PageState>,
+    /// Des pages ont été supprimées : le prochain enregistrement réécrit tout le fichier, pour
+    /// qu'elles n'y restent pas (un enregistrement incrémental garde l'ancienne version en tête).
+    full_save: bool,
+}
+
+/// Copie complète du document en mémoire, avec ses signets en attente.
+struct PageState {
+    bytes: Vec<u8>,
+    outline: Option<Vec<eng::outline::OutlineItem>>,
+}
+
+/// Annuler les opérations sur les pages : au plus 20 états, 512 Mo en tout ; pas d'annulation pour
+/// un fichier de plus de 128 Mo (chaque état en est une copie complète).
+const UNDO_STATES: usize = 20;
+const UNDO_TOTAL: usize = 512 << 20;
+const UNDO_FILE_MAX: u64 = 128 << 20;
+
+/// Résultat d'une opération sur les pages : document à jour, correspondance des anciens index vers
+/// les nouveaux (absente après annuler / rétablir), possibilités d'annuler et de rétablir.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PagesResult {
+    info: DocInfo,
+    map: Option<eng::pages::PageMap>,
+    can_undo: bool,
+    can_redo: bool,
 }
 
 /// Impression en cours (une seule à la fois).
@@ -167,7 +196,7 @@ pub fn main(lib_dir: PathBuf) {
                     let (path, password, generation) = (e.path.clone(), e.password.clone(), e.generation + 1);
                     let fresh = eng::open_typed(pdfium, &path, password.as_deref()).map_err(|e| e.to_string())?;
                     let fingerprint = eng::fingerprint(&path).map_err(|e| e.to_string())?;
-                    let entry = Entry { doc: fresh, mtime: eng::file_mtime(&path), path, password, generation, fingerprint, outline: None, form_scripts: None };
+                    let entry = Entry { doc: fresh, mtime: eng::file_mtime(&path), path, password, generation, fingerprint, outline: None, form_scripts: None, undo: Vec::new(), redo: Vec::new(), full_save: false };
                     let info = info_of(doc, &entry);
                     docs.insert(doc, entry);
                     Ok(info)
@@ -182,7 +211,7 @@ pub fn main(lib_dir: PathBuf) {
                     // Copie de récupération : empreinte du fichier d'origine s'il existe encore.
                     let fingerprint = eng::fingerprint(&shown).or_else(|_| eng::fingerprint(&path)).map_err(|e| eng::OpenError::Other(e.to_string()))?;
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    let entry = Entry { doc, mtime: eng::file_mtime(&shown), path: shown, password: password.clone(), generation: generation.max(1), fingerprint, outline: None, form_scripts: None };
+                    let entry = Entry { doc, mtime: eng::file_mtime(&shown), path: shown, password: password.clone(), generation: generation.max(1), fingerprint, outline: None, form_scripts: None, undo: Vec::new(), redo: Vec::new(), full_save: false };
                     let info = info_of(doc_id, &entry);
                     docs.insert(doc_id, entry);
                     Ok((OpenResult { info, size }, thumbnail))
@@ -201,7 +230,29 @@ pub fn main(lib_dir: PathBuf) {
                 out.reply(id, r);
             }
             Request::Annot { doc, page, op } => {
-                out.reply(id, annot(&docs, doc, page, op, data));
+                let changes = !matches!(op, AnnotOp::List);
+                let r = annot(&docs, doc, page, op, data);
+                if changes && r.is_ok() {
+                    forget_page_history(&mut docs, doc);
+                }
+                out.reply(id, r);
+            }
+            Request::Pages { doc, op } => {
+                out.reply(id, page_op(pdfium, &mut docs, doc, op));
+            }
+            Request::ExtractPages { doc, pages, target } => {
+                let r = get(&docs, doc).and_then(|e| {
+                    may_copy_out(&e.doc)?;
+                    eng::pages::extract(pdfium, &e.doc, &pages, &target).map_err(|e| e.to_string())?;
+                    Ok(std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0))
+                });
+                out.reply(id, r);
+            }
+            Request::SplitPages { doc, per_file, folder } => {
+                out.reply(id, get(&docs, doc).and_then(|e| split(pdfium, e, per_file, &folder)));
+            }
+            Request::Combine { sources, target } => {
+                out.reply(id, combine(pdfium, &sources, &target));
             }
             Request::CountHighlights { doc, page } => {
                 let r = get(&docs, doc).and_then(|e| {
@@ -235,6 +286,7 @@ pub fn main(lib_dir: PathBuf) {
                     let outcome = if has { eng::formcalc::after_change(&e.doc, page, index, &old, scripts).map_err(|e| e.to_string())? } else { Default::default() };
                     Ok(SetFieldResult { fields: eng::fill::fields(&e.doc, &p, page), outcome })
                 });
+                forget_page_history(&mut docs, doc);
                 out.reply(id, r);
             }
             Request::Bookmarks { doc } => {
@@ -253,6 +305,8 @@ pub fn main(lib_dir: PathBuf) {
                         return Err("trop de signets".to_string());
                     }
                     e.outline = Some(items);
+                    e.undo.clear();
+                    e.redo.clear();
                     Ok(())
                 });
                 out.reply(id, r);
@@ -434,7 +488,7 @@ fn save(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, target
     }
     // Sur place : incrémental (préserve les signatures). Ailleurs : incrémental aussi, le fichier
     // d'origine est recopié en tête puis la mise à jour ajoutée.
-    eng::save(&e.doc, &target, true).map_err(|err| {
+    eng::save(&e.doc, &target, !e.full_save).map_err(|err| {
         if err.to_string().contains("os error 32") || err.to_string().contains("os error 5") {
             "file_locked".to_string()
         } else {
@@ -453,9 +507,169 @@ fn save(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, target
     let doc = eng::open_typed(pdfium, &target, password.as_deref()).map_err(|e| e.to_string())?;
     let bytes = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
     let fingerprint = eng::fingerprint(&target).map_err(|e| e.to_string())?;
-    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone(), outline: None, form_scripts: None };
+    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone(), outline: None, form_scripts: None, undo: Vec::new(), redo: Vec::new(), full_save: false };
     docs.insert(id, entry);
     Ok(SaveResult { path: target.display().to_string(), bytes, generation, fingerprint, old_fingerprint })
+}
+
+/// Une autre modification (commentaire, champ, signet) rend les états mémorisés obsolètes : les
+/// rétablir l'effacerait.
+fn forget_page_history(docs: &mut HashMap<u32, Entry>, doc: u32) {
+    if let Some(e) = docs.get_mut(&doc) {
+        e.undo.clear();
+        e.redo.clear();
+    }
+}
+
+/// Copie complète du document en mémoire (None : fichier trop gros pour être annulable).
+fn page_state(e: &Entry) -> Option<PageState> {
+    if std::fs::metadata(&e.path).map(|m| m.len()).unwrap_or(0) > UNDO_FILE_MAX {
+        return None;
+    }
+    let bytes = e.doc.save_to_bytes().ok()?;
+    Some(PageState { bytes, outline: e.outline.clone() })
+}
+
+fn restore(pdfium: &'static Pdfium, e: &mut Entry, s: PageState) -> Result<(), String> {
+    e.doc = pdfium.load_pdf_from_byte_vec(s.bytes, e.password.as_deref()).map_err(|err| format!("{err:?}"))?;
+    e.outline = s.outline;
+    // Document relu depuis la mémoire : enregistrement complet.
+    e.full_save = true;
+    Ok(())
+}
+
+fn page_op(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, op: PageOp) -> Result<PagesResult, String> {
+    use eng::pages;
+    let e = docs.get_mut(&id).ok_or("document fermé")?;
+    if !eng::permissions(&e.doc).assemble {
+        return Err("assemble_forbidden".into());
+    }
+    let mut map = None;
+    match op {
+        PageOp::Undo => {
+            let prev = e.undo.pop().ok_or("rien à annuler")?;
+            if let Some(cur) = page_state(e) {
+                e.redo.push(cur);
+            }
+            restore(pdfium, e, prev)?;
+        }
+        PageOp::Redo => {
+            let next = e.redo.pop().ok_or("rien à rétablir")?;
+            if let Some(cur) = page_state(e) {
+                e.undo.push(cur);
+            }
+            restore(pdfium, e, next)?;
+        }
+        op => {
+            let before = page_state(e);
+            let r = match op {
+                PageOp::Rotate { pages, quarters } => pages::rotate(&e.doc, &pages, quarters),
+                PageOp::Delete { pages } => pages::delete(&e.doc, &pages).inspect(|_| e.full_save = true),
+                PageOp::Move { pages, before } => pages::move_pages(&e.doc, &pages, before),
+                PageOp::InsertBlank { at, width, height } => pages::insert_blank(&e.doc, at, width, height),
+                PageOp::InsertFile { at, path, password, pages: wanted } => {
+                    let src = eng::open_typed(pdfium, &path, password.as_deref()).map_err(|err| match err {
+                        eng::OpenError::PasswordRequired | eng::OpenError::WrongPassword => "source_password".to_string(),
+                        other => format!("source_unreadable: {other}"),
+                    })?;
+                    if !eng::permissions(&src).assemble {
+                        return Err("assemble_forbidden".into());
+                    }
+                    pages::insert_from(&e.doc, &src, wanted.as_deref(), at).map(|(m, _)| m)
+                }
+                PageOp::Undo | PageOp::Redo => unreachable!(),
+            };
+            match r {
+                Ok(m) => {
+                    match before {
+                        Some(s) => {
+                            e.undo.push(s);
+                            while e.undo.len() > UNDO_STATES || e.undo.iter().map(|s| s.bytes.len()).sum::<usize>() > UNDO_TOTAL {
+                                e.undo.remove(0);
+                            }
+                        }
+                        None => e.undo.clear(),
+                    }
+                    e.redo.clear();
+                    if let Some(items) = e.outline.as_mut() {
+                        pages::remap_outline(items, &m);
+                    }
+                    map = Some(m);
+                }
+                Err(err) => {
+                    // Une opération refusée en route peut laisser le document à moitié modifié.
+                    if let Some(s) = before {
+                        restore(pdfium, e, s)?;
+                    }
+                    return Err(err.to_string());
+                }
+            }
+        }
+    }
+    e.generation += 1;
+    e.form_scripts = None;
+    Ok(PagesResult { info: info_of(id, e), map, can_undo: !e.undo.is_empty(), can_redo: !e.redo.is_empty() })
+}
+
+/// Une copie hors du document (extraire, diviser, combiner) n'est pas chiffrée : refusée pour un
+/// document protégé, qui perdrait sa protection, et sans le droit d'assembler.
+fn may_copy_out(doc: &PdfDocument) -> Result<(), String> {
+    if eng::is_encrypted(doc) {
+        return Err("encrypted".into());
+    }
+    if !eng::permissions(doc).assemble {
+        return Err("assemble_forbidden".into());
+    }
+    Ok(())
+}
+
+/// Nom libre dans `folder` : « nom.pdf », sinon « nom (2).pdf »…
+fn free_name(folder: &Path, stem: &str) -> PathBuf {
+    let mut p = folder.join(format!("{stem}.pdf"));
+    let mut n = 2;
+    while p.exists() {
+        p = folder.join(format!("{stem} ({n}).pdf"));
+        n += 1;
+    }
+    p
+}
+
+fn split(pdfium: &'static Pdfium, e: &Entry, per_file: i32, folder: &Path) -> Result<Vec<String>, String> {
+    may_copy_out(&e.doc)?;
+    if !folder.is_dir() {
+        return Err("dossier introuvable".into());
+    }
+    let ranges = eng::pages::split_ranges(e.doc.pages().len(), per_file);
+    if ranges.len() > 1000 {
+        return Err("trop de fichiers".into());
+    }
+    let stem = e.path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Document".into());
+    let mut written = Vec::new();
+    for (k, (a, b)) in ranges.iter().enumerate() {
+        let target = free_name(folder, &format!("{stem} - partie {}", k + 1));
+        let pages: Vec<i32> = (*a..=*b).collect();
+        eng::pages::extract(pdfium, &e.doc, &pages, &target).map_err(|e| e.to_string())?;
+        written.push(target.display().to_string());
+    }
+    Ok(written)
+}
+
+fn combine(pdfium: &'static Pdfium, sources: &[PathBuf], target: &Path) -> Result<i32, String> {
+    if sources.is_empty() || sources.len() > 500 {
+        return Err("aucun fichier".into());
+    }
+    let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let mut docs = Vec::new();
+    for p in sources {
+        let d = eng::open_typed(pdfium, p, None).map_err(|err| match err {
+            eng::OpenError::PasswordRequired => format!("encrypted: {}", name(p)),
+            other => format!("source_unreadable: {} ({other})", name(p)),
+        })?;
+        may_copy_out(&d).map_err(|err| format!("{err}: {}", name(p)))?;
+        docs.push(d);
+    }
+    let refs: Vec<&PdfDocument> = docs.iter().collect();
+    eng::pages::combine(pdfium, &refs, target).map_err(|e| e.to_string())
 }
 
 fn heights(doc: &PdfDocument) -> Vec<f32> {

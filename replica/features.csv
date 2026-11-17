@@ -59,13 +59,13 @@ Mises à jour automatiques (desktop),distribution,must,yes,yes,"M2 : tauri-plugi
 Interface en français et anglais,interface,must,yes,yes,"M2 : 385 phrases traduites, langue de Windows ou choisie dans les Préférences, contrôle des manques (npm run i18n:check)"
 Accessibilité (lecteur d'écran / navigation clavier / contraste),interface,must,yes,partial,"M2 : tout au clavier (dont la sélection du texte), aria-keyshortcuts au format ARIA, aucun raccourci global derrière une boîte modale, taille de l'interface ; test manuel avec NVDA encore à faire"
 Lecture à voix haute,accessibilité,should,yes,yes,"M3 : voix de Windows (synthèse locale) ; lire la page (Ctrl+Maj+V) ou jusqu'à la fin (Ctrl+Maj+B), pause (Ctrl+Maj+C), arrêt (Ctrl+Maj+E) ; barre d'état"
-Organiser les pages (réordonner / pivoter / supprimer),pages,must,yes,no,S16 F07 ; payant
-Insérer des pages (autre PDF / page blanche),pages,must,yes,no,
-Extraire / remplacer des pages,pages,should,yes,no,
-Diviser un PDF,pages,should,yes,no,
+Organiser les pages (réordonner / pivoter / supprimer),pages,must,yes,yes,"Phase 2 : vue « Organiser les pages » (grille de vignettes, sélection multiple) ; glisser-déposer à la souris (géré par l'application : Tauri réserve le glisser-déposer natif aux fichiers de l'Explorateur) et au clavier (Alt+← / → / Début / Fin) ; rotation enregistrée (/Rotate) ; suppression (enregistrement complet ensuite : les pages supprimées ne restent pas dans le fichier) ; annuler / rétablir (20 états, fichiers ≤ 128 Mo) ; signets en attente qui suivent leurs pages ; refusé si l'auteur interdit l'assemblage"
+Insérer des pages (autre PDF / page blanche),pages,must,yes,yes,"Phase 2 : page blanche (taille de la page de référence) ou toutes les pages d'un autre PDF, après la sélection ; commentaires importés avec leurs pages, champs de formulaire de l'autre PDF non fusionnés ; PDF source protégé par mot de passe refusé"
+Extraire / remplacer des pages,pages,should,yes,partial,Phase 2 : extraire les pages choisies dans un nouveau fichier (refusé pour un document chiffré : la copie serait sans protection) ; remplacer : pas encore
+Diviser un PDF,pages,should,yes,yes,"Phase 2 : en fichiers de N pages dans un dossier choisi, « nom - partie k.pdf » sans écraser l'existant ; document chiffré refusé"
 Rogner les pages,pages,could,yes,no,
 Renuméroter les pages (étiquettes),pages,could,yes,no,
-Combiner plusieurs fichiers en un PDF,pages,must,yes,no,S17 F08
+Combiner plusieurs fichiers en un PDF,pages,must,yes,yes,"Phase 2 : depuis l'accueil, fichiers dans l'ordre choisi (monter, descendre, retirer, ajouter), nouveau fichier ouvert ensuite ; fichiers pris tels qu'enregistrés ; fichiers chiffrés refusés"
 Compresser / réduire la taille,optimisation,must,yes,no,S21 F12
 Optimiseur avancé et audit de l'espace,optimisation,could,yes,no,
 Protéger par mot de passe (AES-256),sécurité,must,yes,no,S22 F13

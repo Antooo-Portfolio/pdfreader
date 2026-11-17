@@ -668,6 +668,7 @@ export function App({ engine }: { engine: EngineClient }) {
           author={author}
           onAuthorChange={(n) => void changeAuthor(n)}
           onAnnotated={onAnnotated}
+          onPagesChanged={(info) => dispatch({ type: "restructured", info })}
           onSave={() => void save(d.info.id)}
           onOpen={() => void pick()}
           onPrint={() => setPrintFor(d.info.id)}

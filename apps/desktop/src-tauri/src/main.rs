@@ -9,7 +9,7 @@ mod protocol;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use engine::{AnnotOp, DocInfo, Engine, Request, SaveResult};
+use engine::{AnnotOp, DocInfo, Engine, PageOp, Request, SaveResult};
 use pdfreader_engine::OpenError;
 use serde_json::Value;
 use tauri::http::Response;
@@ -590,6 +590,38 @@ async fn doc_set_bookmarks(doc: u32, items: Vec<pdfreader_engine::outline::Outli
     engine.ask(Request::SetBookmarks { doc, items }).await
 }
 
+/// Organiser les pages : pivoter, supprimer, déplacer, insérer, annuler, rétablir.
+#[tauri::command]
+async fn doc_pages(doc: u32, op: PageOp, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.pages(doc, op).await
+}
+
+fn pdf_target(path: &str) -> Result<PathBuf, String> {
+    if !path.to_ascii_lowercase().ends_with(".pdf") {
+        return Err("fichier .pdf attendu".into());
+    }
+    Ok(PathBuf::from(path))
+}
+
+/// Écrit les pages choisies dans un nouveau fichier.
+#[tauri::command]
+async fn doc_extract_pages(doc: u32, pages: Vec<i32>, path: String, engine: State<'_, Engine>) -> Result<u64, String> {
+    engine.ask(Request::ExtractPages { doc, pages, target: pdf_target(&path)? }).await
+}
+
+/// Découpe en fichiers de `per_file` pages dans le dossier choisi ; renvoie les fichiers écrits.
+#[tauri::command]
+async fn doc_split_pages(doc: u32, per_file: i32, folder: String, engine: State<'_, Engine>) -> Result<Vec<String>, String> {
+    engine.ask(Request::SplitPages { doc, per_file, folder: PathBuf::from(folder) }).await
+}
+
+/// Combine des fichiers, dans l'ordre, en un nouveau fichier ; renvoie le nombre de pages.
+#[tauri::command]
+async fn pdf_combine(paths: Vec<String>, path: String, engine: State<'_, Engine>) -> Result<i32, String> {
+    let target = pdf_target(&path)?;
+    engine.ask(Request::Combine { sources: paths.into_iter().map(PathBuf::from).collect(), target }).await
+}
+
 #[tauri::command]
 async fn doc_properties(doc: u32, engine: State<'_, Engine>) -> Result<Value, String> {
     engine.ask(Request::Properties { doc }).await
@@ -994,6 +1026,10 @@ fn main() {
             doc_links,
             doc_bookmarks,
             doc_properties,
+            doc_pages,
+            doc_extract_pages,
+            doc_split_pages,
+            pdf_combine,
             doc_set_bookmarks,
             doc_attachments,
             attachment_save,

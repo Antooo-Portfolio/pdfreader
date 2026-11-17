@@ -1,5 +1,5 @@
 import { t } from "@pdfreader/ui";
-import type { AnnotResult, EngineRestart, Field, PrinterInfo, RecoveryItem, SavedSignature, Attachment, Bookmark, DocInfo, DocProperties, SetFieldResult, SnippetHit, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
+import type { AnnotResult, EngineRestart, PagesResult, Field, PrinterInfo, RecoveryItem, SavedSignature, Attachment, Bookmark, DocInfo, DocProperties, SetFieldResult, SnippetHit, EngineClient, PageLink, PdfRect, RecentFile, SaveResult, SearchBatch, TextWord } from "@pdfreader/viewer";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -74,6 +74,14 @@ export const tauriEngine: EngineClient = {
     return r === null ? [] : Array.isArray(r) ? r : [r];
   },
   pickSavePath: (defaultPath) => save({ defaultPath, filters: [{ name: t("Document PDF"), extensions: ["pdf"] }] }),
+  async pickFolder() {
+    const r = await open({ multiple: false, directory: true });
+    return Array.isArray(r) ? (r[0] ?? null) : r;
+  },
+  pages: (doc, op) => invoke<PagesResult>("doc_pages", { doc, op }),
+  extractPages: (doc, pages, path) => invoke<number>("doc_extract_pages", { doc, pages, path }),
+  splitPages: (doc, perFile, folder) => invoke<string[]>("doc_split_pages", { doc, perFile, folder }),
+  combine: (paths, path) => invoke<number>("pdf_combine", { paths, path }),
   async onExternalFiles(cb) {
     const off1 = await listen<string[]>("open-files", (e) => cb(e.payload));
     const off2 = await getCurrentWebview().onDragDropEvent((e) => {

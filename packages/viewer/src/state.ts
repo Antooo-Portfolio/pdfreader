@@ -13,6 +13,8 @@ export interface OpenDoc {
 export type Action =
   | { type: "opened"; info: DocInfo; dirty?: boolean }
   | { type: "reloaded"; info: DocInfo }
+  /** Pages réorganisées (pivotées, supprimées, déplacées, insérées). */
+  | { type: "restructured"; info: DocInfo }
   /** Rouvert après un redémarrage du moteur ; `dirty` : depuis une copie de récupération. */
   | { type: "restarted"; info: DocInfo; dirty: boolean }
   | { type: "closed"; id: number }
@@ -25,6 +27,8 @@ export function reducer(docs: OpenDoc[], a: Action): OpenDoc[] {
       return [...docs, { info: a.info, dirty: a.dirty ?? false, pageVersions: {}, edits: a.dirty ? 1 : 0 }];
     case "reloaded":
       return docs.map((d) => (d.info.id === a.info.id ? { info: a.info, dirty: false, pageVersions: {}, edits: 0 } : d));
+    case "restructured":
+      return docs.map((d) => (d.info.id === a.info.id ? { ...d, info: { ...a.info, viewState: d.info.viewState }, dirty: true, edits: d.edits + 1, pageVersions: {} } : d));
     case "restarted":
       return docs.map((d) => (d.info.id === a.info.id ? { info: a.info, dirty: a.dirty, pageVersions: {}, edits: a.dirty ? d.edits : 0 } : d));
     case "closed":

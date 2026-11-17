@@ -113,6 +113,14 @@ pub enum Request {
     Search { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool },
     Close { doc: u32 },
     Tile { doc: u32, page: i32, scale: f32, x: i32, y: i32, size: i32 },
+    /// Organiser les pages du document ouvert (annulable).
+    Pages { doc: u32, op: PageOp },
+    /// Écrit des pages dans un nouveau fichier.
+    ExtractPages { doc: u32, pages: Vec<i32>, target: PathBuf },
+    /// Découpe le document en fichiers de `per_file` pages dans `folder` ; renvoie les chemins écrits.
+    SplitPages { doc: u32, per_file: i32, folder: PathBuf },
+    /// Combine des fichiers (dans l'ordre) en un nouveau fichier ; renvoie le nombre de pages.
+    Combine { sources: Vec<PathBuf>, target: PathBuf },
     /// Tests de bout en bout seulement (PDFREADER_E2E) : arrêt brutal ou blocage du moteur.
     TestCrash { doc: Option<u32> },
     TestHang { doc: Option<u32> },
@@ -143,9 +151,12 @@ impl Request {
             | SearchSnippets { doc, .. }
             | Search { doc, .. }
             | Close { doc }
+            | Pages { doc, .. }
+            | ExtractPages { doc, .. }
+            | SplitPages { doc, .. }
             | Tile { doc, .. } => Some(*doc),
             TestCrash { doc } | TestHang { doc } => *doc,
-            CancelPrint => None,
+            CancelPrint | Combine { .. } => None,
         }
     }
 
@@ -154,11 +165,37 @@ impl Request {
     pub fn patience(&self) -> std::time::Duration {
         use Request::*;
         let secs = match self {
-            Open { .. } | Save { .. } | Snapshot { .. } | Reload { .. } | AttachmentBytes { .. } | Search { .. } | SearchSnippets { .. } => 600,
+            Open { .. }
+            | Save { .. }
+            | Snapshot { .. }
+            | Reload { .. }
+            | AttachmentBytes { .. }
+            | Search { .. }
+            | SearchSnippets { .. }
+            | Pages { .. }
+            | ExtractPages { .. }
+            | SplitPages { .. }
+            | Combine { .. } => 600,
             _ => 30,
         };
         std::time::Duration::from_secs(secs)
     }
+}
+
+/// Opération sur les pages (index dans l'ordre actuel du document).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PageOp {
+    /// `quarters` : 1 = quart de tour horaire, -1 = antihoraire.
+    Rotate { pages: Vec<i32>, quarters: i32 },
+    Delete { pages: Vec<i32> },
+    /// Avant la page `before` (nombre de pages : à la fin).
+    Move { pages: Vec<i32>, before: i32 },
+    InsertBlank { at: i32, width: f32, height: f32 },
+    /// Pages d'un autre PDF (toutes si `pages` est absent).
+    InsertFile { at: i32, path: PathBuf, password: Option<String>, pages: Option<Vec<i32>> },
+    Undo,
+    Redo,
 }
 
 /// En-tête envoyé par l'application.

@@ -20,7 +20,7 @@ use tauri::http::Response;
 use tauri::{AppHandle, Emitter, Manager, UriSchemeResponder};
 use tokio::sync::oneshot;
 
-pub use crate::protocol::{AnnotOp, DocInfo, OpenResult, Request, SaveResult};
+pub use crate::protocol::{AnnotOp, DocInfo, OpenResult, PageOp, Request, SaveResult};
 use crate::protocol::{Answer, Envelope, read_frame, write_frame};
 
 /// Pourquoi une demande n'a pas abouti.
@@ -317,6 +317,17 @@ impl Engine {
             d.generation = r.generation;
         }
         Ok(r)
+    }
+
+    /// Opération sur les pages : la génération du document change (tuiles et caches à refaire).
+    pub async fn pages(&self, doc: u32, op: PageOp) -> Result<Value, String> {
+        let v: Value = self.ask(Request::Pages { doc, op }).await?;
+        if let Some(g) = v.pointer("/info/generation").and_then(Value::as_u64)
+            && let Some(d) = self.0.state.lock().unwrap().docs.get_mut(&doc)
+        {
+            d.generation = g as u32;
+        }
+        Ok(v)
     }
 
     pub async fn reload(&self, doc: u32) -> Result<DocInfo, String> {

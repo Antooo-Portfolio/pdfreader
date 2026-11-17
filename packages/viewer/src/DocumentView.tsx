@@ -16,6 +16,7 @@ import {
   BookOpenText,
   Check,
   BookOpen,
+  LayoutGrid,
   FileSearch,
   Info,
   Maximize,
@@ -51,9 +52,10 @@ import { DEFAULT_STYLES, hitTest, isMarkupTool, isMultiPoint, KIND_LABELS, SHAPE
 import { PropertyBar } from "./AnnotTools";
 import { CommentsPanel } from "./CommentsPanel";
 import { SignatureDialog } from "./FillTools";
-import type { ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
+import type { DocInfo, ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
 import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
+import { OrganizeView } from "./OrganizeView";
 import { PageView } from "./PageView";
 import { AttachmentsPanel, BookmarksPanel, ThumbnailsPanel } from "./Panels";
 import { SearchPanel } from "./SearchPanel";
@@ -99,6 +101,8 @@ interface Props {
   onHiddenToolsChange: (tools: string[]) => void;
   /** Préférence : calculs et vérifications des formulaires. */
   formScripts: boolean;
+  /** Pages réorganisées (nouvelle génération du document, à enregistrer). */
+  onPagesChanged: (info: DocInfo) => void;
 }
 
 /** Outils de la barre, dans l'ordre (Sélectionner reste toujours visible). */
@@ -263,6 +267,7 @@ export function DocumentView({
   hiddenTools,
   onHiddenToolsChange,
   formScripts,
+  onPagesChanged,
 }: Props) {
   const toast = useToast();
   const { info } = doc;
@@ -282,6 +287,8 @@ export function DocumentView({
   const [rotation, setRotation] = useState<Rotation>(saved?.rotation ?? 0);
   const [panel, setPanel] = useState<PanelId | null>(saved?.panel ?? null);
   const [page, setPage] = useState(() => Math.min(info.pageCount, Math.max(1, saved?.page ?? 1)));
+  // Pages supprimées : la page courante reste dans le document.
+  if (page > info.pageCount) setPage(info.pageCount);
   const [rows, setRows] = useState<[number, number]>([0, 0]);
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
@@ -736,6 +743,12 @@ export function DocumentView({
   // de le modifier.
   const [protectedOn, setProtectedOn] = useState(() => info.fromInternet && protectedView);
   const canAnnotate = perms.annotate && !protectedOn;
+  // Organiser les pages : vue en grille à la place de la lecture.
+  const canOrganize = perms.assemble && !protectedOn;
+  const [organizing, setOrganizing] = useState(false);
+  const organizingRef = useRef(organizing);
+  organizingRef.current = organizing;
+  const [pageHistory, setPageHistory] = useState({ canUndo: false, canRedo: false });
   const [annots, setAnnots] = useState<Map<number, Annot[]>>(() => new Map());
   const annotsRef = useRef(annots);
   annotsRef.current = annots;
@@ -1424,7 +1437,7 @@ export function DocumentView({
   useEffect(() => {
     if (!isActive) return;
     const onKey = (e: KeyboardEvent) => {
-      if (isModalOpen()) return;
+      if (isModalOpen() || organizingRef.current) return;
       const c = ctx.current;
       const target = e.target instanceof HTMLElement ? e.target : null;
       const typing = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
@@ -1595,6 +1608,23 @@ export function DocumentView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" hidden={!isActive} onMouseMove={immersive ? wakeBar : undefined}>
+      {organizing && (
+        <OrganizeView
+          engine={engine}
+          doc={doc}
+          dpr={dpr}
+          history={pageHistory}
+          onHistory={setPageHistory}
+          onChanged={onPagesChanged}
+          onOpenPath={onOpenPath}
+          onClose={(p) => {
+            setOrganizing(false);
+            if (p) requestAnimationFrame(() => jump(p));
+          }}
+        />
+      )}
+      {/* La lecture reste montée (zoom, défilement) pendant l'organisation, simplement cachée. */}
+      <div className={organizing ? "hidden" : "contents"}>
       {!immersive && (
       <Toolbar aria-label={t("Barre d'outils du document")} className="h-(--layout-toolbar) shrink-0 border-b border-border bg-bg px-2">
         <IconButton label={t("Ouvrir un fichier")} shortcut="Ctrl+O" icon={<FolderOpen size={18} />} onPress={onOpen} />
@@ -1696,6 +1726,12 @@ export function DocumentView({
           </Menu>
         </MenuTrigger>
         <div className="ml-auto flex items-center gap-1">
+          <IconButton
+            label={canOrganize ? t("Organiser les pages") : protectedOn ? t("Vue protégée : activez la modification pour organiser les pages") : t("Organisation des pages désactivée par l'auteur")}
+            icon={<LayoutGrid size={18} />}
+            onPress={() => setOrganizing(true)}
+            isDisabled={!canOrganize}
+          />
           <IconButton label={t("Imprimer")} shortcut="Ctrl+P" icon={<Printer size={18} />} onPress={onPrint} />
           <IconButton label={t("Rechercher")} shortcut="Ctrl+F" icon={<Search size={18} />} onPress={openFind} />
           <IconButton label={t("Propriétés du document")} shortcut="Ctrl+D" icon={<Info size={18} />} onPress={onProperties} />
@@ -2182,6 +2218,8 @@ export function DocumentView({
           />
         </Toolbar>
         )}
+      </div>
+
       </div>
 
       {sigDialog && (

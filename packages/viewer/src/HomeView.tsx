@@ -1,6 +1,6 @@
-import { t, Button, GridList, GridListItem, IconButton, Kbd, EmptyState, ToolButton, ToolGroup, SearchField, Spinner, locale } from "@pdfreader/ui";
+import { t, Button, Dialog, GridList, GridListItem, IconButton, Kbd, EmptyState, ToolButton, ToolGroup, SearchField, Spinner, locale, useToast } from "@pdfreader/ui";
 import { clsx } from "clsx";
-import { FileText, FolderOpen, LayoutGrid, List, Star, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Combine, FileText, FolderOpen, LayoutGrid, List, Star, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Tab, TabList, Tabs } from "react-aria-components";
 import type { EngineClient, RecentFile } from "./engine";
@@ -25,6 +25,7 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
   const [filter, setFilter] = useState<Filter>("recent");
   const [view, setView] = useState<View>("list");
   const [query, setQuery] = useState("");
+  const [combining, setCombining] = useState<string[] | null>(null);
 
   const load = () =>
     engine
@@ -77,10 +78,22 @@ export function HomeView({ engine, isActive, refreshKey, onOpenPath, onPick }: {
           <h1 id="home-title" className="text-xl">
             {t("Accueil")}
           </h1>
-          <Button variant="primary" icon={<FolderOpen size={16} />} onPress={onPick}>
-            {t("Ouvrir un fichier")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              icon={<Combine size={16} />}
+              onPress={async () => {
+                const files = await engine.pickFiles();
+                if (files.length) setCombining(files);
+              }}
+            >
+              {t("Combiner des fichiers…")}
+            </Button>
+            <Button variant="primary" icon={<FolderOpen size={16} />} onPress={onPick}>
+              {t("Ouvrir un fichier")}
+            </Button>
+          </div>
         </header>
+        {combining && <CombineDialog engine={engine} initial={combining} onDone={(path) => (setCombining(null), path && onOpenPath(path))} />}
 
         <div className="flex flex-wrap items-end justify-between gap-3">
           <Tabs selectedKey={filter} onSelectionChange={(k) => setFilter(k as Filter)}>
@@ -209,5 +222,85 @@ function StarButton({ f, onToggle }: { f: RecentFile; onToggle: (f: RecentFile) 
       icon={<Star size={15} className={f.starred ? "fill-current text-warning" : undefined} />}
       onPress={() => onToggle(f)}
     />
+  );
+}
+
+/** Combiner des fichiers : ordre réglable, puis un nouveau fichier ouvert dans un onglet. */
+function CombineDialog({ engine, initial, onDone }: { engine: EngineClient; initial: string[]; onDone: (path: string | null) => void }) {
+  const toast = useToast();
+  const [files, setFiles] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const name = (p: string) => p.split(/[\\/]/).pop() ?? p;
+  const move = (i: number, d: number) =>
+    setFiles((f) => {
+      const n = [...f];
+      const [x] = n.splice(i, 1);
+      if (x !== undefined) n.splice(i + d, 0, x);
+      return n;
+    });
+  const run = async () => {
+    const first = files[0] ?? "";
+    const target = await engine.pickSavePath(first.replace(/[^\\/]+$/, "") + t("Documents combinés.pdf"));
+    if (!target) return;
+    setBusy(true);
+    try {
+      const pages = await engine.combine(files, target);
+      toast({ tone: "success", message: t("« {name} » créé ({count} pages).", { name: name(target), count: pages }) });
+      onDone(target);
+    } catch (e) {
+      const m = String(e);
+      toast({
+        tone: "error",
+        message: m.includes("encrypted") ? t("Un des fichiers est protégé par un mot de passe ou des restrictions : il ne peut pas être combiné ({detail}).", { detail: m.split(": ").pop() ?? "" }) : t("La combinaison a échoué : {detail}", { detail: m }),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog
+      title={t("Combiner des fichiers")}
+      isOpen
+      isDismissable={!busy}
+      onOpenChange={(o) => !o && !busy && onDone(null)}
+      footer={(close) => (
+        <>
+          <Button onPress={close} isDisabled={busy}>
+            {t("Annuler")}
+          </Button>
+          <Button
+            onPress={async () => {
+              const more = await engine.pickFiles();
+              setFiles((f) => [...f, ...more]);
+            }}
+            isDisabled={busy}
+          >
+            {t("Ajouter des fichiers…")}
+          </Button>
+          <Button variant="primary" onPress={() => void run()} isPending={busy} isDisabled={files.length < 2}>
+            {t("Combiner…")}
+          </Button>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-3 text-base">
+        <p className="text-sm text-muted">{t("Les fichiers sont mis bout à bout dans cet ordre, tels qu'ils sont enregistrés. Un nouveau fichier est créé ; les originaux ne changent pas.")}</p>
+        <ol className="flex max-h-80 flex-col gap-1 overflow-auto" aria-label={t("Fichiers à combiner")}>
+          {files.map((f, i) => (
+            <li key={`${f}-${i}`} className="flex items-center gap-2 rounded-md bg-surface px-2 py-1">
+              <span className="w-6 text-right text-sm text-muted tabular-nums">{i + 1}</span>
+              <FileText size={16} aria-hidden className="shrink-0 text-muted" />
+              <span className="min-w-0 flex-1 truncate" title={f}>
+                {name(f)}
+              </span>
+              <IconButton label={t("Monter « {name} »", { name: name(f) })} size="sm" icon={<ArrowUp size={15} />} onPress={() => move(i, -1)} isDisabled={i === 0 || busy} />
+              <IconButton label={t("Descendre « {name} »", { name: name(f) })} size="sm" icon={<ArrowDown size={15} />} onPress={() => move(i, 1)} isDisabled={i === files.length - 1 || busy} />
+              <IconButton label={t("Retirer « {name} »", { name: name(f) })} size="sm" icon={<X size={15} />} onPress={() => setFiles((l) => l.filter((_, j) => j !== i))} isDisabled={busy} />
+            </li>
+          ))}
+        </ol>
+        {files.length < 2 && <p className="text-sm text-muted">{t("Choisissez au moins deux fichiers.")}</p>}
+      </div>
+    </Dialog>
   );
 }

@@ -74,6 +74,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.m3bookmarks = await runM3Bookmarks(engine, actions, path);
     steps.m3forms = await runM3FormCalc(actions, path);
     steps.m3engine = await runM3Engine(engine, actions, path);
+    steps.phase2pages = await runPhase2Pages(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -85,7 +86,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.m3comments as { ok: boolean }).ok &&
       (steps.m3bookmarks as { ok: boolean }).ok &&
       (steps.m3forms as { ok: boolean }).ok &&
-      (steps.m3engine as { ok: boolean }).ok;
+      (steps.m3engine as { ok: boolean }).ok &&
+      (steps.phase2pages as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -1196,6 +1198,143 @@ async function runM3Engine(engine: EngineClient, actions: AppActions, path: stri
   off();
   r.checks = checks;
   r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 3;
+  return r;
+}
+
+/** Phase 2, « Organiser les pages » : vue en grille ouverte depuis la barre d'outils, pages choisies
+ *  à la souris, supprimées (touche Suppr), pivotées, page blanche insérée, annuler / rétablir au
+ *  clavier, enregistrement puis relecture du fichier ; extraction, découpage, combinaison ; document
+ *  protégé : pas de copie sans protection. */
+async function runPhase2Pages(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  const visible = <T extends Element>(sel: string) => Array.from(document.querySelectorAll<T>(sel)).find((el) => !el.closest("[hidden]") && !el.closest(".hidden"));
+  const button = (label: string) => visible<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  let step = "début";
+  /** Vrai clic de souris (un clic « virtuel » vaut Entrée : il ouvrirait la page). */
+  const mouseClick = (el: Element | undefined, opts: PointerEventInit = {}) => {
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const init: PointerEventInit = { bubbles: true, cancelable: true, composed: true, pointerType: "mouse", pointerId: 1, isPrimary: true, button: 0, buttons: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 3, ...opts };
+    el.dispatchEvent(new PointerEvent("pointerdown", init));
+    el.dispatchEvent(new MouseEvent("mousedown", init));
+    el.dispatchEvent(new PointerEvent("pointerup", { ...init, buttons: 0 }));
+    el.dispatchEvent(new MouseEvent("mouseup", { ...init, buttons: 0 }));
+    el.dispatchEvent(new MouseEvent("click", { ...init, buttons: 0, detail: 1 }));
+  };
+  try {
+    // Copie fraîche du document de 10 pages (la combinaison d'un seul fichier en fait une copie).
+    const work = dir + "pages-organiser.pdf";
+    await engine.combine([dir + "01-texte-10p.pdf"], work);
+    const doc = await actions.openPath(work);
+    if (!doc) throw new Error("copie introuvable");
+    await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    const info = () => actions.openDocs().find((d) => d.id === doc.id);
+    step = "bouton Organiser";
+    (await waitFor(() => button("Organiser les pages"), 6000)).click();
+    step = "grille";
+    const grid = await waitFor(() => visible<HTMLElement>("[data-organize] [role='grid']"), 6000);
+    const rows = () => Array.from(grid.querySelectorAll<HTMLElement>("[role='row']"));
+    step = "10 vignettes";
+    await waitFor(() => (rows().length === 10 ? true : null), 4000);
+    const status = () => visible<HTMLElement>("[data-organize-status]")?.textContent ?? "";
+    const keyOn = (el: Element, k: string, opts: KeyboardEventInit = {}) => el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...opts }));
+
+    // Supprimer la page 2 : clic puis Suppr.
+    mouseClick(rows()[1]);
+    await waitFor(() => (status().includes("1 pages sélectionnées") || status().includes("1 page") ? true : null), 3000).catch(() => null);
+    step = "suppression";
+    keyOn(rows()[1] ?? grid, "Delete");
+    await waitFor(() => (rows().length === 9 ? true : null), 6000);
+    const afterDelete = { rows: rows().length, dirty: info()?.dirty };
+    // Pivoter la première page à droite (bouton).
+    mouseClick(rows()[0]);
+    await sleep(100);
+    const gen0 = info()?.generation ?? 0;
+    step = "rotation";
+    button("Pivoter à droite")?.click();
+    await waitFor(() => ((info()?.generation ?? 0) > gen0 ? true : null), 6000);
+    // Page blanche après la page choisie (menu Insérer).
+    step = "page blanche";
+    button("Insérer des pages")?.click();
+    const blank = await waitFor(() => Array.from(document.querySelectorAll<HTMLElement>("[role='menuitem']")).find((m) => m.textContent?.includes("Page blanche")), 3000);
+    blank.click();
+    await waitFor(() => (rows().length === 10 ? true : null), 6000);
+    // Annuler (Ctrl+Z) puis rétablir (Ctrl+Y).
+    step = "annuler";
+    keyOn(grid, "z", { ctrlKey: true });
+    await waitFor(() => (rows().length === 9 ? true : null), 6000);
+    step = "rétablir";
+    keyOn(grid, "y", { ctrlKey: true });
+    await waitFor(() => (rows().length === 10 ? true : null), 6000);
+    r.ui = { afterDelete, rowsEnd: rows().length, status: status() };
+    checks.ui = afterDelete.rows === 9 && afterDelete.dirty === true && rows().length === 10;
+
+    // Déplacement au clavier : la dernière page en tête (Alt+Début).
+    step = "déplacement";
+    mouseClick(rows()[9]);
+    await sleep(100);
+    const gen1 = info()?.generation ?? 0;
+    keyOn(rows()[9] ?? grid, "Home", { altKey: true });
+    await waitFor(() => ((info()?.generation ?? 0) > gen1 ? true : null), 6000);
+    r.moveStatus = status();
+    // Retour à la lecture (Échap), puis enregistrement et relecture du fichier.
+    step = "retour lecture";
+    // Échap vide d'abord la sélection (comportement de la grille), puis ferme la vue.
+    keyOn(grid, "Escape");
+    await sleep(150);
+    if (visible("[data-organize]")) keyOn(grid, "Escape");
+    await waitFor(() => (visible("[data-organize]") ? null : true), 4000);
+    step = "enregistrement";
+    const saved = await actions.save(doc.id);
+    await actions.closeDoc(doc.id);
+    await sleep(200);
+    const back = await actions.openPath(work);
+    if (!back) throw new Error("relecture impossible");
+    const words = async (p: number) => (await engine.textLayer(back.id, p)).flat().map((w) => w.t).join("");
+    const firstText = await words(0);
+    const pages = back.pages;
+    r.saved = { saved, pageCount: back.pageCount, first: firstText.slice(0, 40), sizes: pages.slice(0, 3) };
+    // Ordre attendu : [10, 1 (pivotée), blanche, 3, 4, …, 9] — la 2 a disparu.
+    const labels: string[] = [];
+    for (let p = 0; p < back.pageCount; p++) {
+      const t = (await words(p)).replace(/\s/g, "");
+      labels.push(/—page(\d+)/.exec(t)?.[1] ?? "-");
+    }
+    r.labels = labels;
+    const [w0, h0] = pages[1] ?? [0, 0];
+    checks.saved = saved && back.pageCount === 10 && labels.join(",") === "10,1,-,3,4,5,6,7,8,9" && w0 > h0;
+
+    // Extraire, diviser, combiner (fichiers écrits, document ouvert inchangé).
+    step = "extraction";
+    const ext = dir + "pages-extrait.pdf";
+    await engine.extractPages(back.id, [0, 1], ext);
+    const split = await engine.splitPages(back.id, 4, dir.replace(/[\\/]$/, ""));
+    const comb = dir + "pages-combine.pdf";
+    const combined = await engine.combine([ext, dir + "07-tailles-mixtes-rotation.pdf"], comb);
+    const e = await engine.open(ext);
+    const extCount = e.pageCount;
+    engine.close(e.id);
+    r.files = { extCount, split: split.map((f) => f.split(/[\\/]/).pop()), combined };
+    checks.files = extCount === 2 && split.length === 3 && split[0]?.endsWith("pages-organiser - partie 1.pdf") === true && combined > 2;
+    await actions.closeDoc(back.id);
+
+    // Document protégé : réorganiser oui (il reste chiffré), mais pas de copie sans protection.
+    step = "document protégé";
+    const locked = await actions.openPath(dir + "09-chiffre-aes256.pdf", "test1234");
+    if (!locked) throw new Error("document protégé non ouvert");
+    const refused = await engine.extractPages(locked.id, [0], dir + "pages-fuite.pdf").then(() => "accepté", (err) => String(err));
+    r.locked = { refused };
+    checks.locked = refused.includes("encrypted");
+    await actions.closeDoc(locked.id);
+  } catch (err) {
+    r.error = `${step} : ${String(err)}`;
+    r.status = visible<HTMLElement>("[data-organize-status]")?.textContent ?? null;
+    r.rowsNow = visible<HTMLElement>("[data-organize] [role='grid']")?.querySelectorAll("[role='row']").length ?? null;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 4;
   return r;
 }
 
