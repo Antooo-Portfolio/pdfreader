@@ -77,6 +77,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.phase2pages = await runPhase2Pages(engine, actions, path);
     steps.phase2image = await runPhase2Image(engine, actions, path);
     steps.phase2images = await runPhase2Images(engine, actions, path);
+    steps.phase2password = await runPhase2Password(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -91,7 +92,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.m3engine as { ok: boolean }).ok &&
       (steps.phase2pages as { ok: boolean }).ok &&
       (steps.phase2image as { ok: boolean }).ok &&
-      (steps.phase2images as { ok: boolean }).ok;
+      (steps.phase2images as { ok: boolean }).ok &&
+      (steps.phase2password as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -1479,6 +1481,90 @@ async function runPhase2Images(engine: EngineClient, actions: AppActions, path: 
   }
   r.checks = checks;
   r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 5;
+  return r;
+}
+
+/** Phase 2, « Protéger par mot de passe » : boîte ouverte depuis la barre, mots de passe et
+ *  restrictions saisis, « Protéger et enregistrer » ; le fichier demande le mot de passe et limite
+ *  les droits ; l'auteur garde tous les droits dans sa session et retire la protection. */
+async function runPhase2Password(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  const visible = <T extends Element>(sel: string) => Array.from(document.querySelectorAll<T>(sel)).find((el) => !el.closest("[hidden]") && !el.closest(".hidden"));
+  const button = (label: string) => visible<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  const dialogButton = (text: string) => Array.from(document.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")).find((b) => b.textContent?.trim() === text);
+  const labelled = (text: string) => Array.from(document.querySelectorAll<HTMLElement>("[data-protect] label")).find((l) => l.textContent?.trim().startsWith(text));
+  let step = "début";
+  try {
+    const work = dir + "mot-de-passe.pdf";
+    await engine.combine([dir + "01-texte-10p.pdf"], work, { size: { kind: "a4" }, margin: 0 });
+    const doc = await actions.openPath(work);
+    if (!doc) throw new Error("copie introuvable");
+    await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    const gen = () => actions.openDocs().find((d) => d.id === doc.id)?.generation ?? 0;
+
+    step = "boîte";
+    (await waitFor(() => button("Protéger par mot de passe"), 6000)).click();
+    await waitFor(() => visible("[data-protect]"), 4000);
+    step = "saisie";
+    const pw = () => Array.from(document.querySelectorAll<HTMLInputElement>("[data-protect] input[type='password']"));
+    setNativeValue(pw()[0] as HTMLInputElement, "ouvre-moi");
+    setNativeValue(pw()[1] as HTMLInputElement, "ouvre-moi");
+    step = "restrictions";
+    const box = labelled("Limiter l'impression");
+    (box?.querySelector("input") ?? box)?.click();
+    await waitFor(() => (pw().length === 4 ? true : null), 3000);
+    setNativeValue(pw()[2] as HTMLInputElement, "droits-auteur");
+    setNativeValue(pw()[3] as HTMLInputElement, "droits-auteur");
+    await sleep(100);
+    const g0 = gen();
+    step = "protéger";
+    (await waitFor(() => dialogButton("Protéger et enregistrer"), 3000)).click();
+    await waitFor(() => (gen() > g0 && !visible("[data-protect]") ? true : null), 8000);
+    const dirty = actions.openDocs().find((d) => d.id === doc.id)?.dirty;
+
+    step = "fichier protégé";
+    const noPw = await engine.open(work).then(
+      (d) => (engine.close(d.id), "ouvert"),
+      (e) => (isOpenError(e) ? e.kind : String(e)),
+    );
+    const asUser = await engine.open(work, "ouvre-moi");
+    const userPerms = asUser.permissions;
+    engine.close(asUser.id);
+    r.protected = { dirty, noPw, userPerms };
+    checks.protected = dirty === false && noPw === "password_required" && userPerms.print && !userPerms.copy && !userPerms.assemble && userPerms.annotate;
+
+    step = "retirer";
+    const g1 = gen();
+    (await waitFor(() => button("Protéger par mot de passe"), 3000)).click();
+    await waitFor(() => visible("[data-protect]"), 4000);
+    const banner = !!document.querySelector("[data-protect]")?.textContent?.includes("déjà protégé");
+    (await waitFor(() => dialogButton("Retirer la protection"), 3000)).click();
+    await waitFor(() => (gen() > g1 && !visible("[data-protect]") ? true : null), 8000);
+    const clear = await engine.open(work);
+    const clearPerms = clear.permissions;
+    engine.close(clear.id);
+    r.removed = { banner, encrypted: clear.encrypted, assemble: clearPerms.assemble };
+    checks.removed = banner && !clear.encrypted && clearPerms.assemble && clearPerms.copy;
+
+    step = "copie interdite sans les droits";
+    // Ouvert avec le seul mot de passe d'ouverture d'un document limité : pas de changement possible.
+    const restricted = await actions.openPath(dir + "09-chiffre-aes256.pdf", "test1234");
+    if (!restricted) throw new Error("document protégé non ouvert");
+    const refused = await engine.protect(restricted.id, null, null).then(
+      () => "accepté",
+      (e) => String(e),
+    );
+    r.refused = refused;
+    checks.refused = refused.includes("owner_required");
+    await actions.closeDoc(restricted.id);
+    await actions.closeDoc(doc.id);
+  } catch (err) {
+    r.error = `${step} : ${String(err)}`;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 3;
   return r;
 }
 

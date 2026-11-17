@@ -422,6 +422,9 @@ export interface EngineClient {
   pickFolder(): Promise<string | null>;
   /** Choix du fichier image à écrire (null : annulé). */
   pickImagePath(defaultPath: string, format: ImageFormat): Promise<string | null>;
+  /** Protège par mot de passe (null : retire la protection), sur place ou dans une copie (`path`) ;
+   *  le document est enregistré puis rouvert. */
+  protect(doc: number, protection: Protection | null, path: string | null): Promise<{ info: DocInfo; save: SaveResult }>;
   /** Exporte une page en image ; `unique` : renomme si le fichier existe. */
   exportImage(doc: number, page: number, options: ImageOptions, path: string, unique: boolean): Promise<{ path: string; width: number; height: number; dpi: number; bytes: number }>;
 
@@ -486,6 +489,21 @@ export interface EngineClient {
   onEngineRestarted(cb: (e: EngineRestart) => void): Promise<() => void>;
   /** Tests seulement : fait planter ou bloquer le moteur pendant une demande sur `doc`. */
   e2eEngineFault(kind: "crash" | "hang", doc: number | null): Promise<void>;
+}
+
+/** Ce qui reste permis sans le mot de passe des droits. */
+export interface Allowed {
+  print: boolean;
+  printHighQuality: boolean;
+  copy: boolean;
+  annotate: boolean;
+  fillForms: boolean;
+  modify: boolean;
+}
+export interface Protection {
+  openPassword: string | null;
+  /** Mot de passe des droits et ce qui reste permis sans lui. */
+  restrictions: [string, Allowed] | null;
 }
 
 export type FileKind = "pdf" | "images" | "pdfAndImages";

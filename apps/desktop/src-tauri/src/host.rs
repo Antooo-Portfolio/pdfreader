@@ -254,6 +254,9 @@ pub fn main(lib_dir: PathBuf) {
             Request::Combine { sources, target, image_page } => {
                 out.reply(id, combine(pdfium, &sources, &target, &image_page));
             }
+            Request::Protect { doc, protection, target } => {
+                out.reply(id, protect_doc(pdfium, &mut docs, doc, protection, target));
+            }
             Request::ExportImage { doc, page, options, target, unique } => {
                 let r = get(&docs, doc).and_then(|e| {
                     // Une image du contenu en est une copie : refusée si l'auteur interdit la copie.
@@ -641,6 +644,69 @@ fn may_copy_out(doc: &PdfDocument) -> Result<(), String> {
         return Err("assemble_forbidden".into());
     }
     Ok(())
+}
+
+/// Document protégé (ou dont la protection est retirée) : enregistré et rouvert.
+#[derive(Debug, Serialize)]
+struct ProtectResult {
+    info: DocInfo,
+    save: SaveResult,
+}
+
+fn protect_doc(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, protection: Option<eng::security::Protection>, target: Option<PathBuf>) -> Result<ProtectResult, String> {
+    use eng::security;
+    let e = get(docs, id)?;
+    // Changer ou retirer une protection demande tous les droits (mot de passe des droits).
+    if !security::full_rights(&e.doc) {
+        return Err("owner_required".into());
+    }
+    if protection.is_none() && !eng::is_encrypted(&e.doc) {
+        return Err("not_protected".into());
+    }
+    let same_file = target.as_ref().map(|t| same_path(t, &e.path)).unwrap_or(true);
+    let target = target.unwrap_or_else(|| e.path.clone());
+    if same_file && eng::file_mtime(&e.path) != e.mtime {
+        return Err("file_changed".into());
+    }
+    let mut plain = security::plain_bytes(&e.doc).map_err(|e| e.to_string())?;
+    // Signets en attente : écrits dans la copie en clair (fichier temporaire, aussitôt effacé).
+    if let Some(items) = &e.outline {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let tmp = std::env::temp_dir().join(format!("pdfreader-{}-{nonce}.pdf", std::process::id()));
+        let r = std::fs::write(&tmp, &plain).map_err(|e| e.to_string()).and_then(|_| eng::outline::write(&tmp, items, &heights(&e.doc)).map_err(|e| e.to_string())).and_then(|_| std::fs::read(&tmp).map_err(|e| e.to_string()));
+        let _ = std::fs::remove_file(&tmp);
+        plain = r?;
+    }
+    let bytes = match &protection {
+        Some(p) => security::protect(&plain, p).map_err(|e| e.to_string())?,
+        None => plain,
+    };
+    eng::atomic_write(&target, |f| {
+        use std::io::Write;
+        f.write_all(&bytes)?;
+        Ok(())
+    })
+    .map_err(|err| if err.to_string().contains("os error 32") || err.to_string().contains("os error 5") { "file_locked".to_string() } else { err.to_string() })?;
+    let password = protection.as_ref().and_then(|p| p.full_access_password());
+    let (generation, old_fingerprint) = (e.generation + 1, e.fingerprint.clone());
+    let doc = eng::open_typed(pdfium, &target, password.as_deref()).map_err(|e| e.to_string())?;
+    let fingerprint = eng::fingerprint(&target).map_err(|e| e.to_string())?;
+    let entry = Entry {
+        doc,
+        path: target.clone(),
+        password,
+        mtime: eng::file_mtime(&target),
+        generation,
+        fingerprint: fingerprint.clone(),
+        outline: None,
+        form_scripts: None,
+        undo: Vec::new(),
+        redo: Vec::new(),
+        full_save: false,
+    };
+    let info = info_of(id, &entry);
+    docs.insert(id, entry);
+    Ok(ProtectResult { info, save: SaveResult { path: target.display().to_string(), bytes: bytes.len() as u64, generation, fingerprint, old_fingerprint } })
 }
 
 /// Image écrite : chemin final (renommé si le fichier existait) et dimensions.

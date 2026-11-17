@@ -18,6 +18,7 @@ import {
   BookOpen,
   ImageDown,
   LayoutGrid,
+  Lock,
   FileSearch,
   Info,
   Maximize,
@@ -53,11 +54,12 @@ import { DEFAULT_STYLES, hitTest, isMarkupTool, isMultiPoint, KIND_LABELS, SHAPE
 import { PropertyBar } from "./AnnotTools";
 import { CommentsPanel } from "./CommentsPanel";
 import { SignatureDialog } from "./FillTools";
-import type { DocInfo, ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
+import type { DocInfo, SaveResult, ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
 import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
 import { ExportImageDialog } from "./ExportImageDialog";
 import { OrganizeView } from "./OrganizeView";
+import { ProtectDialog } from "./ProtectDialog";
 import { PageView } from "./PageView";
 import { AttachmentsPanel, BookmarksPanel, ThumbnailsPanel } from "./Panels";
 import { SearchPanel } from "./SearchPanel";
@@ -105,6 +107,8 @@ interface Props {
   formScripts: boolean;
   /** Pages réorganisées (nouvelle génération du document, à enregistrer). */
   onPagesChanged: (info: DocInfo) => void;
+  /** Document protégé (ou protection retirée) : enregistré et rouvert. */
+  onProtected: (info: DocInfo, save: SaveResult) => void;
 }
 
 /** Outils de la barre, dans l'ordre (Sélectionner reste toujours visible). */
@@ -270,6 +274,7 @@ export function DocumentView({
   onHiddenToolsChange,
   formScripts,
   onPagesChanged,
+  onProtected,
 }: Props) {
   const toast = useToast();
   const { info } = doc;
@@ -753,6 +758,7 @@ export function DocumentView({
   const [pageHistory, setPageHistory] = useState({ canUndo: false, canRedo: false });
   /** Boîte « Exporter en image » : pages choisies dans l'organisation, s'il y en a. */
   const [exportImage, setExportImage] = useState<{ chosen?: number[] } | null>(null);
+  const [protecting, setProtecting] = useState(false);
   const [annots, setAnnots] = useState<Map<number, Annot[]>>(() => new Map());
   const annotsRef = useRef(annots);
   annotsRef.current = annots;
@@ -1743,6 +1749,12 @@ export function DocumentView({
             onPress={() => setExportImage({})}
             isDisabled={!perms.copy}
           />
+          <IconButton
+            label={protectedOn ? t("Vue protégée : activez la modification pour protéger le document") : t("Protéger par mot de passe")}
+            icon={<Lock size={18} />}
+            onPress={() => setProtecting(true)}
+            isDisabled={protectedOn}
+          />
           <IconButton label={t("Imprimer")} shortcut="Ctrl+P" icon={<Printer size={18} />} onPress={onPrint} />
           <IconButton label={t("Rechercher")} shortcut="Ctrl+F" icon={<Search size={18} />} onPress={openFind} />
           <IconButton label={t("Propriétés du document")} shortcut="Ctrl+D" icon={<Info size={18} />} onPress={onProperties} />
@@ -2233,6 +2245,7 @@ export function DocumentView({
 
       </div>
 
+      {protecting && <ProtectDialog engine={engine} info={info} onDone={onProtected} onClose={() => setProtecting(false)} />}
       {exportImage && <ExportImageDialog engine={engine} info={info} currentPage={page} chosen={exportImage.chosen} onClose={() => setExportImage(null)} />}
       {sigDialog && (
         <SignatureDialog

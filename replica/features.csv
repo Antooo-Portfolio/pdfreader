@@ -68,9 +68,9 @@ Renuméroter les pages (étiquettes),pages,could,yes,no,
 Combiner plusieurs fichiers en un PDF,pages,must,yes,yes,"Phase 2 : depuis l'accueil, fichiers dans l'ordre choisi (monter, descendre, retirer, ajouter), nouveau fichier ouvert ensuite ; fichiers pris tels qu'enregistrés ; fichiers chiffrés refusés"
 Compresser / réduire la taille,optimisation,must,yes,no,S21 F12
 Optimiseur avancé et audit de l'espace,optimisation,could,yes,no,
-Protéger par mot de passe (AES-256),sécurité,must,yes,no,S22 F13
-Restreindre impression / copie / modification,sécurité,should,yes,no,
-Retirer la protection (avec le mot de passe),sécurité,should,yes,no,
+Protéger par mot de passe (AES-256),sécurité,must,yes,yes,"Phase 2 : boîte « Protéger par mot de passe » : mot de passe d'ouverture et / ou mot de passe des droits ; AES-256 révision 6 (PDF 2.0) écrit par lopdf à partir de la copie en clair de PDFium (modifications et signets en attente compris) ; enregistré sur place ou en copie, puis rouvert avec tous les droits pour l'auteur ; vérifié avec qpdf (pikepdf)"
+Restreindre impression / copie / modification,sécurité,should,yes,yes,"Phase 2 : sans le mot de passe des droits : imprimer (et en haute qualité), copier, commenter, remplir et signer, modifier et organiser, au choix ; mot de passe des droits différent de celui d'ouverture"
+Retirer la protection (avec le mot de passe),sécurité,should,yes,yes,"Phase 2 : « Retirer la protection » (copie en clair par PDFium, FPDF_REMOVE_SECURITY) seulement si le document est ouvert avec tous les droits ; sinon refusé"
 Chiffrement par certificat,sécurité,could,yes,no,
 Créer un PDF depuis une image,création,must,yes,yes,"Phase 2 : « PDF depuis des images… » sur l'accueil (et images acceptées dans « Combiner des fichiers » et « Insérer des pages ») : PNG, JPEG, WebP, BMP, GIF, TIFF, une page par image ; A4 ou Lettre dans le sens de l'image (marges de 1 cm au choix, image jamais agrandie, centrée) ou taille de l'image à sa résolution (96 ppp par défaut) ; JPEG intégré sans recompression, photos redressées selon l'orientation EXIF ; transparence sur fond blanc ; plafond 100 Mpx / 256 Mo par image"
 Créer un PDF depuis Word / Excel / PowerPoint,création,should,yes,no,traitement local obligatoire : LibreOffice embarqué sur desktop ; web à trancher

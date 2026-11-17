@@ -669,6 +669,15 @@ export function App({ engine }: { engine: EngineClient }) {
           onAuthorChange={(n) => void changeAuthor(n)}
           onAnnotated={onAnnotated}
           onPagesChanged={(info) => dispatch({ type: "restructured", info })}
+          onProtected={(info, r) => {
+            // Enregistré et rouvert : plus de modification en attente, copies de récupération inutiles.
+            const before = docsRef.current.find((x) => x.info.id === info.id);
+            dispatch({ type: "reloaded", info: { ...info, viewState: before?.info.viewState ?? null } });
+            snapshotEdits.current.delete(info.id);
+            if (before) void engine.recoveryClear(before.info.path).catch(() => undefined);
+            if (r.path !== before?.info.path) void engine.recoveryClear(r.path).catch(() => undefined);
+            setHomeRefresh((n) => n + 1);
+          }}
           onSave={() => void save(d.info.id)}
           onOpen={() => void pick()}
           onPrint={() => setPrintFor(d.info.id)}

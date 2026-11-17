@@ -601,3 +601,33 @@ images), « Créer le PDF… », vraie fenêtre « Enregistrer sous » : nouvel 
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | PDF depuis des images | 2026-11-17 | fait | TIFF de plusieurs pages (seule la première est lue) ; HEIC des iPhone | — |
+
+## Phase 2 — lot « protéger par mot de passe » (2026-11-17)
+
+Branche `phase2-mot-de-passe`. PDFium sait lire les PDF chiffrés mais pas en écrire :
+`crates/engine/src/security.rs` prend la copie en clair du document ouvert (enregistrement complet
+par PDFium, sans chiffrement s'il était protégé : FPDF_REMOVE_SECURITY), y écrit les signets en
+attente, puis la chiffre avec lopdf (déjà utilisé pour les signets) en AES-256, révision 6 (PDF
+2.0), clé de fichier tirée par getrandom (déjà présent : aucune dépendance nouvelle).
+
+Règles des mots de passe : sans restriction, le propriétaire reçoit le même mot de passe que
+l'ouverture (un mot de passe propriétaire vide ouvrirait le document sans rien demander) ; avec
+restrictions, un mot de passe des droits est obligatoire et doit différer de celui d'ouverture ;
+de 1 à 127 caractères. Changer ou retirer une protection demande tous les droits (document ouvert
+avec le mot de passe des droits). Le document est enregistré sur place (ou en copie) et rouvert
+avec le mot de passe qui donne tous les droits, pour que l'auteur garde la main dans sa session ;
+ce mot de passe suit aussi la réouverture après un plantage du moteur.
+
+Tests : `password_protection` (moteur) : révision 6, sans mot de passe refusé, mauvais mot de
+passe refusé, droits limités avec le mot de passe d'ouverture et complets avec celui des droits,
+texte absent du fichier en clair, ouverture seule, restrictions seules (s'ouvre sans mot de passe,
+droits limités), règles refusées, retrait de la protection, nouvelle protection d'un document déjà
+protégé. Compatibilité : fichier relu par qpdf (pikepdf) : R6, AES-256, ouverture refusée sans mot
+de passe, droits limités, propriétaire reconnu. Partie `phase2password` du scénario (3 passages
+verts) : boîte ouverte depuis la barre, mots de passe et restrictions saisis, « Protéger et
+enregistrer », fichier qui demande le mot de passe et limite la copie et l'organisation, retrait
+de la protection depuis la même boîte, refus pour un document ouvert sans les droits.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Protéger par mot de passe | 2026-11-17 | fait | chiffrement par certificat ; protection des seules pièces jointes | — |

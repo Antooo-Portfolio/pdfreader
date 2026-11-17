@@ -319,6 +319,24 @@ impl Engine {
         Ok(r)
     }
 
+    /// Protège le document (ou retire la protection), l'enregistre et le rouvre : le mot de passe
+    /// mémorisé pour une éventuelle réouverture après un plantage suit.
+    pub async fn protect(&self, doc: u32, protection: Option<pdfreader_engine::security::Protection>, target: Option<PathBuf>) -> Result<Value, String> {
+        let password = protection.as_ref().and_then(|p| p.full_access_password());
+        let v: Value = self.ask(Request::Protect { doc, protection, target }).await?;
+        if let Some(d) = self.0.state.lock().unwrap().docs.get_mut(&doc) {
+            if let Some(p) = v.pointer("/save/path").and_then(Value::as_str) {
+                d.source = PathBuf::from(p);
+            }
+            d.shown = None;
+            d.password = password;
+            if let Some(g) = v.pointer("/info/generation").and_then(Value::as_u64) {
+                d.generation = g as u32;
+            }
+        }
+        Ok(v)
+    }
+
     /// Opération sur les pages : la génération du document change (tuiles et caches à refaire).
     pub async fn pages(&self, doc: u32, op: PageOp) -> Result<Value, String> {
         let v: Value = self.ask(Request::Pages { doc, op }).await?;
