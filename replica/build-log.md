@@ -645,3 +645,12 @@ en 2,5 s, données de l'utilisateur identiques, lecteur PDF par défaut inchang�
 vert sur la 0.4.0 installée (toutes les parties, phase 2 comprise) ; la 0.4.0 lit le flux publié
 (rien à proposer) ; 0.3.0 officielle réinstallée (empreinte identique à la Release) pour essayer
 la vraie mise à jour par l'updater après publication.
+
+## Version 0.4.0 — publiée (2026-11-17)
+
+Release `v0.4.0` : deux setups, signature, latest.json ; empreintes identiques aux fichiers
+testés. Flux de mises à jour (nouvelle et ancienne adresse) : 0.4.0. Site redéployé (10 Mo,
+« Organiser et convertir », « Protéger »). Vraie mise à jour 0.3.0 → 0.4.0 par l'updater
+(« Oui, vérifier », « Installer et redémarrer » cliqués par UI Automation) : téléchargée,
+signature vérifiée, installée, application relancée en 0.4.0 avec son moteur séparé (essai dans
+l'espace de l'application Claude ; l'installation de l'utilisateur n'est pas touchée).
