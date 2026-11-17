@@ -425,6 +425,8 @@ export interface EngineClient {
   /** Protège par mot de passe (null : retire la protection), sur place ou dans une copie (`path`) ;
    *  le document est enregistré puis rouvert. */
   protect(doc: number, protection: Protection | null, path: string | null): Promise<{ info: DocInfo; save: SaveResult }>;
+  /** Compresse le document (sur place ou dans une copie `path`) ; il est enregistré puis rouvert. */
+  compress(doc: number, options: CompressOptions, path: string | null): Promise<{ info: DocInfo; save: SaveResult; report: { before: number; after: number; images: number; imagesRecompressed: number } }>;
   /** Exporte une page en image ; `unique` : renomme si le fichier existe. */
   exportImage(doc: number, page: number, options: ImageOptions, path: string, unique: boolean): Promise<{ path: string; width: number; height: number; dpi: number; bytes: number }>;
 
@@ -489,6 +491,12 @@ export interface EngineClient {
   onEngineRestarted(cb: (e: EngineRestart) => void): Promise<() => void>;
   /** Tests seulement : fait planter ou bloquer le moteur pendant une demande sur `doc`. */
   e2eEngineFault(kind: "crash" | "hang", doc: number | null): Promise<void>;
+}
+
+/** Compression : images réduites à `dpi` (taille de la plus grande page) et réencodées, ou
+ *  rien que la structure (images null). */
+export interface CompressOptions {
+  images: { dpi: number; quality: number } | null;
 }
 
 /** Ce qui reste permis sans le mot de passe des droits. */

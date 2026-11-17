@@ -254,6 +254,9 @@ pub fn main(lib_dir: PathBuf) {
             Request::Combine { sources, target, image_page } => {
                 out.reply(id, combine(pdfium, &sources, &target, &image_page));
             }
+            Request::Compress { doc, options, target } => {
+                out.reply(id, compress_doc(pdfium, &mut docs, doc, options, target));
+            }
             Request::Protect { doc, protection, target } => {
                 out.reply(id, protect_doc(pdfium, &mut docs, doc, protection, target));
             }
@@ -663,12 +666,61 @@ fn protect_doc(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32,
     if protection.is_none() && !eng::is_encrypted(&e.doc) {
         return Err("not_protected".into());
     }
+    let password = protection.as_ref().and_then(|p| p.full_access_password());
+    let (info, save) = rewrite_doc(pdfium, docs, id, target, password, |plain| match &protection {
+        Some(p) => security::protect(&plain, p).map_err(|e| e.to_string()),
+        None => Ok(plain),
+    })?;
+    Ok(ProtectResult { info, save })
+}
+
+/// Document compressé : enregistré et rouvert, avec les tailles avant et après.
+#[derive(Debug, Serialize)]
+struct CompressResult {
+    info: DocInfo,
+    save: SaveResult,
+    report: eng::compress::CompressReport,
+}
+
+fn compress_doc(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, options: eng::compress::CompressOptions, target: Option<PathBuf>) -> Result<CompressResult, String> {
+    let e = get(docs, id)?;
+    // Un document chiffré perdrait sa protection : il faut d'abord la retirer.
+    if eng::is_encrypted(&e.doc) {
+        return Err("encrypted".into());
+    }
+    let before = std::fs::metadata(&e.path).map(|m| m.len()).unwrap_or(0);
+    let longest = e.doc.pages().iter().map(|p| p.width().value.max(p.height().value)).fold(0.0f32, f32::max);
+    let mut report = eng::compress::CompressReport::default();
+    let (info, save) = rewrite_doc(pdfium, docs, id, target, None, |plain| {
+        let (out, r) = eng::compress::compress(&plain, &options, longest).map_err(|e| e.to_string())?;
+        // Rien à gagner (déjà compact) : on n'écrit rien.
+        if before > 0 && r.after >= before {
+            return Err("no_gain".into());
+        }
+        report = r;
+        Ok(out)
+    })?;
+    report.before = before;
+    Ok(CompressResult { info, save, report })
+}
+
+/// Réécrit le document ouvert : copie en clair (modifications et signets en attente compris)
+/// transformée par `transform`, écrite sur place ou sous `target`, puis rouverte avec `password`.
+fn rewrite_doc(
+    pdfium: &'static Pdfium,
+    docs: &mut HashMap<u32, Entry>,
+    id: u32,
+    target: Option<PathBuf>,
+    password: Option<String>,
+    transform: impl FnOnce(Vec<u8>) -> Result<Vec<u8>, String>,
+) -> Result<(DocInfo, SaveResult), String> {
+    let e = get(docs, id)?;
     let same_file = target.as_ref().map(|t| same_path(t, &e.path)).unwrap_or(true);
     let target = target.unwrap_or_else(|| e.path.clone());
     if same_file && eng::file_mtime(&e.path) != e.mtime {
         return Err("file_changed".into());
     }
-    let mut plain = security::plain_bytes(&e.doc).map_err(|e| e.to_string())?;
+    let mut plain = eng::security::plain_bytes(&e.doc).map_err(|e| e.to_string())?;
     // Signets en attente : écrits dans la copie en clair (fichier temporaire, aussitôt effacé).
     if let Some(items) = &e.outline {
         let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
@@ -677,17 +729,13 @@ fn protect_doc(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32,
         let _ = std::fs::remove_file(&tmp);
         plain = r?;
     }
-    let bytes = match &protection {
-        Some(p) => security::protect(&plain, p).map_err(|e| e.to_string())?,
-        None => plain,
-    };
+    let bytes = transform(plain)?;
     eng::atomic_write(&target, |f| {
         use std::io::Write;
         f.write_all(&bytes)?;
         Ok(())
     })
     .map_err(|err| if err.to_string().contains("os error 32") || err.to_string().contains("os error 5") { "file_locked".to_string() } else { err.to_string() })?;
-    let password = protection.as_ref().and_then(|p| p.full_access_password());
     let (generation, old_fingerprint) = (e.generation + 1, e.fingerprint.clone());
     let doc = eng::open_typed(pdfium, &target, password.as_deref()).map_err(|e| e.to_string())?;
     let fingerprint = eng::fingerprint(&target).map_err(|e| e.to_string())?;
@@ -706,7 +754,7 @@ fn protect_doc(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32,
     };
     let info = info_of(id, &entry);
     docs.insert(id, entry);
-    Ok(ProtectResult { info, save: SaveResult { path: target.display().to_string(), bytes: bytes.len() as u64, generation, fingerprint, old_fingerprint } })
+    Ok((info, SaveResult { path: target.display().to_string(), bytes: bytes.len() as u64, generation, fingerprint, old_fingerprint }))
 }
 
 /// Image écrite : chemin final (renommé si le fichier existait) et dimensions.

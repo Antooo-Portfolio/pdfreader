@@ -226,6 +226,7 @@ pub mod pages;
 pub mod export;
 pub mod images;
 pub mod security;
+pub mod compress;
 
 #[cfg(windows)]
 pub mod print_win;

@@ -337,6 +337,21 @@ impl Engine {
         Ok(v)
     }
 
+    /// Compresse le document, l'enregistre et le rouvre.
+    pub async fn compress(&self, doc: u32, options: pdfreader_engine::compress::CompressOptions, target: Option<PathBuf>) -> Result<Value, String> {
+        let v: Value = self.ask(Request::Compress { doc, options, target }).await?;
+        if let Some(d) = self.0.state.lock().unwrap().docs.get_mut(&doc) {
+            if let Some(p) = v.pointer("/save/path").and_then(Value::as_str) {
+                d.source = PathBuf::from(p);
+            }
+            d.shown = None;
+            if let Some(g) = v.pointer("/info/generation").and_then(Value::as_u64) {
+                d.generation = g as u32;
+            }
+        }
+        Ok(v)
+    }
+
     /// Opération sur les pages : la génération du document change (tuiles et caches à refaire).
     pub async fn pages(&self, doc: u32, op: PageOp) -> Result<Value, String> {
         let v: Value = self.ask(Request::Pages { doc, op }).await?;

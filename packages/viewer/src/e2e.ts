@@ -78,6 +78,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.phase2image = await runPhase2Image(engine, actions, path);
     steps.phase2images = await runPhase2Images(engine, actions, path);
     steps.phase2password = await runPhase2Password(engine, actions, path);
+    steps.phase2compress = await runPhase2Compress(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -93,7 +94,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.phase2pages as { ok: boolean }).ok &&
       (steps.phase2image as { ok: boolean }).ok &&
       (steps.phase2images as { ok: boolean }).ok &&
-      (steps.phase2password as { ok: boolean }).ok;
+      (steps.phase2password as { ok: boolean }).ok &&
+      (steps.phase2compress as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -1560,6 +1562,73 @@ async function runPhase2Password(engine: EngineClient, actions: AppActions, path
     checks.refused = refused.includes("owner_required");
     await actions.closeDoc(restricted.id);
     await actions.closeDoc(doc.id);
+  } catch (err) {
+    r.error = `${step} : ${String(err)}`;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 3;
+  return r;
+}
+
+/** Phase 2, « Compresser » : PDF lourd fabriqué (images à 600 ppp), compressé depuis la boîte
+ *  (« Standard », « Compresser et remplacer ») ; fichier bien plus léger, toujours lisible ;
+ *  mode sans perte dans une copie ; document protégé refusé. */
+async function runPhase2Compress(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  const visible = <T extends Element>(sel: string) => Array.from(document.querySelectorAll<T>(sel)).find((el) => !el.closest("[hidden]") && !el.closest(".hidden"));
+  const button = (label: string) => visible<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  const dialogButton = (text: string) => Array.from(document.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")).find((b) => b.textContent?.trim() === text);
+  let step = "début";
+  try {
+    step = "PDF lourd";
+    const src = await engine.open(dir + "04-vectoriel-transparence.pdf");
+    const big = await engine.exportImage(src.id, 0, { format: "jpeg", dpi: 600, quality: 100, annotations: true }, dir + "lourd.jpg", false);
+    const big2 = await engine.exportImage(src.id, 0, { format: "png", dpi: 400, quality: 85, annotations: true }, dir + "lourd.png", false);
+    engine.close(src.id);
+    const heavy = dir + "lourd.pdf";
+    await engine.combine([big.path, big2.path], heavy, { size: { kind: "a4" }, margin: 0 });
+    const doc = await actions.openPath(heavy);
+    if (!doc) throw new Error("PDF lourd non ouvert");
+    await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    const before = (await engine.properties(doc.id)).fileSize;
+    const gen = () => actions.openDocs().find((d) => d.id === doc.id)?.generation ?? 0;
+
+    step = "boîte";
+    (await waitFor(() => button("Réduire la taille du fichier"), 6000)).click();
+    await waitFor(() => visible("[data-compress]"), 4000);
+    const g0 = gen();
+    (await waitFor(() => dialogButton("Compresser et remplacer"), 3000)).click();
+    await waitFor(() => (gen() > g0 && !visible("[data-compress]") ? true : null), 30000);
+    const after = (await engine.properties(doc.id)).fileSize;
+    const toast = document.querySelector('[aria-label="Notifications"]')?.textContent ?? "";
+    const pages = actions.openDocs().find((d) => d.id === doc.id) ? (await engine.properties(doc.id)).pageCount : 0;
+    const tile = await fetch(engine.tileUrl(doc.id, gen(), 0, 0, 0.3, 0, 0)).then((x) => x.ok && x.blob().then((b) => b.size > 0)).catch(() => false);
+    r.dialog = { before, after, pages, tile, toast: /lourd\.pdf[^)]*\)/.exec(toast)?.[0] ?? null };
+    checks.dialog = after < before / 3 && pages === 2 && !!tile && !!r.dialog && (r.dialog as { toast: string | null }).toast !== null;
+    await actions.closeDoc(doc.id);
+
+    step = "sans perte";
+    const text = dir + "texte-compact.pdf";
+    await engine.combine([dir + "02-texte-1000p.pdf"], dir + "texte-source.pdf", { size: { kind: "a4" }, margin: 0 });
+    const t = await actions.openPath(dir + "texte-source.pdf");
+    if (!t) throw new Error("texte non ouvert");
+    const lossless = await engine.compress(t.id, { images: null }, text).catch((e) => String(e));
+    r.lossless = typeof lossless === "string" ? lossless : lossless.report;
+    checks.lossless = typeof lossless !== "string" ? lossless.report.after <= lossless.report.before : lossless.includes("no_gain");
+    await actions.closeDoc(t.id);
+
+    step = "protégé";
+    const locked = await actions.openPath(dir + "09-chiffre-aes256.pdf", "test1234");
+    if (!locked) throw new Error("document protégé non ouvert");
+    const refused = await engine.compress(locked.id, { images: { dpi: 150, quality: 75 } }, null).then(
+      () => "accepté",
+      (e) => String(e),
+    );
+    r.refused = refused;
+    checks.refused = refused.includes("encrypted");
+    await actions.closeDoc(locked.id);
   } catch (err) {
     r.error = `${step} : ${String(err)}`;
   }

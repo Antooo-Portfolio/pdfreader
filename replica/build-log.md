@@ -654,3 +654,33 @@ testés. Flux de mises à jour (nouvelle et ancienne adresse) : 0.4.0. Site red�
 (« Oui, vérifier », « Installer et redémarrer » cliqués par UI Automation) : téléchargée,
 signature vérifiée, installée, application relancée en 0.4.0 avec son moteur séparé (essai dans
 l'espace de l'application Claude ; l'installation de l'utilisateur n'est pas touchée).
+
+## Phase 2 — lot « compresser » (2026-11-17)
+
+Branche `phase2-compresser`. `crates/engine/src/compress.rs`, à partir de la copie en clair de
+PDFium (modifications et signets en attente compris), avec lopdf et la crate `image` (aucune
+dépendance nouvelle) :
+- images plus fines que la résolution choisie, à la taille de la plus grande page, réduites
+  (filtre triangle) et réencodées en JPEG ; un JPEG déjà à la bonne taille n'est réencodé que pour
+  un gain d'au moins 30 % ; une image sans perte à la bonne taille (souvent du texte ou un schéma)
+  n'est jamais touchée, ni les masques, couleurs indexées ou CMJN, plages /Decode, masques de
+  couleur, JBIG2, CCITT, JPEG 2000 ; masque de transparence (SMask) conservé ;
+- sans perte : flux compressés, objets que plus rien ne référence retirés, objets regroupés en
+  flux d'objets avec table des références compacte.
+
+L'enregistrement (copie ou remplacement, puis réouverture) partage `rewrite_doc` avec la
+protection par mot de passe. Rien n'est écrit si la compression ne réduit pas le fichier ;
+document chiffré refusé (il perdrait sa protection).
+
+Tests : `compress_pdf` (moteur) : PDF de photos lourdes (JPEG 3000 × 4000 qualité 97, image sans
+perte 2400 × 3200, petit schéma) 25,8 Mo → 0,33 Mo au réglage standard, images ramenées à
+1754 pixels, schéma intact, dégradé conservé au rendu ; réglage écran plus léger encore ; sans
+perte : images inchangées ; 1000 pages de texte 2,06 → 1,81 Mo sans perte ; document chiffré
+refusé. Partie `phase2compress` du scénario (3 passages verts) : PDF lourd fabriqué (images à 400
+et 600 ppp), « Standard » puis « Compresser et remplacer » dans la boîte : 3,1 Mo → 302 Ko
+(−91 %), deux pages toujours affichées ; sans perte dans une copie ; document protégé refusé.
+Les photos de test sont synthétiques (dégradés) : sur de vraies photos, le gain sera plus faible.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Compresser | 2026-11-17 | fait | réduction des polices (sous-ensembles), images CMJN, aperçu de la taille avant d'enregistrer | — |

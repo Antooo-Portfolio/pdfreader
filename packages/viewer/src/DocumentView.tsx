@@ -17,6 +17,7 @@ import {
   Check,
   BookOpen,
   ImageDown,
+  Shrink,
   LayoutGrid,
   Lock,
   FileSearch,
@@ -57,6 +58,7 @@ import { SignatureDialog } from "./FillTools";
 import type { DocInfo, SaveResult, ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
 import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
+import { CompressDialog } from "./CompressDialog";
 import { ExportImageDialog } from "./ExportImageDialog";
 import { OrganizeView } from "./OrganizeView";
 import { ProtectDialog } from "./ProtectDialog";
@@ -759,6 +761,7 @@ export function DocumentView({
   /** Boîte « Exporter en image » : pages choisies dans l'organisation, s'il y en a. */
   const [exportImage, setExportImage] = useState<{ chosen?: number[] } | null>(null);
   const [protecting, setProtecting] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const [annots, setAnnots] = useState<Map<number, Annot[]>>(() => new Map());
   const annotsRef = useRef(annots);
   annotsRef.current = annots;
@@ -1750,6 +1753,12 @@ export function DocumentView({
             isDisabled={!perms.copy}
           />
           <IconButton
+            label={protectedOn ? t("Vue protégée : activez la modification pour compresser le document") : t("Réduire la taille du fichier")}
+            icon={<Shrink size={18} />}
+            onPress={() => setCompressing(true)}
+            isDisabled={protectedOn}
+          />
+          <IconButton
             label={protectedOn ? t("Vue protégée : activez la modification pour protéger le document") : t("Protéger par mot de passe")}
             icon={<Lock size={18} />}
             onPress={() => setProtecting(true)}
@@ -2245,6 +2254,7 @@ export function DocumentView({
 
       </div>
 
+      {compressing && <CompressDialog engine={engine} info={info} onDone={onProtected} onClose={() => setCompressing(false)} />}
       {protecting && <ProtectDialog engine={engine} info={info} onDone={onProtected} onClose={() => setProtecting(false)} />}
       {exportImage && <ExportImageDialog engine={engine} info={info} currentPage={page} chosen={exportImage.chosen} onClose={() => setExportImage(null)} />}
       {sigDialog && (

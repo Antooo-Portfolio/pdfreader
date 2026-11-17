@@ -630,6 +630,21 @@ async fn doc_protect(doc: u32, protection: Option<pdfreader_engine::security::Pr
     Ok(v)
 }
 
+/// Compresse le document, sur place ou dans une copie ; renvoie le document rouvert, le résultat de
+/// l'enregistrement et les tailles avant / après.
+#[tauri::command]
+async fn doc_compress(doc: u32, options: pdfreader_engine::compress::CompressOptions, path: Option<String>, engine: State<'_, Engine>, db: State<'_, db::Db>) -> Result<Value, String> {
+    let target = path.as_deref().map(pdf_target).transpose()?;
+    let in_place = target.is_none();
+    let v = engine.compress(doc, options, target).await?;
+    if in_place {
+        let s = |k: &str| v.pointer(k).and_then(Value::as_str).unwrap_or_default().to_string();
+        let bytes = v.pointer("/save/bytes").and_then(Value::as_u64).unwrap_or(0);
+        let _ = db.rekey(&s("/save/oldFingerprint"), &s("/save/fingerprint"), bytes, None);
+    }
+    Ok(v)
+}
+
 /// Exporte une page en image (PNG ou JPEG) ; renvoie le chemin écrit et les dimensions.
 #[tauri::command]
 async fn doc_export_image(doc: u32, page: i32, options: pdfreader_engine::export::ImageOptions, path: String, unique: bool, engine: State<'_, Engine>) -> Result<Value, String> {
@@ -1057,6 +1072,7 @@ fn main() {
             pdf_combine,
             doc_export_image,
             doc_protect,
+            doc_compress,
             doc_set_bookmarks,
             doc_attachments,
             attachment_save,

@@ -695,6 +695,22 @@ EN = {
     "Vue protégée : activez la modification pour protéger le document": "Protected view: enable editing to protect the document",
     "en haute qualité": "in high quality",
     "« {name} » est protégé par mot de passe.": "“{name}” is password-protected.",
+    " (compressé).pdf": " (compressed).pdf",
+    "Ce document est déjà compact : la compression n'apporterait rien. Le fichier n'a pas été modifié.": "This document is already compact: compressing would gain nothing. The file was not changed.",
+    "Ce document est protégé par mot de passe : retirez d'abord la protection, compressez, puis protégez-le de nouveau.": "This document is password-protected: remove the protection first, compress, then protect it again.",
+    "Compresser et remplacer": "Compress and replace",
+    "Copie compressée…": "Compressed copy…",
+    "Impression : qualité préservée (images à 300 ppp)": "Print: quality preserved (images at 300 dpi)",
+    "La compression a échoué : {detail}": "Compression failed: {detail}",
+    "Le fichier a été modifié par un autre programme. Utilisez « Copie compressée… » pour ne rien perdre.": "The file was changed by another program. Use “Compressed copy…” so you lose nothing.",
+    "Les images plus fines que nécessaire sont réduites et réencodées en JPEG ; le texte et les dessins restent nets. Les modifications en cours sont incluses.": "Images finer than needed are downsampled and re-encoded as JPEG; text and drawings stay sharp. Current changes are included.",
+    "Niveau": "Level",
+    "Réduire la taille du fichier": "Reduce file size",
+    "Sans perte : images inchangées, seule la structure est optimisée": "Lossless: images unchanged, only the structure is optimised",
+    "Standard : bon compromis (images à 150 ppp)": "Standard: good balance (images at 150 dpi)",
+    "Vue protégée : activez la modification pour compresser le document": "Protected view: enable editing to compress the document",
+    "« {name} » : {before} → {after} (−{gain} %).": "“{name}”: {before} → {after} (−{gain}%).",
+    "Écran : le plus léger, pour l'envoyer par e-mail (images à 96 ppp)": "Screen: smallest, for sending by e-mail (images at 96 dpi)",
 }
 
 

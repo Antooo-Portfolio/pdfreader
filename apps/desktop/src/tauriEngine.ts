@@ -84,6 +84,7 @@ export const tauriEngine: EngineClient = {
   },
   pickImagePath: (defaultPath, format) =>
     save({ defaultPath, filters: [format === "png" ? { name: t("Image PNG"), extensions: ["png"] } : { name: t("Image JPEG"), extensions: ["jpg", "jpeg"] }] }),
+  compress: (doc, options, path) => invoke("doc_compress", { doc, options, path }),
   protect: (doc, protection, path) => invoke<{ info: DocInfo; save: SaveResult }>("doc_protect", { doc, protection, path }),
   exportImage: (doc, page, options, path, unique) => invoke("doc_export_image", { doc, page, options, path, unique }),
   pages: (doc, op) => invoke<PagesResult>("doc_pages", { doc, op }),

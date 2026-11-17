@@ -125,6 +125,9 @@ pub enum Request {
     /// Protège le document par mot de passe (AES-256), ou retire la protection (`protection`
     /// absente), puis l'enregistre sur place ou sous `target` et le rouvre.
     Protect { doc: u32, protection: Option<eng::security::Protection>, target: Option<PathBuf> },
+    /// Compresse le document (images réduites et réencodées, structure compacte), sur place ou sous
+    /// `target`, puis le rouvre.
+    Compress { doc: u32, options: eng::compress::CompressOptions, target: Option<PathBuf> },
     /// Exporte une page en image. `unique` : si le fichier existe, « nom (2).ext »…
     ExportImage { doc: u32, page: i32, options: eng::export::ImageOptions, target: PathBuf, unique: bool },
     /// Tests de bout en bout seulement (PDFREADER_E2E) : arrêt brutal ou blocage du moteur.
@@ -162,6 +165,7 @@ impl Request {
             | SplitPages { doc, .. }
             | ExportImage { doc, .. }
             | Protect { doc, .. }
+            | Compress { doc, .. }
             | Tile { doc, .. } => Some(*doc),
             TestCrash { doc } | TestHang { doc } => *doc,
             CancelPrint | Combine { .. } => None,
@@ -185,6 +189,7 @@ impl Request {
             | SplitPages { .. }
             | ExportImage { .. }
             | Protect { .. }
+            | Compress { .. }
             | Combine { .. } => 600,
             _ => 30,
         };
