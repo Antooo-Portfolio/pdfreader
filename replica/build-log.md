@@ -763,3 +763,15 @@ pendant la saisie et après ; pypdf relit le nouveau texte.
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | Modifier le texte | 2026-11-18 | partiel | remise en page du paragraphe ; plusieurs lignes à la fois ; police d'origine pour des lettres absentes de son sous-ensemble (il faudrait intégrer la police complète, rarement disponible) | savoir si une police intégrée a un glyphe : PDFium ne le dit pas, règle prudente |
+
+## Version 0.5.0 — préparation (2026-11-18)
+
+Branche `release-0.5.0` : version 0.5.0, notes dans `tools/release/notes/0.5.0.md` (compresser,
+écrire dans la page, modifier le texte existant, correctif de l'affichage après enregistrement),
+site : « réduire la taille » et une ligne « Modifier » (fr, en).
+
+Construit : setup normal signé (9,8 Mo) et setup hors ligne (217 Mo). Vérifié : signature
+acceptée, aucun chemin personnel ; mise à niveau silencieuse 0.4.0 → 0.5.0 en 2,6 s, données
+identiques, lecteur par défaut inchangé ; scénario complet vert sur la 0.5.0 installée (17
+parties) ; flux publié lu (rien à proposer) ; 0.4.0 officielle réinstallée (empreinte identique à
+la Release) pour essayer la vraie mise à jour après publication.
