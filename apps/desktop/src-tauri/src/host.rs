@@ -14,7 +14,7 @@ use pdfreader_engine as eng;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::protocol::{AnnotOp, Answer, DocInfo, Envelope, OpenResult, PageOp, PageTextOp, Request, SaveResult, StampOp, TextEditOp, read_frame, write_frame};
+use crate::protocol::{AnnotOp, Answer, DocInfo, Envelope, OpenResult, OcrOp, PageOp, PageTextOp, Request, SaveResult, StampOp, TextEditOp, read_frame, write_frame};
 
 /// Commentaire créé (s'il y en a un) et liste à jour des commentaires de la page.
 #[derive(Debug, Serialize)]
@@ -255,6 +255,9 @@ pub fn main(lib_dir: PathBuf) {
             }
             Request::Stamps { doc, op } => {
                 out.reply(id, stamps(pdfium, &mut docs, doc, op));
+            }
+            Request::Ocr { doc, op } => {
+                out.reply(id, ocr(&mut docs, doc, op));
             }
             Request::ExtractPages { doc, pages, target } => {
                 let r = get(&docs, doc).and_then(|e| {
@@ -635,6 +638,79 @@ fn stamps(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, op: 
         e.generation += 1;
     }
     Ok(StampsResult { current: eng::stamps::current(&e.doc), count, info: Some(info_of(id, e)), can_undo: !e.undo.is_empty(), can_redo: !e.redo.is_empty() })
+}
+
+/// Reconnaître le texte : langues, mots écrits sur une page (ou page laissée car elle a déjà du
+/// texte), document à jour en fin de série ou après un retrait.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OcrResult {
+    languages: Vec<eng::ocr::OcrLanguage>,
+    words: usize,
+    skipped: bool,
+    info: Option<DocInfo>,
+    can_undo: bool,
+    can_redo: bool,
+}
+
+fn push_undo(e: &mut Entry, before: Option<PageState>) {
+    match before {
+        Some(s) => {
+            e.undo.push(s);
+            while e.undo.len() > UNDO_STATES || e.undo.iter().map(|s| s.bytes.len()).sum::<usize>() > UNDO_TOTAL {
+                e.undo.remove(0);
+            }
+        }
+        None => e.undo.clear(),
+    }
+    e.redo.clear();
+}
+
+fn ocr(docs: &mut HashMap<u32, Entry>, id: u32, op: OcrOp) -> Result<OcrResult, String> {
+    if matches!(op, OcrOp::Languages) {
+        return Ok(OcrResult { languages: eng::ocr::languages(), ..Default::default() });
+    }
+    let e = docs.get_mut(&id).ok_or("document fermé")?;
+    if !eng::permissions(&e.doc).modify {
+        return Err("modify_forbidden".into());
+    }
+    let mut r = OcrResult::default();
+    match op {
+        OcrOp::Languages => unreachable!(),
+        OcrOp::Page { page, lang, first, skip_text } => {
+            if first {
+                let before = page_state(e);
+                push_undo(e, before);
+            }
+            let p = e.doc.pages().get(page).map_err(|err| format!("{err:?}"))?;
+            if skip_text && eng::ocr::has_text(&p) {
+                r.skipped = true;
+            } else {
+                let lines = eng::ocr::recognize_page(&p, lang.as_deref()).map_err(|err| err.to_string())?;
+                r.words = eng::ocr::add_layer(&e.doc, &p, &mut e.fonts, &lines).map_err(|err| err.to_string())?;
+            }
+        }
+        OcrOp::Finish => {
+            e.generation += 1;
+            r.info = Some(info_of(id, e));
+        }
+        OcrOp::Remove => {
+            let before = page_state(e);
+            let mut n = 0;
+            for p in e.doc.pages().iter() {
+                n += eng::ocr::remove_layer(&p).map_err(|err| err.to_string())?;
+            }
+            if n > 0 {
+                push_undo(e, before);
+                e.generation += 1;
+            }
+            r.words = n;
+            r.info = Some(info_of(id, e));
+        }
+    }
+    r.can_undo = !e.undo.is_empty();
+    r.can_redo = !e.redo.is_empty();
+    Ok(r)
 }
 
 /// Texte ajouté dans le contenu de la page : liste, ajout ou remplacement, suppression ; renvoie les

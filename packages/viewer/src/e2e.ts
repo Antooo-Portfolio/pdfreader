@@ -82,6 +82,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.phase2pagetext = await runPhase2PageText(engine, actions, path);
     steps.phase2textedit = await runPhase2TextEdit(engine, actions, path);
     steps.phase2stamps = await runPhase2Stamps(engine, actions, path);
+    steps.phase2ocr = await runPhase2Ocr(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -101,7 +102,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.phase2compress as { ok: boolean }).ok &&
       (steps.phase2pagetext as { ok: boolean }).ok &&
       (steps.phase2textedit as { ok: boolean }).ok &&
-      (steps.phase2stamps as { ok: boolean }).ok;
+      (steps.phase2stamps as { ok: boolean }).ok &&
+      (steps.phase2ocr as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -2074,5 +2076,113 @@ async function runPhase2Stamps(engine: EngineClient, actions: AppActions, path: 
   }
   r.checks = checks;
   r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 6;
+  return r;
+}
+
+/** Phase 2, « Reconnaître le texte (OCR) » : un scan ouvert affiche le bandeau « numérisé », son
+ *  bouton ouvre la boîte, la reconnaissance (OCR de Windows) rend la page cherchable et sa couche
+ *  de texte sélectionnable, sans changer son aspect ; annulée depuis la notification, refaite,
+ *  enregistrée et relue ; une page qui a déjà du texte est laissée telle quelle. */
+async function runPhase2Ocr(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  const visible = <T extends Element>(sel: string) => Array.from(document.querySelectorAll<T>(sel)).find((el) => !el.closest("[hidden]") && !el.closest(".hidden"));
+  const dialogButton = (text: string) => Array.from(document.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")).find((b) => b.textContent?.trim() === text);
+  const words = async (id: number) => (await engine.textLayer(id, 0)).flat();
+  const toasts = () => document.querySelector('[aria-label="Notifications"]')?.textContent ?? "";
+  let step = "début";
+  try {
+    const work = dir + "scan-ocr.pdf";
+    await engine.combine([dir + "06-scan-sans-texte.pdf"], work, { size: { kind: "a4" }, margin: 0 });
+    const doc = await actions.openPath(work);
+    if (!doc) throw new Error("copie introuvable");
+    await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    const langs = (await engine.ocr(doc.id, { kind: "languages" })).languages;
+    r.languages = langs.map((l) => l.tag);
+    if (!langs.length) {
+      // Aucune langue OCR dans ce Windows : rien à vérifier de plus.
+      r.skipped = "aucune langue OCR installée";
+      r.ok = true;
+      await actions.closeDoc(doc.id);
+      return r;
+    }
+    const gen = () => actions.openDocs().find((d) => d.id === doc.id)?.generation ?? 0;
+
+    step = "bandeau";
+    const banner = await waitFor(() => visible("[data-scanned-banner]"), 6000);
+    const open = await waitFor(() => Array.from(banner.closest("[role]")?.parentElement?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((b) => b.textContent?.trim() === "Reconnaître le texte") ?? Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent?.trim() === "Reconnaître le texte" && !b.closest("[hidden]")), 3000);
+    open.click();
+    await waitFor(() => visible("[data-ocr]"), 4000);
+    const go = await waitFor(() => {
+      const b = dialogButton("Reconnaître");
+      return b && !b.disabled && b.getAttribute("aria-disabled") !== "true" ? b : null;
+    }, 6000);
+    r.banner = true;
+    checks.banner = true;
+
+    step = "reconnaître";
+    const g0 = gen();
+    const tile0 = await fetch(engine.tileUrl(doc.id, g0, 0, 0, 0.5, 0, 0)).then((x) => x.arrayBuffer()).catch(() => null);
+    go.click();
+    await waitFor(() => (gen() > g0 && !visible("[data-ocr]") ? true : null), 60000);
+    // « Annuler » de la notification, repéré tout de suite (elle se ferme après 10 s).
+    // (la notification de l'OCR, pas celle d'une partie précédente encore affichée).
+    const undo = await waitFor(
+      () =>
+        Array.from(document.querySelectorAll<HTMLButtonElement>('[aria-label="Notifications"] button')).find(
+          (b) => b.textContent?.trim() === "Annuler" && /mots reconnus/.test(b.parentElement?.textContent ?? ""),
+        ),
+      4000,
+    );
+    const ws = await words(doc.id);
+    const probe = ws.map((w) => w.t.trim().replace(/[^\p{L}\p{N}]/gu, "")).find((t) => t.length >= 7) ?? "";
+    const found = probe ? await engine.search(doc.id, 0, 1, probe, false, false) : null;
+    const tile1 = await fetch(engine.tileUrl(doc.id, gen(), 0, 0, 0.5, 0, 0)).then((x) => x.arrayBuffer()).catch(() => null);
+    const same = !!tile0 && !!tile1 && tile0.byteLength === tile1.byteLength && new Uint8Array(tile0).every((v, i) => v === new Uint8Array(tile1)[i]);
+    const spans = await waitFor(() => {
+      const n = document.querySelectorAll('[data-page-index="0"] span').length;
+      return n > 100 ? n : null;
+    }, 6000).catch(() => 0);
+    const message = toasts();
+    const bannerGone = !visible("[data-scanned-banner]");
+    r.recognized = { words: ws.length, probe, hits: found?.pages[0]?.hits.length ?? 0, sameLook: same, spans, message: /\d+ mots reconnus[^.]*\./.exec(message)?.[0] ?? message.slice(0, 80), bannerGone };
+    checks.recognized = ws.length >= 200 && !!found && (found.pages[0]?.hits.length ?? 0) > 0 && same && spans > 100 && /\d+ mots reconnus\./.test(message) && bannerGone;
+
+    step = "annuler";
+    const g1 = gen();
+    undo.click();
+    await waitFor(() => (gen() > g1 ? true : null), 8000);
+    const undone = (await words(doc.id)).length;
+    r.undo = { words: undone };
+    checks.undo = undone === 0;
+
+    step = "refaire, enregistrer, relire";
+    await engine.ocr(doc.id, { kind: "page", page: 0, lang: langs[0]?.tag ?? null, first: true, skipText: true });
+    const fin = await engine.ocr(doc.id, { kind: "finish" });
+    r.finish = !!fin.info;
+    const saved = await actions.save(doc.id);
+    await actions.closeDoc(doc.id);
+    await sleep(200);
+    const back = await actions.openPath(work);
+    if (!back) throw new Error("relecture impossible");
+    await waitFor(() => (actions.activeId() === back.id ? actions.doc() : null));
+    const reread = (await words(back.id)).length;
+    const noBanner = await sleep(800).then(() => !visible("[data-scanned-banner]"));
+    r.reload = { saved, words: reread, noBanner };
+    checks.reload = saved && reread >= 200 && noBanner;
+    await actions.closeDoc(back.id);
+
+    step = "page avec texte";
+    const t = await engine.open(dir + "01-texte-10p.pdf");
+    const kept = await engine.ocr(t.id, { kind: "page", page: 0, lang: langs[0]?.tag ?? null, first: true, skipText: true });
+    engine.close(t.id);
+    r.textPage = { skipped: kept.skipped, words: kept.words };
+    checks.textPage = kept.skipped && kept.words === 0;
+  } catch (err) {
+    r.error = `${step} : ${String(err)}`;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 5;
   return r;
 }

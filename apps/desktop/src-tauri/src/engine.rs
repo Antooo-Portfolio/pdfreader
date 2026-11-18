@@ -20,7 +20,7 @@ use tauri::http::Response;
 use tauri::{AppHandle, Emitter, Manager, UriSchemeResponder};
 use tokio::sync::oneshot;
 
-pub use crate::protocol::{AnnotOp, DocInfo, OpenResult, PageOp, PageTextOp, Request, SaveResult, StampOp, TextEditOp};
+pub use crate::protocol::{AnnotOp, DocInfo, OcrOp, OpenResult, PageOp, PageTextOp, Request, SaveResult, StampOp, TextEditOp};
 use crate::protocol::{Answer, Envelope, read_frame, write_frame};
 
 /// Pourquoi une demande n'a pas abouti.

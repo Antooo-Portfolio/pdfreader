@@ -121,6 +121,8 @@ pub enum Request {
     Pages { doc: u32, op: PageOp },
     /// Filigrane, en-têtes et pieds de page (annulable avec les pages).
     Stamps { doc: u32, op: StampOp },
+    /// Reconnaître le texte (OCR) : page par page, puis « finish » (annulable avec les pages).
+    Ocr { doc: u32, op: OcrOp },
     /// Écrit des pages dans un nouveau fichier.
     ExtractPages { doc: u32, pages: Vec<i32>, target: PathBuf },
     /// Découpe le document en fichiers de `per_file` pages dans `folder` ; renvoie les chemins écrits.
@@ -168,6 +170,7 @@ impl Request {
             | Close { doc }
             | Pages { doc, .. }
             | Stamps { doc, .. }
+            | Ocr { doc, .. }
             | PageText { doc, .. }
             | TextEdit { doc, .. }
             | ExtractPages { doc, .. }
@@ -195,6 +198,7 @@ impl Request {
             | SearchSnippets { .. }
             | Pages { .. }
             | Stamps { .. }
+            | Ocr { .. }
             | ExtractPages { .. }
             | SplitPages { .. }
             | ExportImage { .. }
@@ -231,6 +235,18 @@ pub enum PageTextOp {
 pub enum StampOp {
     Current,
     Apply { config: Box<eng::stamps::StampConfig>, date: String },
+    Remove,
+}
+
+/// Reconnaître le texte : langues disponibles ; une page (`first` : début d'une série, l'état
+/// d'avant est mémorisé pour annuler ; `skip_text` : page laissée telle quelle si elle a déjà du
+/// texte) ; fin de série (le document change de génération) ; retrait de la couche OCR.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum OcrOp {
+    Languages,
+    Page { page: i32, lang: Option<String>, first: bool, skip_text: bool },
+    Finish,
     Remove,
 }
 

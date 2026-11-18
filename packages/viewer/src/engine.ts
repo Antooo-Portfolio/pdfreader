@@ -439,6 +439,8 @@ export interface EngineClient {
   /** Filigrane, en-têtes et pieds de page : réglage en place, application, retrait (annulables
    *  avec les pages ; la génération du document change). */
   stamps(doc: number, op: StampOp): Promise<StampsResult>;
+  /** Reconnaître le texte (OCR, moteur de Windows) : langues, une page, fin de série, retrait. */
+  ocr(doc: number, op: OcrOp): Promise<OcrResult>;
   /** Écrit des pages dans un nouveau fichier ; renvoie sa taille. */
   extractPages(doc: number, pages: number[], path: string): Promise<number>;
   /** Découpe en fichiers de `perFile` pages dans `folder` ; renvoie les fichiers écrits. */
@@ -613,6 +615,28 @@ export interface StampsResult {
   /** Pages touchées (appliquer) ou objets retirés (retirer). */
   count: number;
   /** Document à jour (absent pour « current »). */
+  info: DocInfo | null;
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+/** Reconnaître le texte (OCR) : langues installées dans Windows, une page (`first` : début d'une
+ *  série, annulable en une fois), fin de série (nouvelle génération), retrait de la couche OCR. */
+export type OcrOp =
+  | { kind: "languages" }
+  | { kind: "page"; page: number; lang: string | null; first: boolean; skipText: boolean }
+  | { kind: "finish" }
+  | { kind: "remove" };
+export interface OcrLanguage {
+  tag: string;
+  name: string;
+}
+export interface OcrResult {
+  languages: OcrLanguage[];
+  /** Mots écrits sur la page (ou retirés). */
+  words: number;
+  /** Page laissée telle quelle : elle avait déjà du texte. */
+  skipped: boolean;
   info: DocInfo | null;
   canUndo: boolean;
   canRedo: boolean;

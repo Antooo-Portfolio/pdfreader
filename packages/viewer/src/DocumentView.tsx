@@ -24,6 +24,7 @@ import {
   TextCursorInput,
   Shrink,
   Droplets,
+  ScanText,
   LayoutGrid,
   Lock,
   FileSearch,
@@ -66,6 +67,7 @@ import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
 import { CompressDialog } from "./CompressDialog";
 import { StampsDialog } from "./StampsDialog";
+import { OcrDialog } from "./OcrDialog";
 import { ExportImageDialog } from "./ExportImageDialog";
 import { OrganizeView } from "./OrganizeView";
 import { ProtectDialog } from "./ProtectDialog";
@@ -787,6 +789,23 @@ export function DocumentView({
   const [protecting, setProtecting] = useState(false);
   const [compressing, setCompressing] = useState(false);
   const [stamping, setStamping] = useState(false);
+  const [ocring, setOcring] = useState(false);
+  /** Document numérisé (aucun texte sur ses premières pages) : bandeau qui propose l'OCR. */
+  const [scanned, setScanned] = useState(false);
+  const [scannedClosed, setScannedClosed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setScanned(false);
+    const first = Array.from({ length: Math.min(3, info.pageCount) }, (_, i) => i);
+    void Promise.all(first.map((p) => engine.textLayer(info.id, p).catch(() => [[{ t: "?" }]])))
+      .then((ls) => live && first.length > 0 && setScanned(ls.every((l) => l.flat().length === 0)))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+    // Une seule fois par document ouvert (pas après chaque modification).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine, info.id]);
   const [annots, setAnnots] = useState<Map<number, Annot[]>>(() => new Map());
   const annotsRef = useRef(annots);
   annotsRef.current = annots;
@@ -2035,6 +2054,18 @@ export function DocumentView({
             isDisabled={!canEditContent}
           />
           <IconButton
+            label={
+              canEditContent
+                ? t("Reconnaître le texte (OCR)")
+                : protectedOn
+                  ? t("Vue protégée : activez la modification pour reconnaître le texte")
+                  : t("Modification du contenu désactivée par l'auteur")
+            }
+            icon={<ScanText size={18} />}
+            onPress={() => setOcring(true)}
+            isDisabled={!canEditContent}
+          />
+          <IconButton
             label={protectedOn ? t("Vue protégée : activez la modification pour compresser le document") : t("Réduire la taille du fichier")}
             icon={<Shrink size={18} />}
             onPress={() => setCompressing(true)}
@@ -2354,6 +2385,21 @@ export function DocumentView({
           {canFill ? t("Ce document contient un formulaire : cliquez dans les champs pour les remplir (Tab passe au suivant).") : t("Ce document contient un formulaire, mais son auteur en a interdit le remplissage.")}
         </Banner>
       )}
+      {scanned && !scannedClosed && !immersive && (
+        <Banner
+          tone="info"
+          onDismiss={() => setScannedClosed(true)}
+          actions={
+            canEditContent ? (
+              <Button size="sm" variant="ghost" onPress={() => setOcring(true)}>
+                {t("Reconnaître le texte")}
+              </Button>
+            ) : undefined
+          }
+        >
+          <span data-scanned-banner>{t("Ce document semble numérisé : son texte n'est ni cherchable ni sélectionnable.")}</span>
+        </Banner>
+      )}
       {restricted && !restrictionsDismissed && !immersive && (
         <Banner tone="info" onDismiss={() => setRestrictionsDismissed(true)}>
           {t("L'auteur de ce document a désactivé : {restrictions}.", { restrictions })}
@@ -2634,6 +2680,21 @@ export function DocumentView({
       </div>
 
       {compressing && <CompressDialog engine={engine} info={info} onDone={onProtected} onClose={() => setCompressing(false)} />}
+      {ocring && (
+        <OcrDialog
+          engine={engine}
+          info={info}
+          currentPage={page}
+          onDone={(r, message, words) => {
+            if (r.info) onPagesChanged(r.info);
+            setPageHistory({ canUndo: r.canUndo, canRedo: r.canRedo });
+            setTextUndo(r.canUndo);
+            if (words > 0) setScannedClosed(true);
+            toast({ tone: words > 0 ? "success" : "info", message, action: r.canUndo ? { label: t("Annuler"), onAction: () => void undoTextRef.current() } : undefined });
+          }}
+          onClose={() => setOcring(false)}
+        />
+      )}
       {stamping && (
         <StampsDialog
           engine={engine}

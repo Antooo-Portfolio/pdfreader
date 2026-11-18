@@ -231,6 +231,7 @@ pub mod pagetext;
 pub mod textedit;
 pub mod stamps;
 pub mod frame;
+pub mod ocr;
 pub use frame::Frame;
 
 #[cfg(windows)]

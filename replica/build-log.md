@@ -891,3 +891,49 @@ testés. Flux (nouvelle et ancienne adresse) : 0.6.0. Site redéployé (ligne «
 filigrane, les en-têtes, pieds de page et numéros de page, fr et en). Vraie mise à jour 0.5.0 →
 0.6.0 par l'updater : téléchargée, signature vérifiée, installée, relancée en 0.6.0 avec son
 moteur séparé (essai dans l'espace de l'application Claude).
+
+## Phase 2 — lot « reconnaître le texte (OCR) » (2026-11-18)
+
+Branche `phase2-ocr`. `crates/engine/src/ocr.rs` : la page est rendue en image (300 ppp, au plus
+10 000 pixels de côté et 40 Mpx) et lue par le moteur OCR intégré à Windows
+(Windows.Media.Ocr, appelé par la caisse `windows`) : hors ligne, langues installées avec
+Windows (ici français et anglais), rien à embarquer dans l'installation (Tesseract, prévu au
+départ, n'est plus nécessaire). Chaque mot reconnu est écrit en texte invisible (mode de rendu
+3) exactement sur son encre : police à la hauteur de la ligne, mot étiré à la largeur lue, espace
+finale pour le copier-coller, placé par le repère de la page affichée (page pivotée comprise).
+
+- Objets marqués « PDFReaderOCR » : reconnaître de nouveau remplace la couche, et elle se
+  retire. « A déjà du texte » ignore cette couche (une page passée à l'OCR par un autre logiciel
+  compte comme ayant du texte).
+- Requête `Ocr` (languages / page / finish / remove) : page par page pour la progression et
+  l'arrêt ; l'état d'avant est mémorisé à la première page (annulation en une fois, pile des
+  pages) ; la fin de série change la génération du document.
+
+Interface : bouton « Reconnaître le texte (OCR) » dans la barre ; boîte : langue (celles de
+Windows, celle de l'interface par défaut), pages (toutes, affichée, plage), « laisser telles
+quelles les pages qui ont déjà du texte », progression, « Arrêter » ; message (mots reconnus,
+pages laissées) avec « Annuler ». À l'ouverture, si les premières pages n'ont aucun texte :
+bandeau « Ce document semble numérisé » avec « Reconnaître le texte ».
+
+Tests : `ocr_makes_scans_searchable` (moteur, sur `06-scan-sans-texte.pdf`) : 35 lignes, 314
+mots en 1,1 s ; rendu identique au pixel près ; plus de 90 % de l'encre dans les boîtes de mots ;
+un mot reconnu retrouvé par la recherche ; enregistré et relu ; nouvelle reconnaissance sans
+doublon ; retrait complet ; une page de texte « a déjà du texte », pas le scan.
+Partie `phase2ocr` du scénario (3 passages verts sur 19 parties) : bandeau « numérisé » sur le
+scan, son bouton ouvre la boîte, reconnaissance : 314 mots, mot retrouvé par la recherche (9
+fois), tuile identique, couche de texte dans la page, message, bandeau retiré ; « Annuler » de la
+notification ; refait, enregistré, relu (pas de bandeau) ; page de texte laissée telle quelle.
+Essai réel (souris et clavier) : bandeau, boîte, « Reconnaître », recherche « ligatures » (7
+résultats surlignés exactement sur les mots du scan), Ctrl+S ; pypdf relit les 314 mots, lignes
+dans l'ordre.
+
+Plus dur que prévu : attendre le résultat de l'OCR sur un fil initialisé en appartement unique
+bloque, et l'espace multithread de COM disparaît avec son dernier fil (fabriques gardées en cache
+par `windows` → objet libéré, plantage) : chaque appel tourne sur un fil à lui et l'espace
+multithread est gardé en vie pour le processus (CoIncrementMTAUsage). Les champs d'une opération
+(`skipText`) demandaient `rename_all_fields`.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| OCR d'un document scanné | 2026-11-18 | fait | texte vertical ou très penché (l'OCR de Windows lit les lignes horizontales) ; langues non installées dans Windows | appartement COM et durée de vie de l'espace multithread |
+| Détection d'un scan + suggestion | 2026-11-18 | fait | — | — |

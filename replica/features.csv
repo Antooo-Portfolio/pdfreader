@@ -88,8 +88,8 @@ Filigrane / arrière-plan,édition,should,yes,partial,"Phase 2 : boîte « Filig
 En-tête / pied de page / numéros de page,édition,should,yes,yes,"Phase 2 : même boîte : en-tête et pied de page à gauche, au centre et à droite, champs numéro de page, nombre de pages, date, nom du fichier (boutons d'insertion) ; taille, couleur, marge, premier numéro, pages choisies (toutes, choisies dans l'organisation ou plage) ; placés selon la page affichée (rotation comprise) ; réglage relu au retour dans la boîte"
 Numérotation Bates,édition,could,yes,no,niche juridique ; Pro chez Adobe
 Correcteur orthographique,édition,could,yes,no,
-OCR d'un document scanné,ocr,should,yes,no,S25 F16 ; Tesseract
-Détection auto d'un scan + suggestion d'OCR,ocr,should,yes,no,bandeau dans S03
+OCR d'un document scanné,ocr,should,yes,yes,"Phase 2 : boîte « Reconnaître le texte (OCR) » : moteur OCR intégré à Windows (Windows.Media.Ocr, hors ligne, langues installées avec Windows, aucun ajout à l'installation), page rendue à 300 ppp, mots écrits en texte invisible exactement sur l'encre (aspect inchangé) : page cherchable, sélectionnable, copiable ; langue au choix, toutes les pages, la page affichée ou une plage, pages qui ont déjà du texte laissées telles quelles ; progression page par page, arrêt, annulation en une fois ; nouvelle reconnaissance qui remplace l'ancienne couche. Remplace Tesseract (prévu) : rien à embarquer"
+Détection auto d'un scan + suggestion d'OCR,ocr,should,yes,yes,"Phase 2 : à l'ouverture, si les premières pages n'ont aucun texte : bandeau « Ce document semble numérisé » avec « Reconnaître le texte »"
 Redresser / améliorer un scan,ocr,could,yes,no,
 Numériser depuis un scanner (TWAIN / WIA),ocr,could,yes,no,desktop seulement
 Caviarder (marquer / rechercher / appliquer),sécurité,should,yes,no,S23 F14 ; suppression réelle du contenu
