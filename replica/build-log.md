@@ -869,3 +869,17 @@ puis la page pivotée garde l'ancienne position mémorisée pour sa modification
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | Pages pivotées | 2026-11-18 | fait | icône des notes non redressée | former les mots d'un texte vertical à l'écran (angle des lettres en sens horaire) |
+
+## Version 0.6.0 — préparation (2026-11-18)
+
+Branche `release-0.6.0` : version 0.6.0, notes dans `tools/release/notes/0.6.0.md` (filigrane,
+en-têtes, pieds de page et numéros de page ; correctif des pages pivotées), site : la ligne
+« Modifier » cite le filigrane, les en-têtes, pieds de page et numéros de page (fr, en).
+
+Construit : setup normal signé (9,9 Mo) et setup hors ligne (217 Mo, WebView2 signé par
+Microsoft). Vérifié : signature Ed25519 du setup valide pour la clé publique de l'application
+(fichier et commentaire signés), latest.json en 0.6.0, aucun chemin personnel dans l'exécutable ;
+mise à niveau silencieuse 0.5.0 → 0.6.0 en 3,8 s, données identiques, lecteur par défaut
+inchangé ; scénario complet vert sur la 0.6.0 installée (18 parties) ; 0.5.0 officielle
+réinstallée (empreinte identique à la Release) pour essayer la vraie mise à jour après
+publication.
