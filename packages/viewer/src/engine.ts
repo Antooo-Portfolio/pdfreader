@@ -436,6 +436,9 @@ export interface EngineClient {
   pageText(doc: number, page: number, op: PageTextOp): Promise<{ id: string | null; blocks: TextBlock[] }>;
   /** Organiser les pages du document ouvert (annulable) ; la génération du document change. */
   pages(doc: number, op: PageOp): Promise<PagesResult>;
+  /** Filigrane, en-têtes et pieds de page : réglage en place, application, retrait (annulables
+   *  avec les pages ; la génération du document change). */
+  stamps(doc: number, op: StampOp): Promise<StampsResult>;
   /** Écrit des pages dans un nouveau fichier ; renvoie sa taille. */
   extractPages(doc: number, pages: number[], path: string): Promise<number>;
   /** Découpe en fichiers de `perFile` pages dans `folder` ; renvoie les fichiers écrits. */
@@ -575,6 +578,45 @@ export interface TextLine {
   embedded: boolean;
 }
 export type TextEditOp = { kind: "list" } | { kind: "edit"; objects: number[]; expected: string; text: string };
+
+/** Filigrane, en-têtes et pieds de page. Champs remplacés page par page : {page}, {pages},
+ *  {date}, {fichier} (ou {file}). */
+export interface Watermark {
+  text: string;
+  size: number;
+  color: Rgb;
+  /** De 0,05 à 1. */
+  opacity: number;
+  diagonal: boolean;
+}
+export interface StampBand {
+  left: string;
+  center: string;
+  right: string;
+}
+export interface StampConfig {
+  watermark: Watermark | null;
+  header: StampBand;
+  footer: StampBand;
+  /** Taille du texte des en-têtes et pieds de page (points). */
+  size: number;
+  color: Rgb;
+  /** Distance au bord (points). */
+  margin: number;
+  /** Pages concernées (index à partir de 0) ; vide : toutes. */
+  pages: number[];
+  firstNumber: number;
+}
+export type StampOp = { kind: "current" } | { kind: "apply"; config: StampConfig; date: string } | { kind: "remove" };
+export interface StampsResult {
+  current: StampConfig | null;
+  /** Pages touchées (appliquer) ou objets retirés (retirer). */
+  count: number;
+  /** Document à jour (absent pour « current »). */
+  info: DocInfo | null;
+  canUndo: boolean;
+  canRedo: boolean;
+}
 
 export type PageTextOp =
   | { kind: "list" }

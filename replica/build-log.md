@@ -783,3 +783,51 @@ testés. Flux (nouvelle et ancienne adresse) : 0.5.0. Site redéployé (« rédu
 « Modifier »). Vraie mise à jour 0.4.0 → 0.5.0 par l'updater : téléchargée, signature vérifiée,
 installée, relancée en 0.5.0 avec son moteur séparé (essai dans l'espace de l'application
 Claude). Premier essai gêné par une instance restée ouverte : réussi au second.
+
+## Phase 2 — lot « filigrane, en-têtes et pieds de page » (2026-11-18)
+
+Branche `phase2-filigrane`. `crates/engine/src/stamps.rs` : un réglage (`StampConfig`) écrit sur
+les pages choisies un filigrane et des en-têtes et pieds de page, en vrai texte dans le contenu
+(imprimé, cherchable, sélectionnable).
+
+- Filigrane : texte gras centré, en diagonale (45°) ou à l'horizontale, taille, couleur, opacité
+  (alpha du remplissage : vraie transparence, sans mélange de couleur).
+- En-tête et pied de page : gauche, centre, droite ; champs `{page}`, `{pages}`, `{date}`,
+  `{fichier}` (ou `{file}`) remplis page par page ; premier numéro au choix ; marge, taille,
+  couleur.
+- Placé d'après la page affichée : sur une page pivotée (/Rotate), le point et l'angle sont
+  convertis vers le contenu, le texte reste droit et aux bons bords.
+- Objets marqués « PDFReaderStamp », le réglage complet (JSON en hexadécimal) sur le premier :
+  appliquer de nouveau remplace l'ancien jeu, « Tout retirer » enlève tout, la boîte reprend le
+  réglage en place. Les lignes marquées sont ignorées par « Modifier le texte ».
+- Requête `Stamps` (current / apply / remove) : annulable dans la pile des pages, nouvelle
+  génération du document. Annuler et rétablir sont permis à qui peut modifier le contenu, même
+  sans le droit d'assembler.
+
+Interface : bouton « Filigrane, en-têtes et pieds de page » dans la barre ; boîte avec filigrane
+(case, texte, taille, couleur, opacité, orientation), six zones de texte, boutons d'insertion des
+champs dans la dernière zone utilisée, taille, marge (mm), premier numéro, couleur, pages (toutes,
+choisies, plage) ; par défaut « Page {page} sur {pages} » en bas au centre ; notification avec
+« Annuler ».
+
+Tests : `watermark_headers_and_numbers` (moteur) : réglage relu, en-tête gauche et droite et pied
+centré aux bons endroits, numéros remplis, filigrane centré et en diagonale, rouge pâle (pas de
+rouge plein) ; page pivotée vérifiée sur l'image affichée (texte droit, aux bons bords) ; nouvelle
+application sur 3 pages numérotées à partir de 10 qui remplace l'ancienne ; enregistré, relu, tout
+retiré, caractères d'origine intacts. Partie `phase2stamps` du scénario : boîte ouverte depuis la
+barre, filigrane coché et renommé, nom du fichier inséré, appliqué, annulé depuis la notification,
+appliqué de nouveau, boîte qui reprend le réglage, enregistré et relu, tout retiré. (4 passages
+verts sur 18 parties). Essai réel (souris et clavier) : boîte ouverte, filigrane coché, « COPIE »
+tapé, date insérée en haut à droite, Appliquer, Ctrl+S ; captures ; pypdf relit filigrane, numéros
+et date (pages 1 et 10). L'essai a montré un débordement des trois zones d'en-tête (champ de
+droite coupé) : corrigé (grille de trois colonnes, boîte plus large).
+
+Trouvé en route (antérieur à ce lot, non corrigé ici) : sur une page pivotée par /Rotate, les
+coordonnées envoyées à l'interface (couche de texte, annotations, champs, texte ajouté, lignes à
+modifier) sont celles du contenu non pivoté retournées avec la hauteur de la page affichée : elles
+tombent au mauvais endroit.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Filigrane / arrière-plan | 2026-11-18 | partiel | filigrane image ; arrière-plan ; filigrane derrière le texte | texte en diagonale lu en morceaux par PDFium (vérifié par la boîte englobante) |
+| En-tête / pied de page / numéros | 2026-11-18 | fait | — | ordre de lecture et découpage des mots changent quand le contenu est régénéré |

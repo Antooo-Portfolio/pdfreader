@@ -93,6 +93,7 @@ export const tauriEngine: EngineClient = {
   exportImage: (doc, page, options, path, unique) => invoke("doc_export_image", { doc, page, options, path, unique }),
   pages: (doc, op) => invoke<PagesResult>("doc_pages", { doc, op }),
   pageText: (doc, page, op) => invoke("doc_page_text", { doc, page, op }),
+  stamps: (doc, op) => invoke("doc_stamps", { doc, op }),
   textEdit: (doc, page, op) => invoke("doc_text_edit", { doc, page, op }),
   extractPages: (doc, pages, path) => invoke<number>("doc_extract_pages", { doc, pages, path }),
   splitPages: (doc, perFile, folder) => invoke<string[]>("doc_split_pages", { doc, perFile, folder }),

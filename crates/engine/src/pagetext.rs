@@ -96,11 +96,11 @@ fn standard_encodable(c: char) -> bool {
     matches!(c as u32, 0x20..=0x7E | 0xA0..=0xFF) || "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".contains(c)
 }
 
-fn hex(s: &str) -> String {
+pub(crate) fn hex(s: &str) -> String {
     s.bytes().map(|b| format!("{b:02x}")).collect()
 }
 
-fn unhex(s: &str) -> Option<String> {
+pub(crate) fn unhex(s: &str) -> Option<String> {
     let bytes: Option<Vec<u8>> = (0..s.len()).step_by(2).map(|i| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok())).collect();
     String::from_utf8(bytes?).ok()
 }

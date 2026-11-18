@@ -119,6 +119,8 @@ pub enum Request {
     PageText { doc: u32, page: i32, op: PageTextOp },
     /// Organiser les pages du document ouvert (annulable).
     Pages { doc: u32, op: PageOp },
+    /// Filigrane, en-têtes et pieds de page (annulable avec les pages).
+    Stamps { doc: u32, op: StampOp },
     /// Écrit des pages dans un nouveau fichier.
     ExtractPages { doc: u32, pages: Vec<i32>, target: PathBuf },
     /// Découpe le document en fichiers de `per_file` pages dans `folder` ; renvoie les chemins écrits.
@@ -165,6 +167,7 @@ impl Request {
             | Search { doc, .. }
             | Close { doc }
             | Pages { doc, .. }
+            | Stamps { doc, .. }
             | PageText { doc, .. }
             | TextEdit { doc, .. }
             | ExtractPages { doc, .. }
@@ -191,6 +194,7 @@ impl Request {
             | Search { .. }
             | SearchSnippets { .. }
             | Pages { .. }
+            | Stamps { .. }
             | ExtractPages { .. }
             | SplitPages { .. }
             | ExportImage { .. }
@@ -218,6 +222,16 @@ pub enum PageTextOp {
     List,
     Set { id: Option<String>, x: f32, y: f32, text: String, style: eng::pagetext::TextStyle },
     Delete { id: String },
+}
+
+/// Filigrane, en-têtes et pieds de page : réglage en place, application (remplace l'ancien jeu ;
+/// `date` remplit {date}), retrait.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum StampOp {
+    Current,
+    Apply { config: Box<eng::stamps::StampConfig>, date: String },
+    Remove,
 }
 
 /// Opération sur les pages (index dans l'ordre actuel du document).

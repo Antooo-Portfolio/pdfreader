@@ -14,7 +14,7 @@ use pdfreader_engine as eng;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::protocol::{AnnotOp, Answer, DocInfo, Envelope, OpenResult, PageOp, PageTextOp, Request, SaveResult, TextEditOp, read_frame, write_frame};
+use crate::protocol::{AnnotOp, Answer, DocInfo, Envelope, OpenResult, PageOp, PageTextOp, Request, SaveResult, StampOp, TextEditOp, read_frame, write_frame};
 
 /// Commentaire créé (s'il y en a un) et liste à jour des commentaires de la page.
 #[derive(Debug, Serialize)]
@@ -252,6 +252,9 @@ pub fn main(lib_dir: PathBuf) {
             }
             Request::Pages { doc, op } => {
                 out.reply(id, page_op(pdfium, &mut docs, doc, op));
+            }
+            Request::Stamps { doc, op } => {
+                out.reply(id, stamps(pdfium, &mut docs, doc, op));
             }
             Request::ExtractPages { doc, pages, target } => {
                 let r = get(&docs, doc).and_then(|e| {
@@ -581,6 +584,59 @@ fn text_edit(docs: &mut HashMap<u32, Entry>, doc: u32, page: i32, op: TextEditOp
     Ok(TextEditResult { lines: eng::textedit::lines(&p, page), kept_font, can_undo: !e.undo.is_empty() })
 }
 
+/// Filigrane, en-têtes et pieds de page : réglage en place ; après application ou retrait, document
+/// à jour (nouvelle génération : toutes les pages changent) et nombre de pages ou d'objets touchés.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StampsResult {
+    current: Option<eng::stamps::StampConfig>,
+    count: usize,
+    info: Option<DocInfo>,
+    can_undo: bool,
+    can_redo: bool,
+}
+
+fn stamps(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, op: StampOp) -> Result<StampsResult, String> {
+    let e = docs.get_mut(&id).ok_or("document fermé")?;
+    if matches!(op, StampOp::Current) {
+        return Ok(StampsResult { current: eng::stamps::current(&e.doc), count: 0, info: None, can_undo: !e.undo.is_empty(), can_redo: !e.redo.is_empty() });
+    }
+    if !eng::permissions(&e.doc).modify {
+        return Err("modify_forbidden".into());
+    }
+    let before = page_state(e);
+    let file = e.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let r = match &op {
+        StampOp::Apply { config, date } => eng::stamps::apply(&e.doc, &mut e.fonts, config, &file, date),
+        StampOp::Remove => eng::stamps::remove(&e.doc),
+        StampOp::Current => unreachable!(),
+    };
+    let count = match r {
+        Ok(n) => n,
+        Err(err) => {
+            // Une page refusée en route peut laisser les autres déjà modifiées.
+            if let Some(s) = before {
+                restore(pdfium, e, s)?;
+            }
+            return Err(err.to_string());
+        }
+    };
+    if count > 0 || matches!(op, StampOp::Apply { .. }) {
+        match before {
+            Some(s) => {
+                e.undo.push(s);
+                while e.undo.len() > UNDO_STATES || e.undo.iter().map(|s| s.bytes.len()).sum::<usize>() > UNDO_TOTAL {
+                    e.undo.remove(0);
+                }
+            }
+            None => e.undo.clear(),
+        }
+        e.redo.clear();
+        e.generation += 1;
+    }
+    Ok(StampsResult { current: eng::stamps::current(&e.doc), count, info: Some(info_of(id, e)), can_undo: !e.undo.is_empty(), can_redo: !e.redo.is_empty() })
+}
+
 /// Texte ajouté dans le contenu de la page : liste, ajout ou remplacement, suppression ; renvoie les
 /// blocs de la page et l'identifiant du bloc écrit.
 #[derive(Debug, Serialize)]
@@ -641,7 +697,9 @@ fn restore(pdfium: &'static Pdfium, e: &mut Entry, s: PageState) -> Result<(), S
 fn page_op(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, op: PageOp) -> Result<PagesResult, String> {
     use eng::pages;
     let e = docs.get_mut(&id).ok_or("document fermé")?;
-    if !eng::permissions(&e.doc).assemble {
+    let rights = eng::permissions(&e.doc);
+    let history = matches!(op, PageOp::Undo | PageOp::Redo);
+    if !rights.assemble && !(history && rights.modify) {
         return Err("assemble_forbidden".into());
     }
     let mut map = None;

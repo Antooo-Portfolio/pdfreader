@@ -115,7 +115,8 @@ fn our_object(b: &dyn PdfiumLibraryBindings, obj: FPDF_PAGEOBJECT) -> bool {
         unsafe { b.FPDFPageObjMark_GetName(m, std::ptr::null_mut(), 0, &mut len) };
         let mut buf = vec![0u16; len as usize / 2 + 1];
         unsafe { b.FPDFPageObjMark_GetName(m, buf.as_mut_ptr() as _, (buf.len() * 2) as c_ulong, &mut len) };
-        utf16(&buf) == "PDFReaderText"
+        let n = utf16(&buf);
+        n == "PDFReaderText" || n == "PDFReaderStamp"
     })
 }
 

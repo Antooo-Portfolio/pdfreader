@@ -81,6 +81,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.phase2compress = await runPhase2Compress(engine, actions, path);
     steps.phase2pagetext = await runPhase2PageText(engine, actions, path);
     steps.phase2textedit = await runPhase2TextEdit(engine, actions, path);
+    steps.phase2stamps = await runPhase2Stamps(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -99,7 +100,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.phase2password as { ok: boolean }).ok &&
       (steps.phase2compress as { ok: boolean }).ok &&
       (steps.phase2pagetext as { ok: boolean }).ok &&
-      (steps.phase2textedit as { ok: boolean }).ok;
+      (steps.phase2textedit as { ok: boolean }).ok &&
+      (steps.phase2stamps as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -1964,5 +1966,113 @@ export async function runStage(stage: string, engine: EngineClient, actions: App
     r.error = String(e);
     r.ok = false;
   }
+  return r;
+}
+
+/** Phase 2, « Filigrane, en-têtes et pieds de page » : boîte ouverte depuis la barre, filigrane
+ *  coché et renommé, nom du fichier inséré dans l'en-tête, numéros de page en bas ; appliqué à
+ *  toutes les pages, annulé depuis la notification, appliqué de nouveau, boîte qui reprend le
+ *  réglage, enregistré et relu, puis tout retiré. */
+async function runPhase2Stamps(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  const visible = <T extends Element>(sel: string) => Array.from(document.querySelectorAll<T>(sel)).find((el) => !el.closest("[hidden]") && !el.closest(".hidden"));
+  const button = (label: string) => visible<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  const dialogButton = (text: string) => Array.from(document.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")).find((b) => b.textContent?.trim() === text);
+  /** Champ de la boîte d'après le texte de son étiquette. */
+  const field = (label: string) => {
+    const l = Array.from(document.querySelectorAll<HTMLLabelElement>("[data-stamps] label")).find((x) => x.textContent?.trim() === label);
+    return l?.htmlFor ? (document.getElementById(l.htmlFor) as HTMLInputElement | null) : null;
+  };
+  const slot = (s: string) => document.querySelector<HTMLInputElement>(`[data-stamp-slot="${s}"] input, input[data-stamp-slot="${s}"]`);
+  const text = async (id: number, page: number) => (await engine.textLayer(id, page)).flat().map((w) => w.t).join("");
+  let step = "début";
+  try {
+    const work = dir + "filigrane.pdf";
+    await engine.combine([dir + "01-texte-10p.pdf"], work, { size: { kind: "a4" }, margin: 0 });
+    const doc = await actions.openPath(work);
+    if (!doc) throw new Error("copie introuvable");
+    await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    const gen = () => actions.openDocs().find((d) => d.id === doc.id)?.generation ?? 0;
+    const openDialog = async () => {
+      (await waitFor(() => button("Filigrane, en-têtes et pieds de page"), 6000)).click();
+      await waitFor(() => visible("[data-stamps]"), 4000);
+      await sleep(150);
+    };
+
+    step = "boîte";
+    await openDialog();
+    const defaultFooter = slot("fc")?.value ?? null;
+    const box = await waitFor(() => Array.from(document.querySelectorAll<HTMLInputElement>("[data-stamps] input[type=checkbox]"))[0], 3000);
+    box.click();
+    const wmText = await waitFor(() => field("Texte du filigrane"), 3000);
+    setNativeValue(wmText, "BROUILLON");
+    const hl = await waitFor(() => slot("hl"), 3000);
+    hl.focus();
+    hl.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    await sleep(50);
+    (await waitFor(() => dialogButton("Nom du fichier"), 3000)).click();
+    await sleep(100);
+    const headerLeft = slot("hl")?.value ?? null;
+    r.dialog = { defaultFooter, headerLeft };
+    checks.dialog = defaultFooter === "Page {page} sur {pages}" && headerLeft === "{fichier}";
+
+    step = "appliquer";
+    const g0 = gen();
+    (await waitFor(() => dialogButton("Appliquer"), 3000)).click();
+    await waitFor(() => (gen() > g0 && !visible("[data-stamps]") ? true : null), 10000);
+    const p1 = await text(doc.id, 0);
+    const p5 = await text(doc.id, 4);
+    const tile = await fetch(engine.tileUrl(doc.id, gen(), 0, 0, 0.3, 0, 0)).then((x) => x.ok).catch(() => false);
+    r.applied = { p1: p1.slice(-120), watermark: p1.includes("BROUILLON"), file: p1.includes("filigrane.pdf"), p5: p5.includes("Page 5 sur 10"), tile };
+    checks.applied = p1.includes("Page 1 sur 10") && p1.includes("BROUILLON") && p1.includes("filigrane.pdf") && p5.includes("Page 5 sur 10") && tile;
+
+    step = "annuler";
+    const g1 = gen();
+    const undo = await waitFor(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[aria-label="Notifications"] button')).find((b) => b.textContent?.trim() === "Annuler"), 4000);
+    undo.click();
+    await waitFor(() => (gen() > g1 ? true : null), 8000);
+    const undone = await text(doc.id, 0);
+    r.undo = { undone: !undone.includes("Page 1 sur") && !undone.includes("BROUILLON") };
+    checks.undo = !undone.includes("Page 1 sur") && !undone.includes("BROUILLON");
+
+    step = "de nouveau";
+    await openDialog();
+    const fresh = !dialogButton("Tout retirer");
+    const g2 = gen();
+    (await waitFor(() => dialogButton("Appliquer"), 3000)).click();
+    await waitFor(() => (gen() > g2 && !visible("[data-stamps]") ? true : null), 10000);
+    await openDialog();
+    const reopened = { remove: !!dialogButton("Tout retirer"), footer: slot("fc")?.value ?? null };
+    (await waitFor(() => dialogButton("Annuler"), 3000)).click();
+    await waitFor(() => (!visible("[data-stamps]") ? true : null), 3000);
+    r.again = { fresh, reopened };
+    checks.again = fresh && reopened.remove && reopened.footer === "Page {page} sur {pages}";
+
+    step = "enregistrer et relire";
+    const saved = await actions.save(doc.id);
+    await actions.closeDoc(doc.id);
+    await sleep(200);
+    const back = await actions.openPath(work);
+    if (!back) throw new Error("relecture impossible");
+    await waitFor(() => (actions.activeId() === back.id ? actions.doc() : null));
+    const reread = await text(back.id, 2);
+    const cur = await engine.stamps(back.id, { kind: "current" });
+    r.reload = { saved, page3: reread.includes("Page 3 sur 10"), current: !!cur.current };
+    checks.reload = saved && reread.includes("Page 3 sur 10") && !!cur.current && !cur.current.watermark;
+
+    step = "retirer";
+    const removed = await engine.stamps(back.id, { kind: "remove" });
+    const clean = await text(back.id, 2);
+    r.remove = { count: removed.count, clean: !clean.includes("Page 3 sur") };
+    checks.remove = removed.count === 10 && !clean.includes("Page 3 sur") && removed.current === null;
+    await actions.save(back.id);
+    await actions.closeDoc(back.id);
+  } catch (err) {
+    r.error = `${step} : ${String(err)}`;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 6;
   return r;
 }

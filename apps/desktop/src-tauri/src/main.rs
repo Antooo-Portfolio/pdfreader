@@ -9,7 +9,7 @@ mod protocol;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use engine::{AnnotOp, DocInfo, Engine, PageOp, PageTextOp, Request, SaveResult, TextEditOp};
+use engine::{AnnotOp, DocInfo, Engine, PageOp, PageTextOp, Request, SaveResult, StampOp, TextEditOp};
 use pdfreader_engine::OpenError;
 use serde_json::Value;
 use tauri::http::Response;
@@ -590,6 +590,12 @@ async fn doc_set_bookmarks(doc: u32, items: Vec<pdfreader_engine::outline::Outli
     engine.ask(Request::SetBookmarks { doc, items }).await
 }
 
+/// Filigrane, en-têtes et pieds de page : réglage en place, application, retrait (annulables).
+#[tauri::command]
+async fn doc_stamps(doc: u32, op: StampOp, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::Stamps { doc, op }).await
+}
+
 /// Texte existant d'une page : lignes, ou modification d'une ligne (annulable avec les pages).
 #[tauri::command]
 async fn doc_text_edit(doc: u32, page: i32, op: TextEditOp, engine: State<'_, Engine>) -> Result<Value, String> {
@@ -1082,6 +1088,7 @@ fn main() {
             doc_properties,
             doc_pages,
             doc_page_text,
+            doc_stamps,
             doc_text_edit,
             doc_extract_pages,
             doc_split_pages,

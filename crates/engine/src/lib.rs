@@ -229,6 +229,7 @@ pub mod security;
 pub mod compress;
 pub mod pagetext;
 pub mod textedit;
+pub mod stamps;
 
 #[cfg(windows)]
 pub mod print_win;

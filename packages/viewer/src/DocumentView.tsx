@@ -23,6 +23,7 @@ import {
   Italic,
   TextCursorInput,
   Shrink,
+  Droplets,
   LayoutGrid,
   Lock,
   FileSearch,
@@ -64,6 +65,7 @@ import type { DocInfo, FontFamily, SaveResult, TextBlock, TextLine, TextStyle, R
 import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
 import { CompressDialog } from "./CompressDialog";
+import { StampsDialog } from "./StampsDialog";
 import { ExportImageDialog } from "./ExportImageDialog";
 import { OrganizeView } from "./OrganizeView";
 import { ProtectDialog } from "./ProtectDialog";
@@ -784,6 +786,7 @@ export function DocumentView({
   const [exportImage, setExportImage] = useState<{ chosen?: number[] } | null>(null);
   const [protecting, setProtecting] = useState(false);
   const [compressing, setCompressing] = useState(false);
+  const [stamping, setStamping] = useState(false);
   const [annots, setAnnots] = useState<Map<number, Annot[]>>(() => new Map());
   const annotsRef = useRef(annots);
   annotsRef.current = annots;
@@ -2020,6 +2023,18 @@ export function DocumentView({
             isDisabled={!perms.copy}
           />
           <IconButton
+            label={
+              canEditContent
+                ? t("Filigrane, en-têtes et pieds de page")
+                : protectedOn
+                  ? t("Vue protégée : activez la modification pour ajouter un filigrane")
+                  : t("Modification du contenu désactivée par l'auteur")
+            }
+            icon={<Droplets size={18} />}
+            onPress={() => setStamping(true)}
+            isDisabled={!canEditContent}
+          />
+          <IconButton
             label={protectedOn ? t("Vue protégée : activez la modification pour compresser le document") : t("Réduire la taille du fichier")}
             icon={<Shrink size={18} />}
             onPress={() => setCompressing(true)}
@@ -2619,6 +2634,19 @@ export function DocumentView({
       </div>
 
       {compressing && <CompressDialog engine={engine} info={info} onDone={onProtected} onClose={() => setCompressing(false)} />}
+      {stamping && (
+        <StampsDialog
+          engine={engine}
+          info={info}
+          onApplied={(r, message) => {
+            if (r.info) onPagesChanged(r.info);
+            setPageHistory({ canUndo: r.canUndo, canRedo: r.canRedo });
+            setTextUndo(r.canUndo);
+            toast({ tone: "success", message, action: r.canUndo ? { label: t("Annuler"), onAction: () => void undoTextRef.current() } : undefined });
+          }}
+          onClose={() => setStamping(false)}
+        />
+      )}
       {protecting && <ProtectDialog engine={engine} info={info} onDone={onProtected} onClose={() => setProtecting(false)} />}
       {exportImage && <ExportImageDialog engine={engine} info={info} currentPage={page} chosen={exportImage.chosen} onClose={() => setExportImage(null)} />}
       {sigDialog && (
