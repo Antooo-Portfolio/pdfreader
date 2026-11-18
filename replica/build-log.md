@@ -775,3 +775,11 @@ acceptée, aucun chemin personnel ; mise à niveau silencieuse 0.4.0 → 0.5.0 e
 identiques, lecteur par défaut inchangé ; scénario complet vert sur la 0.5.0 installée (17
 parties) ; flux publié lu (rien à proposer) ; 0.4.0 officielle réinstallée (empreinte identique à
 la Release) pour essayer la vraie mise à jour après publication.
+
+## Version 0.5.0 — publiée (2026-11-18)
+
+Release `v0.5.0` : deux setups, signature, latest.json ; empreintes identiques aux fichiers
+testés. Flux (nouvelle et ancienne adresse) : 0.5.0. Site redéployé (« réduire la taille »,
+« Modifier »). Vraie mise à jour 0.4.0 → 0.5.0 par l'updater : téléchargée, signature vérifiée,
+installée, relancée en 0.5.0 avec son moteur séparé (essai dans l'espace de l'application
+Claude). Premier essai gêné par une instance restée ouverte : réussi au second.
