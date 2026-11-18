@@ -107,7 +107,7 @@ pub fn search_snippets(doc: &PdfDocument, from: i32, count: i32, query: &str, ma
     let total = doc.pages().len();
     for index in from.max(0)..from.saturating_add(count).min(total) {
         let page = doc.pages().get(index).map_err(|e| anyhow!("{e:?}"))?;
-        let page_h = page.height().value;
+        let frame = crate::Frame::of(&page);
         let tp = unsafe { b.FPDFText_LoadPage(page.raw_handle()) };
         if tp.is_null() {
             continue;
@@ -128,7 +128,8 @@ pub fn search_snippets(doc: &PdfDocument, from: i32, count: i32, query: &str, ma
                     let (mut l, mut t, mut rt, mut bt) = (0.0, 0.0, 0.0, 0.0);
                     if unsafe { b.FPDFText_GetRect(tp, r, &mut l, &mut t, &mut rt, &mut bt) } != 0 {
                         let (l, t, rt, bt) = (l as f32, t as f32, rt as f32, bt as f32);
-                        rects.push([l, page_h - t, (rt - l).max(0.5), (t - bt).max(0.5)]);
+                        let [x, y, w, h] = frame.rect_to_top(l, bt, rt, t);
+                        rects.push([x, y, w.max(0.5), h.max(0.5)]);
                     }
                 }
                 let b0 = (start - CONTEXT_CHARS).max(0);

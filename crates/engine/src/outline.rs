@@ -51,7 +51,7 @@ fn text_string(s: &str) -> Object {
 struct Ctx<'a> {
     doc: &'a mut lopdf::Document,
     pages: Vec<ObjectId>,
-    heights: Vec<f32>,
+    frames: Vec<crate::Frame>,
 }
 
 /// Écrit les enfants de `parent` ; renvoie (premier, dernier, nombre de descendants visibles).
@@ -76,12 +76,10 @@ fn write_level(ctx: &mut Ctx, parent: ObjectId, items: &[OutlineItem], depth: us
             a.set("S", Object::Name(b"URI".to_vec()));
             a.set("URI", Object::String(uri.as_bytes().to_vec(), StringFormat::Literal));
             d.set("A", Object::Dictionary(a));
-        } else if let (true, Some(&page_id), Some(&h)) = (item.page >= 0, ctx.pages.get(item.page.max(0) as usize), ctx.heights.get(item.page.max(0) as usize)) {
-            let top = match item.top {
-                Some(t) => Object::Real((h - t).clamp(0.0, h)),
-                None => Object::Null,
-            };
-            d.set("Dest", Object::Array(vec![Object::Reference(page_id), Object::Name(b"XYZ".to_vec()), Object::Null, top, Object::Null]));
+        } else if let (true, Some(&page_id), Some(f)) = (item.page >= 0, ctx.pages.get(item.page.max(0) as usize), ctx.frames.get(item.page.max(0) as usize)) {
+            let (left, top) = item.top.map(|t| f.dest_of_top(t)).unwrap_or((None, None));
+            let num = |v: Option<f32>| v.map(Object::Real).unwrap_or(Object::Null);
+            d.set("Dest", Object::Array(vec![Object::Reference(page_id), Object::Name(b"XYZ".to_vec()), num(left), num(top), Object::Null]));
         }
         // Les enfants : dépliés (Count positif) pour qu'ils se voient tout de suite.
         if let Some((first, last, n)) = write_level(ctx, ids[i], &item.children, depth + 1)? {
@@ -96,9 +94,9 @@ fn write_level(ctx: &mut Ctx, parent: ObjectId, items: &[OutlineItem], depth: us
     Ok(Some((ids[0], ids[ids.len() - 1], total)))
 }
 
-/// Remplace les signets du fichier `path` (déjà enregistré) par `items` ; `heights` : hauteur de
-/// chaque page en points (pour convertir l'ordonnée).
-pub fn write(path: &Path, items: &[OutlineItem], heights: &[f32]) -> Result<()> {
+/// Remplace les signets du fichier `path` (déjà enregistré) par `items` ; `frames` : repère de
+/// chaque page affichée (pour convertir le haut visé, rotation comprise).
+pub fn write(path: &Path, items: &[OutlineItem], frames: &[crate::Frame]) -> Result<()> {
     if count(items) > MAX_ITEMS {
         bail!("trop de signets");
     }
@@ -115,15 +113,15 @@ pub fn write(path: &Path, items: &[OutlineItem], heights: &[f32]) -> Result<()> 
         let root = prev.trailer.get(b"Root").and_then(|r| r.as_reference()).context("catalogue introuvable")?;
         (root, prev.get_pages().into_values().collect::<Vec<_>>())
     };
-    if pages.len() != heights.len() {
-        bail!("pages incohérentes ({} lues, {} attendues)", pages.len(), heights.len());
+    if pages.len() != frames.len() {
+        bail!("pages incohérentes ({} lues, {} attendues)", pages.len(), frames.len());
     }
     inc.opt_clone_object_to_new_document(root_id).map_err(|e| anyhow::anyhow!("{e}"))?;
     let outlines = if items.is_empty() {
         None
     } else {
         let outlines_id = inc.new_document.new_object_id();
-        let mut ctx = Ctx { doc: &mut inc.new_document, pages, heights: heights.to_vec() };
+        let mut ctx = Ctx { doc: &mut inc.new_document, pages, frames: frames.to_vec() };
         let level = write_level(&mut ctx, outlines_id, items, 0)?;
         let mut d = Dictionary::new();
         d.set("Type", Object::Name(b"Outlines".to_vec()));

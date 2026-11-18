@@ -142,32 +142,17 @@ pub fn current(doc: &PdfDocument) -> Option<StampConfig> {
     None
 }
 
-/// Point de la page affichée (depuis le haut à gauche) vers les coordonnées du contenu, et angle
-/// du texte (degrés, sens trigonométrique) pour qu'il soit droit à l'affichage.
-fn to_content(rot: i32, w: f32, h: f32, xd: f32, yd: f32) -> (f32, f32, f32) {
-    // w, h : taille du contenu (non pivoté).
-    match rot.rem_euclid(4) {
-        1 => (yd, xd, 90.0),
-        2 => (w - xd, yd, 180.0),
-        3 => (w - yd, h - xd, 270.0),
-        _ => (xd, h - yd, 0.0),
-    }
-}
-
 /// Place un texte : `anchor` (0 gauche, 0,5 centre, 1 droite) au point affiché (xd, yd = ligne de
 /// base), avec une rotation supplémentaire `extra` (degrés) autour de ce point.
 #[allow(clippy::too_many_arguments)]
-fn place(doc: &PdfDocument, page: &PdfPage, fonts: &mut FontCache, text: &str, style: &TextStyle, alpha: u8, rot: i32, xd: f32, yd: f32, anchor: f32, extra: f32, config_json: Option<&str>) -> Result<()> {
+fn place(doc: &PdfDocument, page: &PdfPage, fonts: &mut FontCache, text: &str, style: &TextStyle, alpha: u8, frame: &crate::Frame, xd: f32, yd: f32, anchor: f32, extra: f32, config_json: Option<&str>) -> Result<()> {
     let b = raw_bindings();
     let obj = crate::pagetext::new_text_object(doc, fonts, text, style)?;
     let (mut l, mut bt, mut r, mut t) = (0f32, 0f32, 0f32, 0f32);
     unsafe { b.FPDFPageObj_GetBounds(obj, &mut l, &mut bt, &mut r, &mut t) };
     let width = r - l;
-    // Taille du contenu non pivoté.
-    let (dw, dh) = (page.width().value, page.height().value);
-    let (cw, ch) = if rot % 2 == 1 { (dh, dw) } else { (dw, dh) };
-    let (x, y, base) = to_content(rot, cw, ch, xd, yd);
-    let a = (base + extra).to_radians();
+    let (x, y) = frame.to_content(xd, frame.height() - yd);
+    let a = (frame.angle() + extra).to_radians();
     let (cos, sin) = (a.cos() as f64, a.sin() as f64);
     // Décalage le long de la ligne de base pour l'alignement, puis rotation et placement.
     let shift = -(width * anchor) as f64;
@@ -204,8 +189,8 @@ pub fn apply(doc: &PdfDocument, fonts: &mut FontCache, config: &StampConfig, fil
         let page = doc.pages().get(p)?;
         remove_page(&page);
         if wanted.contains(&p) {
-            let rot = unsafe { b.FPDFPage_GetRotation(page.raw_handle()) };
-            let (dw, dh) = (page.width().value, page.height().value);
+            let frame = crate::Frame::of(&page);
+            let (dw, dh) = (frame.width(), frame.height());
             let f = Fields { page: config.first_number + wanted.iter().position(|x| *x == p).unwrap_or(0) as i32, pages: config.first_number - 1 + wanted.len() as i32, date, file };
             let tag = |first: &mut bool| -> Option<String> { if std::mem::take(first) { Some(json.clone()) } else { None } };
             if let Some(w) = &config.watermark
@@ -218,14 +203,14 @@ pub fn apply(doc: &PdfDocument, fonts: &mut FontCache, config: &StampConfig, fil
                 let extra = if w.diagonal { 45.0f32 } else { 0.0 };
                 let dy = st.size * 0.33;
                 let (cx, cy) = (dw / 2.0 + dy * extra.to_radians().sin(), dh / 2.0 + dy * extra.to_radians().cos());
-                place(doc, &page, fonts, &fill(&w.text, &f), &st, alpha, rot, cx, cy, 0.5, extra, tag(&mut first).as_deref())?;
+                place(doc, &page, fonts, &fill(&w.text, &f), &st, alpha, &frame, cx, cy, 0.5, extra, tag(&mut first).as_deref())?;
             }
             for (band, top) in [(&config.header, true), (&config.footer, false)] {
                 let yd = if top { margin + size * 0.8 } else { dh - margin };
                 for (txt, x, anchor) in [(&band.left, margin, 0.0), (&band.center, dw / 2.0, 0.5), (&band.right, dw - margin, 1.0)] {
                     let s = fill(txt, &f);
                     if !s.trim().is_empty() {
-                        place(doc, &page, fonts, &s, &band_style, 255, rot, x, yd, anchor, 0.0, tag(&mut first).as_deref())?;
+                        place(doc, &page, fonts, &s, &band_style, 255, &frame, x, yd, anchor, 0.0, tag(&mut first).as_deref())?;
                     }
                 }
             }

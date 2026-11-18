@@ -146,7 +146,7 @@ unsafe fn our_mark(b: &dyn PdfiumLibraryBindings, obj: FPDF_PAGEOBJECT) -> Optio
 pub fn list(page: &PdfPage, index: i32) -> Vec<TextBlock> {
     let b = raw_bindings();
     let h = page.raw_handle();
-    let page_h = page.height().value;
+    let frame = crate::Frame::of(page);
     let mut blocks: Vec<TextBlock> = Vec::new();
     let mut bounds: HashMap<String, (f32, f32, f32, f32)> = HashMap::new();
     let count = unsafe { b.FPDFPage_CountObjects(h) };
@@ -171,7 +171,7 @@ pub fn list(page: &PdfPage, index: i32) -> Vec<TextBlock> {
     }
     for blk in &mut blocks {
         if let Some((l, bt, r, t)) = bounds.get(&blk.id) {
-            blk.rect = [*l, page_h - t, r - l, t - bt];
+            blk.rect = frame.rect_to_top(*l, *bt, *r, *t);
         }
     }
     blocks.sort_by(|a, b| a.rect[1].total_cmp(&b.rect[1]).then(a.rect[0].total_cmp(&b.rect[0])));
@@ -198,8 +198,9 @@ pub fn set(doc: &PdfDocument, page: &mut PdfPage, fonts: &mut FontCache, id: Opt
     let style = TextStyle { size: style.size.clamp(4.0, 144.0), ..*style };
     let b = raw_bindings();
     let id = id.map(str::to_string).unwrap_or_else(new_id);
-    let page_h = page.height().value;
-    let top = page_h - y;
+    // Construit dans le repère de la page affichée, puis ramené au contenu (texte droit à l'écran).
+    let frame = crate::Frame::of(page);
+    let top = frame.height() - y;
     let style_json = serde_json::to_string(&style)?;
     // Une seule police pour tout le bloc (standard si tout y entre, sinon TrueType).
     let whole: String = text.replace('\n', " ");
@@ -211,6 +212,7 @@ pub fn set(doc: &PdfDocument, page: &mut PdfPage, fonts: &mut FontCache, id: Opt
         unsafe {
             // Ligne de base : hauteur de capitale (≈ 0,8 em) sous le haut, interligne 1,2.
             b.FPDFPageObj_Transform(obj, 1.0, 0.0, 0.0, 1.0, x as f64, (top - style.size * 0.8 - style.size * 1.2 * i as f32) as f64);
+            frame.place(obj);
             let m = b.FPDFPageObj_AddMark(obj, MARK);
             b.FPDFPageObjMark_SetStringParam(doc.raw_handle(), obj, m, "id", &id);
             b.FPDFPage_InsertObject(page.raw_handle(), obj);

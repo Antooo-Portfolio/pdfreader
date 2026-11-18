@@ -124,6 +124,8 @@ fn our_object(b: &dyn PdfiumLibraryBindings, obj: FPDF_PAGEOBJECT) -> bool {
 fn objects(page: &PdfPage) -> Vec<Obj> {
     let b = raw_bindings();
     let h = page.raw_handle();
+    // Positions et sens du texte lus dans le repère de la page affichée (rotation comprise).
+    let frame = crate::Frame::of(page);
     let tp = unsafe { b.FPDFText_LoadPage(h) };
     let mut out = Vec::new();
     let count = unsafe { b.FPDFPage_CountObjects(h) };
@@ -147,7 +149,16 @@ fn objects(page: &PdfPage) -> Vec<Obj> {
         unsafe { b.FPDFTextObj_GetFontSize(obj, &mut fs) };
         let size = fs * (m.c * m.c + m.d * m.d).sqrt();
         let font = unsafe { b.FPDFTextObj_GetFont(obj) };
-        out.push(Obj { index: i, handle: obj, text, l, b: bt, r, t, y: m.f, size, font, horizontal: m.b.abs() < 1e-3 && m.c.abs() < 1e-3 && m.a > 0.0 });
+        let (l, bt, r, t) = frame.rect_to_view(l, bt, r, t);
+        let (_, y) = frame.to_view(m.e, m.f);
+        // Sens du texte ramené à l'affichage : un quart de tour de moins par quart de page.
+        let (a, mb, c) = match frame.rot {
+            1 => (m.b, -m.a, m.d),
+            2 => (-m.a, -m.b, -m.c),
+            3 => (-m.b, m.a, -m.d),
+            _ => (m.a, m.b, m.c),
+        };
+        out.push(Obj { index: i, handle: obj, text, l, b: bt, r, t, y, size, font, horizontal: mb.abs() < 1e-3 && c.abs() < 1e-3 && a > 0.0 });
     }
     if !tp.is_null() {
         unsafe { b.FPDFText_ClosePage(tp) };
@@ -196,7 +207,7 @@ fn join(objs: &[&Obj]) -> String {
 /// Lignes de texte modifiables de la page.
 pub fn lines(page: &PdfPage, index: i32) -> Vec<TextLine> {
     let b = raw_bindings();
-    let page_h = page.height().value;
+    let page_h = crate::Frame::of(page).height();
     let objs = objects(page);
     group(&objs)
         .into_iter()

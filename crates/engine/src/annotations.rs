@@ -256,7 +256,8 @@ fn is_comment(subtype: i32) -> bool {
     !matches!(subtype, LINK | POPUP | WIDGET | XFAWIDGET) && subtype > 0
 }
 
-fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
+fn info(raw: &Raw, index: i32, page_index: i32, frame: &crate::Frame) -> Option<Annot> {
+    let page_h = frame.height();
     let subtype = raw.subtype();
     if !is_comment(subtype) {
         return None;
@@ -275,7 +276,7 @@ fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
             let ys = [q.y1, q.y2, q.y3, q.y4];
             let (x0, x1) = (xs.iter().cloned().fold(f32::MAX, f32::min), xs.iter().cloned().fold(f32::MIN, f32::max));
             let (y0, y1) = (ys.iter().cloned().fold(f32::MAX, f32::min), ys.iter().cloned().fold(f32::MIN, f32::max));
-            boxes.push([x0, page_h - y1, x1 - x0, y1 - y0]);
+            boxes.push(frame.rect_to_top(x0, y0, x1, y1));
         }
     }
     let mut strokes = Vec::new();
@@ -288,7 +289,14 @@ fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
             }
             let mut pts = vec![FS_POINTF { x: 0.0, y: 0.0 }; len as usize];
             unsafe { raw.b.FPDFAnnot_GetInkListPath(raw.annot, i, pts.as_mut_ptr(), len) };
-            strokes.push(pts.iter().map(|p| [p.x, page_h - p.y]).collect());
+            strokes.push(
+                pts.iter()
+                    .map(|p| {
+                        let (x, y) = frame.to_view(p.x, p.y);
+                        [x, page_h - y]
+                    })
+                    .collect(),
+            );
         }
     }
     let flags = unsafe { raw.b.FPDFAnnot_GetFlags(raw.annot) };
@@ -321,7 +329,7 @@ fn info(raw: &Raw, index: i32, page_index: i32, page_h: f32) -> Option<Annot> {
         id,
         page: page_index,
         kind,
-        rect: [l, page_h - t, rt - l, t - b],
+        rect: frame.rect_to_top(l, b, rt, t),
         boxes,
         strokes,
         color: raw.color(),
@@ -368,12 +376,12 @@ fn floats<const N: usize>(s: &str) -> Option<[f32; N]> {
 /// Commentaires d'une page.
 pub fn list(page: &PdfPage, page_index: i32) -> Vec<Annot> {
     let b = raw_bindings();
-    let page_h = page.height().value;
+    let frame = crate::Frame::of(page);
     let mut out = Vec::new();
     let mut states: Vec<(String, &'static str, String)> = Vec::new();
     for i in 0..count(page).min(5000) {
         let Some(raw) = open_annot(b, page, i) else { continue };
-        let Some(a) = info(&raw, i, page_index, page_h) else { continue };
+        let Some(a) = info(&raw, i, page_index, &frame) else { continue };
         if let (Some(parent), Some((_, v))) = (a.reply_to.clone(), foreign_state(&raw)) {
             states.push((parent, v, a.modified.clone().unwrap_or_default()));
             continue;
@@ -476,17 +484,18 @@ pub fn add_markup(page: &mut PdfPage, kind: &str, rects: &[[f32; 4]], rgb: [u8; 
         bail!("sélection vide");
     }
     let b = raw_bindings();
+    let frame = crate::Frame::of(page);
     let name = {
         let raw = create(b, page, subtype)?;
         let (mut l, mut bt, mut r, mut t) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         for &[x0, y0, x1, y1] in rects {
-            // Ordre attendu : haut-gauche, haut-droit, bas-gauche, bas-droit.
-            let q = FS_QUADPOINTSF { x1: x0, y1, x2: x1, y2: y1, x3: x0, y3: y0, x4: x1, y4: y0 };
+            let q = frame.quad(x0, y0, x1, y1);
             unsafe { b.FPDFAnnot_AppendAttachmentPoints(raw.annot, &q) };
-            l = l.min(x0);
-            bt = bt.min(y0);
-            r = r.max(x1);
-            t = t.max(y1);
+            let (cl, cb, cr, ct) = frame.rect_to_content(x0, y0, x1, y1);
+            l = l.min(cl);
+            bt = bt.min(cb);
+            r = r.max(cr);
+            t = t.max(ct);
         }
         set_rect(&raw, l, bt, r, t);
         raw.set_color(rgb, opacity);
@@ -499,11 +508,12 @@ pub fn add_markup(page: &mut PdfPage, kind: &str, rects: &[[f32; 4]], rgb: [u8; 
 /// Note (icône de commentaire) dont le coin haut gauche est en (`x`, `y`) depuis le haut.
 pub fn add_note(page: &mut PdfPage, x: f32, y: f32, contents: &str, rgb: [u8; 3], author: &str) -> Result<String> {
     let b = raw_bindings();
-    let page_h = page.height().value;
+    let frame = crate::Frame::of(page);
     let name = {
         let raw = create(b, page, TEXT)?;
-        let top = page_h - y;
-        set_rect(&raw, x, top - 20.0, x + 20.0, top);
+        let top = frame.height() - y;
+        let (l, bt, r, t) = frame.rect_to_content(x, top - 20.0, x + 20.0, top);
+        set_rect(&raw, l, bt, r, t);
         raw.set_color(rgb, 1.0);
         raw.set_string("Contents", contents);
         raw.set_string("Name", "Comment");
@@ -524,13 +534,21 @@ fn add_ink_kind(page: &mut PdfPage, strokes: &[Vec<[f32; 2]>], rgb: [u8; 3], opa
         bail!("tracé vide");
     }
     let b = raw_bindings();
-    let page_h = page.height().value;
+    let frame = crate::Frame::of(page);
+    let page_h = frame.height();
     let width = width.clamp(0.25, 48.0);
     let name = {
         let raw = create(b, page, INK)?;
         let (mut l, mut bt, mut r, mut t) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         for s in &strokes {
-            let pts: Vec<FS_POINTF> = s.iter().take(20_000).map(|p| FS_POINTF { x: p[0], y: page_h - p[1] }).collect();
+            let pts: Vec<FS_POINTF> = s
+                .iter()
+                .take(20_000)
+                .map(|p| {
+                    let (x, y) = frame.to_content(p[0], page_h - p[1]);
+                    FS_POINTF { x, y }
+                })
+                .collect();
             for p in &pts {
                 l = l.min(p.x);
                 r = r.max(p.x);
@@ -600,7 +618,8 @@ fn cloud_path(poly: &[[f32; 2]], r: f32) -> Vec<[f32; 2]> {
 /// arrivée. Polygone, polyligne, nuage : les sommets.
 #[allow(clippy::too_many_arguments)]
 pub fn add_shape(page: &mut PdfPage, kind: &str, points: &[[f32; 2]], rgb: [u8; 3], opacity: f32, width: f32, fill: Option<[u8; 3]>, author: &str) -> Result<String> {
-    let page_h = page.height().value;
+    let frame = crate::Frame::of(page);
+    let page_h = frame.height();
     let width = width.clamp(0.25, 48.0);
     let pts: Vec<[f32; 2]> = points.iter().take(2000).copied().collect();
     let need = match kind {
@@ -622,7 +641,8 @@ pub fn add_shape(page: &mut PdfPage, kind: &str, points: &[[f32; 2]], rgb: [u8; 
             }
             let name = {
                 let raw = create(b, page, if kind == "square" { SQUARE } else { CIRCLE })?;
-                set_rect(&raw, x0, page_h - y1, x1, page_h - y0);
+                let (l, bt, r, t) = frame.rect_to_content(x0, page_h - y1, x1, page_h - y0);
+                set_rect(&raw, l, bt, r, t);
                 unsafe { b.FPDFAnnot_SetBorder(raw.annot, 0.0, 0.0, width) };
                 raw.set_color(rgb, opacity);
                 if let Some(f) = fill {

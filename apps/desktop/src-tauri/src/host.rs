@@ -183,7 +183,7 @@ pub fn main(lib_dir: PathBuf) {
                 let r = get(&docs, doc).and_then(|e| {
                     eng::save(&e.doc, &target, true).map_err(|e| e.to_string())?;
                     if let Some(items) = &e.outline {
-                        let _ = eng::outline::write(&target, items, &heights(&e.doc));
+                        let _ = eng::outline::write(&target, items, &frames(&e.doc));
                     }
                     Ok(std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0))
                 });
@@ -531,7 +531,7 @@ fn save(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, target
         }
     })?;
     if let Some(items) = &e.outline {
-        eng::outline::write(&target, items, &heights(&e.doc)).map_err(|err| {
+        eng::outline::write(&target, items, &frames(&e.doc)).map_err(|err| {
             let m = err.to_string();
             if m.contains("encrypted") || m.contains("file_too_big") { m } else { format!("bookmarks_failed: {m}") }
         })?;
@@ -864,7 +864,7 @@ fn rewrite_doc(
     if let Some(items) = &e.outline {
         let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let tmp = std::env::temp_dir().join(format!("pdfreader-{}-{nonce}.pdf", std::process::id()));
-        let r = std::fs::write(&tmp, &plain).map_err(|e| e.to_string()).and_then(|_| eng::outline::write(&tmp, items, &heights(&e.doc)).map_err(|e| e.to_string())).and_then(|_| std::fs::read(&tmp).map_err(|e| e.to_string()));
+        let r = std::fs::write(&tmp, &plain).map_err(|e| e.to_string()).and_then(|_| eng::outline::write(&tmp, items, &frames(&e.doc)).map_err(|e| e.to_string())).and_then(|_| std::fs::read(&tmp).map_err(|e| e.to_string()));
         let _ = std::fs::remove_file(&tmp);
         plain = r?;
     }
@@ -980,8 +980,8 @@ fn combine(pdfium: &'static Pdfium, sources: &[PathBuf], target: &Path, image_pa
     Ok(out.pages().len())
 }
 
-fn heights(doc: &PdfDocument) -> Vec<f32> {
-    doc.pages().iter().map(|p| p.height().value).collect()
+fn frames(doc: &PdfDocument) -> Vec<eng::Frame> {
+    doc.pages().iter().map(|p| eng::Frame::of(&p)).collect()
 }
 
 /// Signets en attente, présentés comme ceux lus dans le fichier.

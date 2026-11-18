@@ -55,17 +55,16 @@ pub enum LinkAction {
 
 fn goto_of(doc: &PdfDocument, dest: &PdfDestination) -> Option<LinkAction> {
     let page = dest.page_index().ok()? as i32;
-    let page_h = doc.pages().page_size(page as PdfPageIndex).ok().map(|r| r.height().value);
-    let y = match dest.view_settings().ok() {
-        Some(PdfDestinationViewSettings::SpecificCoordinatesAndZoom(_, y, _)) => y,
-        Some(PdfDestinationViewSettings::FitPageHorizontallyToWindow(y)) => y,
-        Some(PdfDestinationViewSettings::FitBoundsHorizontallyToWindow(y)) => y,
-        _ => None,
+    let frame = doc.pages().get(page as PdfPageIndex).ok().map(|p| crate::Frame::of(&p));
+    let (x, y) = match dest.view_settings().ok() {
+        Some(PdfDestinationViewSettings::SpecificCoordinatesAndZoom(x, y, _)) => (x, y),
+        Some(PdfDestinationViewSettings::FitPageHorizontallyToWindow(y)) => (None, y),
+        Some(PdfDestinationViewSettings::FitBoundsHorizontallyToWindow(y)) => (None, y),
+        Some(PdfDestinationViewSettings::FitPageVerticallyToWindow(x)) => (x, None),
+        Some(PdfDestinationViewSettings::FitBoundsVerticallyToWindow(x)) => (x, None),
+        _ => (None, None),
     };
-    let top = match (y, page_h) {
-        (Some(y), Some(h)) => Some((h - y.value).clamp(0.0, h)),
-        _ => None,
-    };
+    let top = frame.and_then(|f| f.top_of_dest(x.map(|v| v.value), y.map(|v| v.value)));
     Some(LinkAction::Goto { page, top })
 }
 
@@ -99,7 +98,7 @@ pub struct PageLink {
 }
 
 pub fn page_links(doc: &PdfDocument, page: &PdfPage) -> Vec<PageLink> {
-    let page_h = page.height().value;
+    let frame = crate::Frame::of(page);
     let mut out = Vec::new();
     for link in page.links().iter().take(2000) {
         let Ok(r) = link.rect() else { continue };
@@ -108,7 +107,8 @@ pub fn page_links(doc: &PdfDocument, page: &PdfPage) -> Vec<PageLink> {
             continue;
         }
         let (l, b, rt, t) = (r.left().value, r.bottom().value, r.right().value, r.top().value);
-        out.push(PageLink { x: l.min(rt), y: page_h - t.max(b), w: (rt - l).abs(), h: (t - b).abs(), action });
+        let [x, y, w, h] = frame.rect_to_top(l.min(rt), b.min(t), l.max(rt), b.max(t));
+        out.push(PageLink { x, y, w, h, action });
     }
     out
 }
@@ -171,7 +171,7 @@ pub fn search(doc: &PdfDocument, from: i32, count: i32, query: &str, match_case:
     let mut batch = SearchBatch { pages: Vec::new(), pages_with_text: 0 };
     for index in from.max(0)..(from.saturating_add(count)).min(total) {
         let page = doc.pages().get(index).map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        let page_h = page.height().value;
+        let frame = crate::Frame::of(&page);
         let text = page.text().map_err(|e| anyhow::anyhow!("{e:?}"))?;
         if text.len() > 0 {
             batch.pages_with_text += 1;
@@ -187,7 +187,8 @@ pub fn search(doc: &PdfDocument, from: i32, count: i32, query: &str, match_case:
                 .map(|s| {
                     let r = s.bounds();
                     let (l, b, rt, t) = (r.left().value, r.bottom().value, r.right().value, r.top().value);
-                    [l, page_h - t, (rt - l).max(0.5), (t - b).max(0.5)]
+                    let [x, y, w, h] = frame.rect_to_top(l, b, rt, t);
+                    [x, y, w.max(0.5), h.max(0.5)]
                 })
                 .collect();
             if !rects.is_empty() {

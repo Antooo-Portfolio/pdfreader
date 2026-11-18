@@ -116,6 +116,9 @@ impl Drop for FormPage<'_> {
 pub(crate) struct Annot<'a> {
     pub(crate) b: &'a dyn PdfiumLibraryBindings,
     pub(crate) h: FPDF_ANNOTATION,
+    /// Repère de la page affichée : les tampons sont construits dans son repère « up », puis
+    /// ramenés au contenu (rectangle et objets de l'apparence).
+    pub(crate) frame: crate::Frame,
 }
 
 impl Drop for Annot<'_> {
@@ -126,7 +129,7 @@ impl Drop for Annot<'_> {
 
 pub(crate) fn get_annot<'a>(b: &'a dyn PdfiumLibraryBindings, page: FPDF_PAGE, index: i32) -> Option<Annot<'a>> {
     let h = unsafe { b.FPDFPage_GetAnnot(page, index) };
-    (!h.is_null()).then_some(Annot { b, h })
+    (!h.is_null()).then_some(Annot { b, h, frame: crate::Frame::plain(0.0, 0.0) })
 }
 
 fn rect_of(b: &dyn PdfiumLibraryBindings, a: FPDF_ANNOTATION) -> Option<(f32, f32, f32, f32)> {
@@ -154,7 +157,7 @@ fn kind_of(t: i32) -> &'static str {
 pub fn fields(doc: &PdfDocument, page: &PdfPage, page_index: i32) -> Vec<Field> {
     let Some(fp) = FormPage::new(doc, page) else { return Vec::new() };
     let b = fp.b;
-    let page_h = page.height().value;
+    let frame = crate::Frame::of(page);
     let n = unsafe { b.FPDFPage_GetAnnotCount(fp.page) };
     let mut out = Vec::new();
     for i in 0..n.min(5000) {
@@ -187,7 +190,7 @@ pub fn fields(doc: &PdfDocument, page: &PdfPage, page_index: i32) -> Vec<Field> 
             label: if alt.trim().is_empty() { name.clone() } else { alt },
             name,
             kind: kind_of(t),
-            rect: [l, page_h - tp, r - l, tp - bt],
+            rect: frame.rect_to_top(l, bt, r, tp),
             value,
             checked,
             export_value,
@@ -312,12 +315,13 @@ fn new_stamp<'a>(b: &'a dyn PdfiumLibraryBindings, page: &PdfPage) -> Result<Ann
     if h.is_null() {
         bail!("PDFium n'a pas pu créer l'annotation");
     }
-    Ok(Annot { b, h })
+    Ok(Annot { b, h, frame: crate::Frame::of(page) })
 }
 
 fn finish_stamp(a: &Annot, kind: &str, contents: &str, author: &str, rect: (f32, f32, f32, f32)) -> Result<String> {
     let b = a.b;
-    let r = FS_RECTF { left: rect.0, bottom: rect.1, right: rect.2, top: rect.3 };
+    let (l, bt, rt, t) = a.frame.rect_to_content(rect.0, rect.1, rect.2, rect.3);
+    let r = FS_RECTF { left: l, bottom: bt, right: rt, top: t };
     unsafe { b.FPDFAnnot_SetRect(a.h, &r) };
     let name = format!("pdfreader-{kind}-{}", pdf_date_now().trim_start_matches("D:").trim_end_matches('Z'));
     let name = format!("{name}-{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0));
@@ -336,6 +340,7 @@ fn finish_stamp(a: &Annot, kind: &str, contents: &str, author: &str, rect: (f32,
 }
 
 fn append(a: &Annot, obj: Obj) -> Result<()> {
+    unsafe { a.frame.place(obj.h) };
     if unsafe { a.b.FPDFAnnot_AppendObject(a.h, obj.h) } == 0 {
         unsafe { a.b.FPDFPageObj_Destroy(obj.h) };
         bail!("PDFium a refusé l'objet");
@@ -352,7 +357,7 @@ pub fn add_text(doc: &PdfDocument, page: &mut PdfPage, x: f32, y: f32, text: &st
     }
     let b = raw_bindings();
     let size = size.clamp(4.0, 144.0);
-    let page_h = page.height().value;
+    let page_h = crate::Frame::of(page).height();
     let top = page_h - y;
     let a = new_stamp(b, page)?;
     let mut objs = Vec::new();
@@ -394,7 +399,7 @@ pub fn add_text(doc: &PdfDocument, page: &mut PdfPage, x: f32, y: f32, text: &st
 pub fn add_mark(page: &mut PdfPage, x: f32, y: f32, size: f32, cross: bool, rgb: [u8; 3], author: &str) -> Result<String> {
     let b = raw_bindings();
     let s = size.clamp(4.0, 96.0);
-    let page_h = page.height().value;
+    let page_h = crate::Frame::of(page).height();
     let (x0, y1) = (x, page_h - y);
     let y0 = y1 - s;
     let a = new_stamp(b, page)?;
@@ -436,7 +441,7 @@ pub fn add_image(doc: &PdfDocument, page: &mut PdfPage, rect: [f32; 4], png: &[u
     }
     let b = raw_bindings();
     let [x, y, rw, rh] = rect;
-    let page_h = page.height().value;
+    let page_h = crate::Frame::of(page).height();
     let a = new_stamp(b, page)?;
     let name = finish_stamp(&a, kind, if kind == "initials" { "Initiales" } else { "Signature" }, author, (x, page_h - y - rh, x + rw, page_h - y))?;
     unsafe {
@@ -583,7 +588,7 @@ pub fn add_textbox(
     }
     let b = raw_bindings();
     let size = size.clamp(4.0, 144.0);
-    let page_h = page.height().value;
+    let page_h = crate::Frame::of(page).height();
     let pad = (size * 0.4).max(3.0);
     let [x, y, w, min_h] = rect;
     let w = w.max(size * 3.0);
@@ -700,7 +705,7 @@ pub fn add_preset_stamp(doc: &PdfDocument, page: &mut PdfPage, x: f32, y: f32, p
     }
     let subtitle = subtitle.map(|s| s.trim().chars().take(80).collect::<String>()).filter(|s| !s.is_empty());
     let b = raw_bindings();
-    let page_h = page.height().value;
+    let page_h = crate::Frame::of(page).height();
     let (size, small) = (18.0f32, 8.0f32);
     let pad = 8.0f32;
     let tw = text_width_in(b, doc, &label, size, "Helvetica-Bold");

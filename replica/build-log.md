@@ -831,3 +831,41 @@ tombent au mauvais endroit.
 | --- | --- | --- | --- | --- |
 | Filigrane / arrière-plan | 2026-11-18 | partiel | filigrane image ; arrière-plan ; filigrane derrière le texte | texte en diagonale lu en morceaux par PDFium (vérifié par la boîte englobante) |
 | En-tête / pied de page / numéros | 2026-11-18 | fait | — | ordre de lecture et découpage des mots changent quand le contenu est régénéré |
+
+## Phase 2 — correctif « pages pivotées » (2026-11-18)
+
+Branche `phase2-rotation`. Défaut trouvé pendant le lot précédent : sur une page pivotée par
+/Rotate (après « Organiser → pivoter », fréquent dans les PDF numérisés), toutes les positions
+échangées avec l'interface étaient celles du contenu non pivoté retournées avec la hauteur de la
+page affichée. Texte sélectionnable, recherche, liens, commentaires, champs, texte ajouté et
+lignes à modifier tombaient au mauvais endroit ; ce qu'on y ajoutait aussi.
+
+`crates/engine/src/frame.rs` : repère de la page affichée (boîte de la page, décalage compris, et
+rotation). Conversions point et rectangle dans les deux sens, matrice pour placer un objet
+construit à l'écran, points d'attache d'un surlignage dans l'ordre de l'affichage, haut de page
+visé par une destination (lecture et écriture des signets). Le moteur calculait déjà tout dans le
+repère de la page affichée : la conversion est ajoutée à chaque entrée et sortie.
+
+- Lecture : couche de texte, recherche (deux chemins), lignes à modifier, liens, destinations,
+  commentaires (rectangle, zones de surlignage, tracés), champs, texte ajouté.
+- Écriture : surlignage et marquages, note, dessin, formes, tampons de « Remplir et signer »
+  (rectangle et objets de l'apparence : texte, coche, signature, zone de texte, légende, tampons
+  prédéfinis), texte écrit dans la page, filigrane, signets.
+- Couche de texte : les mots se forment dans le sens de lecture des lettres (angle de PDFium,
+  mesuré en sens horaire), puis leur boîte passe dans la page affichée. Le texte d'une page
+  pivotée (vertical à l'écran) et le texte ajouté droit à l'écran donnent de vrais mots.
+
+Tests : `frame` (aller-retour des conversions, 4 rotations, boîte décalée) et
+`rotated_pages_use_displayed_coordinates` (moteur), pour chaque quart de tour : plus de 95 % de
+l'encre du rendu dans les boîtes de mots ; recherche et ligne à modifier sur le même mot ;
+rectangle relu à sa place et dessiné là ; tracé relu tel quel ; surlignage d'un mot relu sur le
+mot et dessiné ; texte de « Remplir et signer » relu à sa place et droit à l'écran ; texte écrit
+dans la page droit et relu par la couche de texte ; destination de signet aller-retour ;
+enregistré puis relu. Tous les tests existants inchangés et verts.
+
+Limites : l'icône d'une note suit le contenu (pivotée avec la page) ; une zone de texte créée
+puis la page pivotée garde l'ancienne position mémorisée pour sa modification.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Pages pivotées | 2026-11-18 | fait | icône des notes non redressée | former les mots d'un texte vertical à l'écran (angle des lettres en sens horaire) |

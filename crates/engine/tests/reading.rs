@@ -236,10 +236,10 @@ fn outline_write_and_reload() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("signets.pdf");
     // Comme dans l'application : PDFium enregistre d'abord (mise à jour incrémentale).
-    let heights: Vec<f32> = {
+    let heights: Vec<eng::Frame> = {
         let doc = eng::open_typed(&pdfium, &text, None).unwrap();
         eng::save(&doc, &path, true).unwrap();
-        doc.pages().iter().map(|p| p.height().value).collect()
+        doc.pages().iter().map(|p| eng::Frame::of(&p)).collect()
     };
     let items = vec![
         OutlineItem { title: "Introduction".into(), page: 0, top: None, uri: None, children: vec![] },
@@ -291,7 +291,7 @@ fn outline_write_and_reload() {
     let enc_copy = dir.join("chiffre.pdf");
     std::fs::copy(&enc, &enc_copy).unwrap();
     let before = std::fs::read(&enc_copy).unwrap();
-    let err = write(&enc_copy, &items, &[792.0; 10]).unwrap_err().to_string();
+    let err = write(&enc_copy, &items, &[eng::Frame::plain(612.0, 792.0); 10]).unwrap_err().to_string();
     assert!(err.contains("encrypted") || err.contains("lecture"), "{err}");
     assert_eq!(std::fs::read(&enc_copy).unwrap(), before);
     let _ = std::fs::remove_dir_all(&dir);

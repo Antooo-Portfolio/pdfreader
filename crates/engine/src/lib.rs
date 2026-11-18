@@ -230,6 +230,8 @@ pub mod compress;
 pub mod pagetext;
 pub mod textedit;
 pub mod stamps;
+pub mod frame;
+pub use frame::Frame;
 
 #[cfg(windows)]
 pub mod print_win;
@@ -279,18 +281,38 @@ pub struct TextWord {
     pub h: f32,
 }
 
-type WordAcc = Option<(String, f32, f32, f32, f32)>; // texte, gauche, bas, droite, haut (PDF)
+/// Mot en cours : texte, gauche, bas, droite, haut, dans le sens de lecture de ses lettres
+/// (contenu tourné de `q` quarts de tour pour que le texte y soit horizontal), et ce `q`.
+type WordAcc = Option<(String, f32, f32, f32, f32, i32)>;
 
-fn flush_word(word: &mut WordAcc, line: &mut Vec<TextWord>, page_h: f32) {
-    if let Some((t, l, b, r, tp)) = word.take() {
-        line.push(TextWord { t, x: l, y: page_h - tp, w: (r - l).max(0.1), h: (tp - b).max(0.1) });
+/// Tourne un rectangle (gauche, bas, droite, haut) de `q` quarts de tour en sens horaire (`inv` :
+/// en sens trigonométrique, pour revenir au contenu).
+fn turn(q: i32, inv: bool, l: f32, b: f32, r: f32, t: f32) -> (f32, f32, f32, f32) {
+    let q = if inv { (4 - q) % 4 } else { q };
+    let p = |x: f32, y: f32| match q {
+        1 => (y, -x),
+        2 => (-x, -y),
+        3 => (-y, x),
+        _ => (x, y),
+    };
+    let ((x0, y0), (x1, y1)) = (p(l, b), p(r, t));
+    (x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1))
+}
+
+fn flush_word(word: &mut WordAcc, line: &mut Vec<TextWord>, frame: &Frame) {
+    if let Some((t, l, b, r, tp, q)) = word.take() {
+        let (l, b, r, tp) = turn(q, true, l, b, r, tp);
+        let [x, y, w, h] = frame.rect_to_top(l, b, r, tp);
+        line.push(TextWord { t, x, y, w: w.max(0.1), h: h.max(0.1) });
     }
 }
 
 /// Couche de texte d'une page : lignes de mots positionnés. Sert à la sélection native, au
 /// copier et aux lecteurs d'écran (vrai texte DOM au-dessus de l'image de la page).
 pub fn text_layer(page: &PdfPage) -> Result<Vec<Vec<TextWord>>> {
-    let page_h = page.height().value;
+    // Les mots se forment dans le sens de lecture de leurs lettres (texte vertical d'une page
+    // pivotée, texte ajouté droit à l'écran…), puis leur boîte passe dans la page affichée.
+    let frame = Frame::of(page);
     let text = page.text().map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let mut lines: Vec<Vec<TextWord>> = Vec::new();
     let mut line: Vec<TextWord> = Vec::new();
@@ -298,7 +320,7 @@ pub fn text_layer(page: &PdfPage) -> Result<Vec<Vec<TextWord>>> {
     for ch in text.chars().iter() {
         let Some(c) = ch.unicode_char() else { continue };
         if c == '\r' || c == '\n' {
-            flush_word(&mut word, &mut line, page_h);
+            flush_word(&mut word, &mut line, &frame);
             if !line.is_empty() {
                 lines.push(std::mem::take(&mut line));
             }
@@ -308,19 +330,21 @@ pub fn text_layer(page: &PdfPage) -> Result<Vec<Vec<TextWord>>> {
             if let Some(w) = word.as_mut() {
                 w.0.push(' ');
             }
-            flush_word(&mut word, &mut line, page_h);
+            flush_word(&mut word, &mut line, &frame);
             continue;
         }
         let Ok(r) = ch.loose_bounds() else { continue };
-        let (l, b, rt, tp) = (r.left().value, r.bottom().value, r.right().value, r.top().value);
+        // PDFium mesure l'angle des lettres en sens horaire.
+        let q = (4 - (ch.angle_degrees().unwrap_or(0.0) / 90.0).round().rem_euclid(4.0) as i32) % 4;
+        let (l, b, rt, tp) = turn(q, false, r.left().value, r.bottom().value, r.right().value, r.top().value);
         let new_word = match word.as_ref() {
-            // Nouveau mot si le caractère recule nettement ou change de ligne.
-            Some(w) => l + 0.5 < w.1 || (b - w.2).abs() > (tp - b) * 0.6,
+            // Nouveau mot si le sens change, si le caractère recule nettement ou change de ligne.
+            Some(w) => w.5 != q || l + 0.5 < w.1 || (b - w.2).abs() > (tp - b) * 0.6,
             None => true,
         };
         if new_word {
-            flush_word(&mut word, &mut line, page_h);
-            word = Some((c.to_string(), l, b, rt, tp));
+            flush_word(&mut word, &mut line, &frame);
+            word = Some((c.to_string(), l, b, rt, tp, q));
         } else if let Some(w) = word.as_mut() {
             w.0.push(c);
             w.1 = w.1.min(l);
@@ -329,7 +353,7 @@ pub fn text_layer(page: &PdfPage) -> Result<Vec<Vec<TextWord>>> {
             w.4 = w.4.max(tp);
         }
     }
-    flush_word(&mut word, &mut line, page_h);
+    flush_word(&mut word, &mut line, &frame);
     if !line.is_empty() {
         lines.push(line);
     }
@@ -342,20 +366,23 @@ pub fn add_highlight(page: &mut PdfPage, rects: &[[f32; 4]], rgb: (u8, u8, u8), 
     if rects.is_empty() {
         bail!("sélection vide");
     }
+    let frame = Frame::of(page);
     {
         let mut annot = page.annotations_mut().create_highlight_annotation().map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let (mut l, mut b, mut r, mut t) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         for &[x0, y0, x1, y1] in rects {
-            // Ordre : haut-gauche, haut-droit, bas-gauche, bas-droit.
+            // Ordre : haut-gauche, haut-droit, bas-gauche, bas-droit (tels qu'à l'affichage).
+            let q = frame.quad(x0, y0, x1, y1);
             let q = PdfQuadPoints::new(
-                PdfPoints::new(x0), PdfPoints::new(y1), PdfPoints::new(x1), PdfPoints::new(y1),
-                PdfPoints::new(x0), PdfPoints::new(y0), PdfPoints::new(x1), PdfPoints::new(y0),
+                PdfPoints::new(q.x1), PdfPoints::new(q.y1), PdfPoints::new(q.x2), PdfPoints::new(q.y2),
+                PdfPoints::new(q.x3), PdfPoints::new(q.y3), PdfPoints::new(q.x4), PdfPoints::new(q.y4),
             );
             annot.attachment_points_mut().create_attachment_point_at_end(q).map_err(|e| anyhow::anyhow!("{e:?}"))?;
-            l = l.min(x0);
-            b = b.min(y0);
-            r = r.max(x1);
-            t = t.max(y1);
+            let (cl, cb, cr, ct) = frame.rect_to_content(x0, y0, x1, y1);
+            l = l.min(cl);
+            b = b.min(cb);
+            r = r.max(cr);
+            t = t.max(ct);
         }
         annot.set_bounds(PdfRect::new_from_values(b, l, t, r)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
         annot.set_stroke_color(PdfColor::new(rgb.0, rgb.1, rgb.2, 255)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
