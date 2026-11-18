@@ -729,6 +729,15 @@ EN = {
     "Texte écrit dans la page : {text}": "Text written in the page: {text}",
     "Vue protégée : activez la modification pour écrire dans la page": "Protected view: enable editing to write in the page",
     "Écrire dans la page (texte modifiable)": "Write in the page (editable text)",
+    "Cliquez sur une ligne pour la modifier ; Entrée valide, Échap annule.": "Click a line to edit it; Enter confirms, Esc cancels.",
+    "La page a changé entre-temps : cliquez de nouveau sur la ligne.": "The page changed in the meantime: click the line again.",
+    "La police d'origine ne contient pas certains de ces caractères : une police proche a été utilisée.": "The original font lacks some of these characters: a similar font was used.",
+    "Le texte n'a pas pu être modifié ({detail}).": "The text could not be edited ({detail}).",
+    "Les lignes voisines ne sont pas remises en page : un texte plus long peut en chevaucher un autre.": "Neighbouring lines are not reflowed: longer text may overlap other text.",
+    "Modifier la ligne : {text}": "Edit line: {text}",
+    "Modifier le texte": "Edit text",
+    "Modifier le texte existant": "Edit existing text",
+    "Vue protégée : activez la modification pour modifier le texte": "Protected view: enable editing to edit the text",
 }
 
 

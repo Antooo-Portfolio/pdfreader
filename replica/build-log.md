@@ -726,3 +726,40 @@ position ; capture : texte affiché à la nouvelle place.
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | Ajouter du texte | 2026-11-18 | fait | annuler / rétablir ; chinois, japonais, coréen (polices en collection .ttc) ; retour à la ligne automatique dans un cadre | le défaut d'affichage après enregistrement (versions de tuiles périmées), présent depuis M1 |
+
+## Phase 2 — lot « modifier le texte » (2026-11-18)
+
+Branche `phase2-modifier-texte`. `crates/engine/src/textedit.rs` : les objets texte visibles de la
+page (hors texte invisible d'OCR et blocs ajoutés par PDFReader) sont regroupés en lignes (même
+ligne de base, même police, même taille, proches) ; une ligne se modifie d'un bloc.
+
+- Police d'origine gardée si elle peut dessiner chaque caractère : police non intégrée (standard
+  ou du système) : le glyphe doit exister ; police intégrée : seulement les caractères déjà
+  employés avec elle sur la page. Raison : les polices intégrées sont presque toujours des
+  sous-ensembles, PDFium retire le préfixe « ABCDEF+ » du nom et renvoie un tracé de remplacement
+  pour un glyphe absent — impossible de savoir autrement si une lettre manque (le texte serait
+  invisible).
+- Sinon police proche (famille, gras, italique déduits des drapeaux et du nom de la police),
+  standard ou TrueType intégrée (cyrillique, grec…), à la même matrice (place, taille,
+  inclinaison) et dans la même couleur ; message dans l'interface.
+- La modification vérifie que la ligne n'a pas changé depuis sa lecture (sinon « stale »).
+- Annulable : état complet mémorisé avant chaque modification, dans la pile de « Organiser les
+  pages » (Ctrl+Z avec l'outil, bouton « Annuler »).
+
+Interface : outil « Modifier le texte existant » ; lignes entourées au survol ; clic : zone de
+saisie posée sur la ligne (même famille de police, gras, italique, taille, couleur, fond opaque,
+au moins aussi large que la ligne d'origine) ; Entrée valide, Échap annule ; vider la ligne
+l'efface. Corpus : `14-police-integree.pdf` (Arial intégrée en sous-ensemble par reportlab).
+
+Tests : `edit_existing_text` (moteur) : trois lignes retrouvées (police ArialMT intégrée, taille
+20, couleur bleue), police gardée pour des lettres présentes, police proche pour z, è, k, w avec
+texte bien dessiné à la même place et à la même taille, couleur conservée, refus sur page changée,
+ligne effacée, résultat relu après enregistrement, police standard gardée (Helvetica-Bold) sans
+toucher aux autres lignes. Partie `phase2textedit` du scénario (3 passages verts) : ligne cliquée,
+texte remplacé, message de police proche, Ctrl+Z, ligne effacée, enregistré et relu. Essai réel
+(souris et clavier) : « Une ligne simple… » remplacée par « Zèbre, kiwi et wagon » ; captures
+pendant la saisie et après ; pypdf relit le nouveau texte.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Modifier le texte | 2026-11-18 | partiel | remise en page du paragraphe ; plusieurs lignes à la fois ; police d'origine pour des lettres absentes de son sous-ensemble (il faudrait intégrer la police complète, rarement disponible) | savoir si une police intégrée a un glyphe : PDFium ne le dit pas, règle prudente |

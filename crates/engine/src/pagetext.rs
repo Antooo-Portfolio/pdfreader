@@ -200,43 +200,15 @@ pub fn set(doc: &PdfDocument, page: &mut PdfPage, fonts: &mut FontCache, id: Opt
     let id = id.map(str::to_string).unwrap_or_else(new_id);
     let page_h = page.height().value;
     let top = page_h - y;
-    let standard = text.chars().all(|c| c == '\n' || standard_encodable(c));
-    let font = if standard {
-        None
-    } else {
-        let file = truetype_file(&style);
-        if let Some(f) = fonts.get(file) {
-            Some(*f as FPDF_FONT)
-        } else {
-            let dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
-            let data = std::fs::read(std::path::Path::new(&dir).join("Fonts").join(file)).map_err(|_| anyhow::anyhow!("font_missing: {file}"))?;
-            let f = unsafe { b.FPDFText_LoadFont(doc.raw_handle(), data.as_ptr(), data.len() as u32, TRUETYPE, 1) };
-            if f.is_null() {
-                bail!("police refusée par PDFium : {file}");
-            }
-            fonts.insert(file.to_string(), f as usize);
-            Some(f)
-        }
-    };
     let style_json = serde_json::to_string(&style)?;
+    // Une seule police pour tout le bloc (standard si tout y entre, sinon TrueType).
+    let whole: String = text.replace('\n', " ");
     for (i, line) in text.split('\n').enumerate() {
         if line.trim_end().is_empty() {
             continue;
         }
-        let obj = unsafe {
-            match font {
-                None => b.FPDFPageObj_NewTextObj(doc.raw_handle(), standard_font(&style), style.size),
-                Some(f) => b.FPDFPageObj_CreateTextObj(doc.raw_handle(), f, style.size),
-            }
-        };
-        if obj.is_null() {
-            bail!("objet texte refusé par PDFium");
-        }
-        let w = wide(line.trim_end());
+        let obj = new_text_object_for(doc, fonts, &whole, line.trim_end(), &style)?;
         unsafe {
-            b.FPDFText_SetText(obj, w.as_ptr() as _);
-            let [r, g, bl] = style.color;
-            b.FPDFPageObj_SetFillColor(obj, r as u32, g as u32, bl as u32, 255);
             // Ligne de base : hauteur de capitale (≈ 0,8 em) sous le haut, interligne 1,2.
             b.FPDFPageObj_Transform(obj, 1.0, 0.0, 0.0, 1.0, x as f64, (top - style.size * 0.8 - style.size * 1.2 * i as f32) as f64);
             let m = b.FPDFPageObj_AddMark(obj, MARK);
@@ -254,6 +226,51 @@ pub fn set(doc: &PdfDocument, page: &mut PdfPage, fonts: &mut FontCache, id: Opt
     }
     regenerate(page)?;
     Ok(Some(id))
+}
+
+/// Objet texte (pas encore placé sur une page) : police standard si le texte y entre, sinon la
+/// police TrueType équivalente, intégrée une seule fois par document.
+pub fn new_text_object(doc: &PdfDocument, fonts: &mut FontCache, text: &str, style: &TextStyle) -> Result<FPDF_PAGEOBJECT> {
+    new_text_object_for(doc, fonts, text, text, style)
+}
+
+/// Comme [`new_text_object`] ; la police est choisie d'après `whole` (tout le bloc).
+fn new_text_object_for(doc: &PdfDocument, fonts: &mut FontCache, whole: &str, text: &str, style: &TextStyle) -> Result<FPDF_PAGEOBJECT> {
+    let b = raw_bindings();
+    let standard = whole.chars().all(standard_encodable);
+    let font = if standard {
+        None
+    } else {
+        let file = truetype_file(style);
+        if let Some(f) = fonts.get(file) {
+            Some(*f as FPDF_FONT)
+        } else {
+            let dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
+            let data = std::fs::read(std::path::Path::new(&dir).join("Fonts").join(file)).map_err(|_| anyhow::anyhow!("font_missing: {file}"))?;
+            let f = unsafe { b.FPDFText_LoadFont(doc.raw_handle(), data.as_ptr(), data.len() as u32, TRUETYPE, 1) };
+            if f.is_null() {
+                bail!("police refusée par PDFium : {file}");
+            }
+            fonts.insert(file.to_string(), f as usize);
+            Some(f)
+        }
+    };
+    let obj = unsafe {
+        match font {
+            None => b.FPDFPageObj_NewTextObj(doc.raw_handle(), standard_font(style), style.size),
+            Some(f) => b.FPDFPageObj_CreateTextObj(doc.raw_handle(), f, style.size),
+        }
+    };
+    if obj.is_null() {
+        bail!("objet texte refusé par PDFium");
+    }
+    let w = wide(text);
+    unsafe {
+        b.FPDFText_SetText(obj, w.as_ptr() as _);
+        let [r, g, bl] = style.color;
+        b.FPDFPageObj_SetFillColor(obj, r as u32, g as u32, bl as u32, 255);
+    }
+    Ok(obj)
 }
 
 fn first_object(page: &PdfPage, id: &str) -> Option<FPDF_PAGEOBJECT> {

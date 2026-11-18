@@ -228,6 +228,7 @@ pub mod images;
 pub mod security;
 pub mod compress;
 pub mod pagetext;
+pub mod textedit;
 
 #[cfg(windows)]
 pub mod print_win;

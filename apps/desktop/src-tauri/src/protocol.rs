@@ -113,6 +113,8 @@ pub enum Request {
     Search { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool },
     Close { doc: u32 },
     Tile { doc: u32, page: i32, scale: f32, x: i32, y: i32, size: i32 },
+    /// Modifier le texte existant d'une page (lignes ; annulable avec les pages).
+    TextEdit { doc: u32, page: i32, op: TextEditOp },
     /// Texte écrit dans le contenu d'une page (pas un commentaire).
     PageText { doc: u32, page: i32, op: PageTextOp },
     /// Organiser les pages du document ouvert (annulable).
@@ -164,6 +166,7 @@ impl Request {
             | Close { doc }
             | Pages { doc, .. }
             | PageText { doc, .. }
+            | TextEdit { doc, .. }
             | ExtractPages { doc, .. }
             | SplitPages { doc, .. }
             | ExportImage { doc, .. }
@@ -198,6 +201,14 @@ impl Request {
         };
         std::time::Duration::from_secs(secs)
     }
+}
+
+/// Texte existant : lignes de la page, ou nouveau texte d'une ligne (texte vide : effacée).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TextEditOp {
+    List,
+    Edit { objects: Vec<i32>, expected: String, text: String },
 }
 
 /// Texte ajouté dans une page : liste des blocs, ajout ou remplacement (`id`), suppression.

@@ -274,6 +274,25 @@ def big_with_attachment(path, gb):
         fh.write(b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (maxn + 1, xref))
 
 
+def embedded_font(path):
+    """Texte en Arial intégrée en sous-ensemble (seuls les glyphes utilisés sont dans le fichier) :
+    la modification du texte doit prendre une police proche pour les caractères absents."""
+    from reportlab.pdfbase.ttfonts import TTFont
+    windir = os.environ.get("WINDIR", r"C:\Windows")
+    pdfmetrics.registerFont(TTFont("ArialSub", os.path.join(windir, "Fonts", "arial.ttf")))
+    c = canvas.Canvas(path, pagesize=A4)
+    c.setTitle("Police intégrée")
+    w, h = A4
+    c.setFont("ArialSub", 20)
+    c.drawString(56, h - 80, "Bonjour le monde")
+    c.setFont("ArialSub", 12)
+    c.drawString(56, h - 120, "Une ligne simple avec peu de lettres.")
+    c.setFillColorRGB(0.1, 0.3, 0.7)
+    c.drawString(56, h - 140, "Texte bleu à modifier.")
+    c.showPage()
+    c.save()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--big-gb", type=float, default=2.0)
@@ -293,6 +312,7 @@ def main():
     encrypt(j("08-formulaire-acroform.pdf"), j("10-formulaire-chiffre-aes256.pdf"), "test1234")
     with_attachments(j("01-texte-10p.pdf"), j("12-pieces-jointes.pdf"), j("07-tailles-mixtes-rotation.pdf"))
     form_calc(j("13-formulaire-calculs.pdf"))
+    embedded_font(j("14-police-integree.pdf"))
     if not a.skip_big:
         big_with_attachment(j("11-gros-fichier.pdf"), a.big_gb)
     for n in sorted(os.listdir(OUT)):

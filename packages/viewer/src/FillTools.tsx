@@ -166,7 +166,7 @@ export function TextDraft({
   /** Texte de départ (modification d'un bloc existant). */
   initial?: string;
   /** Police (texte écrit dans la page) : famille CSS, gras, italique ; fond opaque pour cacher l'ancien texte. */
-  font?: { family: string; bold: boolean; italic: boolean };
+  font?: { family: string; bold: boolean; italic: boolean; cover?: number };
   /** Zone de texte : largeur en points ; le texte revient à la ligne dans le cadre. */
   boxWidth?: number;
   size: number;
@@ -238,7 +238,8 @@ export function TextDraft({
                 fontStyle: font.italic ? "italic" : "normal",
                 color,
                 width: `${longest * 0.62 + 1}em`,
-                minWidth: 40,
+                // Modification d'une ligne : la zone couvre au moins toute la ligne d'origine.
+                minWidth: Math.max(40, (font.cover ?? 0) * k),
                 background: "var(--color-page, #fff)",
               }
             : { left: dx * k, top: dy * k, fontSize: size * k, fontFamily: fieldFont, color, width: `${longest * 0.6 + 1}em`, minWidth: 40 }

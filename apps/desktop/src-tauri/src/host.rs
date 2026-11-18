@@ -14,7 +14,7 @@ use pdfreader_engine as eng;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::protocol::{AnnotOp, Answer, DocInfo, Envelope, OpenResult, PageOp, PageTextOp, Request, SaveResult, read_frame, write_frame};
+use crate::protocol::{AnnotOp, Answer, DocInfo, Envelope, OpenResult, PageOp, PageTextOp, Request, SaveResult, TextEditOp, read_frame, write_frame};
 
 /// Commentaire créé (s'il y en a un) et liste à jour des commentaires de la page.
 #[derive(Debug, Serialize)]
@@ -238,6 +238,9 @@ pub fn main(lib_dir: PathBuf) {
                     forget_page_history(&mut docs, doc);
                 }
                 out.reply(id, r);
+            }
+            Request::TextEdit { doc, page, op } => {
+                out.reply(id, text_edit(&mut docs, doc, page, op));
             }
             Request::PageText { doc, page, op } => {
                 let changes = !matches!(op, PageTextOp::List);
@@ -539,6 +542,43 @@ fn save(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, target
     let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone(), outline: None, form_scripts: None, undo: Vec::new(), redo: Vec::new(), full_save: false, fonts: Default::default() };
     docs.insert(id, entry);
     Ok(SaveResult { path: target.display().to_string(), bytes, generation, fingerprint, old_fingerprint })
+}
+
+/// Lignes de texte existant de la page, et effet de la dernière modification.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TextEditResult {
+    lines: Vec<eng::textedit::TextLine>,
+    kept_font: bool,
+    can_undo: bool,
+}
+
+fn text_edit(docs: &mut HashMap<u32, Entry>, doc: u32, page: i32, op: TextEditOp) -> Result<TextEditResult, String> {
+    let e = docs.get_mut(&doc).ok_or("document fermé")?;
+    let mut kept_font = true;
+    if let TextEditOp::Edit { objects, expected, text } = op {
+        if !eng::permissions(&e.doc).modify {
+            return Err("modify_forbidden".into());
+        }
+        // Annulable : état complet mémorisé avant la modification (même pile que les pages).
+        let before = page_state(e);
+        let mut p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
+        let r = eng::textedit::edit(&e.doc, &mut p, &mut e.fonts, &objects, &expected, &text).map_err(|e| e.to_string())?;
+        drop(p);
+        kept_font = r.kept_font;
+        match before {
+            Some(s) => {
+                e.undo.push(s);
+                while e.undo.len() > UNDO_STATES || e.undo.iter().map(|s| s.bytes.len()).sum::<usize>() > UNDO_TOTAL {
+                    e.undo.remove(0);
+                }
+            }
+            None => e.undo.clear(),
+        }
+        e.redo.clear();
+    }
+    let p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
+    Ok(TextEditResult { lines: eng::textedit::lines(&p, page), kept_font, can_undo: !e.undo.is_empty() })
 }
 
 /// Texte ajouté dans le contenu de la page : liste, ajout ou remplacement, suppression ; renvoie les

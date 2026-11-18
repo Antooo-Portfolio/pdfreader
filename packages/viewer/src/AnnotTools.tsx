@@ -97,7 +97,7 @@ export function AnnotLayer(p: LayerProps) {
     }
   };
 
-  const placing = p.tool === "note" || p.tool === "text" || p.tool === "textbox" || p.tool === "callout" || p.tool === "check" || p.tool === "sign" || p.tool === "stamp" || p.tool === "pagetext";
+  const placing = p.tool === "note" || p.tool === "text" || p.tool === "textbox" || p.tool === "callout" || p.tool === "check" || p.tool === "sign" || p.tool === "stamp" || p.tool === "pagetext" || p.tool === "edittext";
   const active = placing || p.tool === "ink" || p.tool === "eraser" || shaping;
   const cssW = pw * p.k;
   const cssH = ph * p.k;

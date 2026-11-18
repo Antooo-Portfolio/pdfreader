@@ -430,6 +430,8 @@ export interface EngineClient {
   /** Exporte une page en image ; `unique` : renomme si le fichier existe. */
   exportImage(doc: number, page: number, options: ImageOptions, path: string, unique: boolean): Promise<{ path: string; width: number; height: number; dpi: number; bytes: number }>;
 
+  /** Texte existant d'une page : lignes, ou modification d'une ligne (annulable avec les pages). */
+  textEdit(doc: number, page: number, op: TextEditOp): Promise<{ lines: TextLine[]; keptFont: boolean; canUndo: boolean }>;
   /** Texte écrit dans le contenu d'une page (pas un commentaire) : liste, ajout / remplacement, suppression. */
   pageText(doc: number, page: number, op: PageTextOp): Promise<{ id: string | null; blocks: TextBlock[] }>;
   /** Organiser les pages du document ouvert (annulable) ; la génération du document change. */
@@ -558,6 +560,22 @@ export interface TextBlock {
   text: string;
   style: TextStyle;
 }
+/** Ligne de texte existant (points, depuis le haut). */
+export interface TextLine {
+  objects: number[];
+  page: number;
+  rect: [number, number, number, number];
+  text: string;
+  font: string;
+  size: number;
+  bold: boolean;
+  italic: boolean;
+  family: FontFamily;
+  color: Rgb;
+  embedded: boolean;
+}
+export type TextEditOp = { kind: "list" } | { kind: "edit"; objects: number[]; expected: string; text: string };
+
 export type PageTextOp =
   | { kind: "list" }
   | { kind: "set"; id: string | null; x: number; y: number; text: string; style: TextStyle }

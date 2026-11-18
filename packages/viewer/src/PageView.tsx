@@ -4,7 +4,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import type { Tool, ToolStyle } from "./annot";
 import { AnnotLayer, NoteEditor } from "./AnnotTools";
 import { FormLayer, TextDraft } from "./FillTools";
-import { type Annot, type Box, type ShapeKind, type Field, type FieldInput, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextBlock, type TextWord, thumbScale } from "./engine";
+import { type Annot, type Box, type ShapeKind, type Field, type FieldInput, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextBlock, type TextLine, type TextWord, thumbScale } from "./engine";
 import { type PageBox, rotateBox, rotationTransform } from "./layout";
 
 const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
@@ -45,13 +45,17 @@ interface Props {
   onSetField: (page: number, index: number, input: FieldInput) => void;
   onSignField: (f: Field) => void;
   /** Texte libre en cours de saisie sur cette page. */
-  textDraft: { x: number; y: number; size: number; color: string; boxWidth?: number; initial?: string; font?: { family: string; bold: boolean; italic: boolean } } | null;
+  textDraft: { x: number; y: number; size: number; color: string; boxWidth?: number; initial?: string; font?: { family: string; bold: boolean; italic: boolean; cover?: number } } | null;
   /** Texte écrit dans la page (outil « pagetext ») : blocs, bloc choisi, actions. */
   pageTexts?: TextBlock[] | null;
   selectedTextId?: string | null;
   onPressText?: (block: TextBlock) => void;
   onEditText?: (block: TextBlock) => void;
   onMoveText?: (block: TextBlock, dx: number, dy: number) => void;
+  /** Texte existant (outil « edittext ») : lignes de la page, ligne en cours de modification. */
+  editLines?: TextLine[] | null;
+  editingLine?: string | null;
+  onEditLine?: (line: TextLine) => void;
   onCommitText: (page: number, x: number, y: number, text: string) => void;
   onCancelText: () => void;
   onCreateInk: (page: number, strokes: [number, number][][]) => void;
@@ -227,6 +231,9 @@ export const PageView = memo(function PageView(p: Props) {
           onCreateShape={(pts) => p.onCreateShape(index, pts)}
           onErase={(id) => p.onDeleteAnnot(index, id)}
         />
+      )}
+      {active && p.tool === "edittext" && p.editLines && (
+        <EditLinesLayer lines={p.editLines} editing={p.editingLine ?? null} k={k} rotation={rotation} size={size} onEdit={(l) => p.onEditLine?.(l)} />
       )}
       {active && p.tool === "pagetext" && p.pageTexts && (
         <PageTextLayer
@@ -445,6 +452,51 @@ function PageTextLayer({
               onEdit(b);
             }}
             onClick={(e) => e.stopPropagation()}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+/** Lignes de texte existant : contour au survol, clic pour modifier. */
+function EditLinesLayer({
+  lines,
+  editing,
+  k,
+  rotation,
+  size,
+  onEdit,
+}: {
+  lines: TextLine[];
+  editing: string | null;
+  k: number;
+  rotation: Rotation;
+  size: [number, number];
+  onEdit: (l: TextLine) => void;
+}) {
+  return (
+    <>
+      {lines.map((l) => {
+        const key = l.objects.join(",");
+        if (key === editing) return null;
+        const pad = 1;
+        const [x, y, w, h] = rotateBox([l.rect[0] - pad, l.rect[1] - pad, l.rect[2] + pad * 2, l.rect[3] + pad * 2], size[0], size[1], rotation);
+        return (
+          <div
+            key={key}
+            role="button"
+            tabIndex={-1}
+            data-edit-line={key}
+            aria-label={t("Modifier la ligne : {text}", { text: l.text.slice(0, 80) })}
+            className="absolute z-(--z-annotation) cursor-text rounded-[2px] outline-1 outline-transparent hover:outline-accent hover:outline-dashed"
+            style={{ left: x * k, top: y * k, width: w * k, height: h * k }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(l);
+            }}
           />
         );
       })}

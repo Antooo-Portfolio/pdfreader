@@ -80,6 +80,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.phase2password = await runPhase2Password(engine, actions, path);
     steps.phase2compress = await runPhase2Compress(engine, actions, path);
     steps.phase2pagetext = await runPhase2PageText(engine, actions, path);
+    steps.phase2textedit = await runPhase2TextEdit(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -97,7 +98,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.phase2images as { ok: boolean }).ok &&
       (steps.phase2password as { ok: boolean }).ok &&
       (steps.phase2compress as { ok: boolean }).ok &&
-      (steps.phase2pagetext as { ok: boolean }).ok;
+      (steps.phase2pagetext as { ok: boolean }).ok &&
+      (steps.phase2textedit as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -1780,6 +1782,87 @@ async function runPhase2PageText(engine: EngineClient, actions: AppActions, path
   }
   r.checks = checks;
   r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 8;
+  return r;
+}
+
+/** Phase 2, « Modifier le texte » : outil choisi, ligne cliquée, texte modifié dans la zone de
+ *  saisie (police d'origine gardée, puis police proche pour des lettres absentes d'une police
+ *  intégrée, avec message), Ctrl+Z, ligne effacée, enregistré et relu. */
+async function runPhase2TextEdit(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  const visible = <T extends Element>(sel: string) => Array.from(document.querySelectorAll<T>(sel)).find((el) => !el.closest("[hidden]") && !el.closest(".hidden"));
+  const lineEl = (start: string) => Array.from(document.querySelectorAll<HTMLElement>("[data-edit-line]")).find((el) => !el.closest("[hidden]") && el.getAttribute("aria-label")?.includes(start));
+  const words = async (id: number) => (await engine.textLayer(id, 0)).flat().map((w) => w.t).join("");
+  const replaceLine = async (start: string, text: string) => {
+    (await waitFor(() => lineEl(start), 6000)).click();
+    const ta = await waitFor(() => visible<HTMLTextAreaElement>('textarea[aria-label="Texte écrit dans la page"]'), 4000);
+    const initial = ta.value;
+    setNativeValue(ta, text);
+    await sleep(50);
+    ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    return initial;
+  };
+  const toasts = () => document.querySelector('[aria-label="Notifications"]')?.textContent ?? "";
+  let step = "début";
+  try {
+    const work = dir + "texte-a-modifier.pdf";
+    await engine.combine([dir + "14-police-integree.pdf"], work, { size: { kind: "a4" }, margin: 0 });
+    const doc = await actions.openPath(work);
+    if (!doc) throw new Error("copie introuvable");
+    const a = await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    await waitFor(() => Array.from(document.querySelectorAll('[data-page-index="0"] img')).find((el) => !el.closest("[hidden]")), 8000);
+    a.setTool("edittext");
+
+    step = "police gardée";
+    const initial = await replaceLine("Bonjour le monde", "Bonjour monde");
+    const kept = await until(async () => ((await a.textLines(0)).some((l) => l.text === "Bonjour monde") ? true : null), 6000);
+    await sleep(200);
+    const noFallback = !toasts().includes("police proche");
+    r.kept = { initial, kept, noFallback };
+    checks.kept = initial === "Bonjour le monde" && !!kept && noFallback;
+
+    step = "police proche";
+    await replaceLine("Une ligne simple", "Zèbre et kiwi");
+    const changed = await until(async () => ((await a.textLines(0)).some((l) => l.text === "Zèbre et kiwi") ? true : null), 6000);
+    const fallbackToast = await waitFor(() => (toasts().includes("police proche") ? true : null), 4000).catch(() => false);
+    const w = await words(doc.id);
+    r.fallback = { changed, fallbackToast, inTextLayer: w.includes("Zèbre") };
+    checks.fallback = !!changed && fallbackToast && w.includes("Zèbre");
+
+    step = "annuler";
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }));
+    const undone = await until(async () => {
+      const ls = await a.textLines(0);
+      return ls.some((l) => l.text.startsWith("Une ligne simple")) && !ls.some((l) => l.text === "Zèbre et kiwi") ? true : null;
+    }, 8000);
+    r.undo = { undone, stillKept: (await a.textLines(0)).some((l) => l.text === "Bonjour monde") };
+    checks.undo = !!undone && (r.undo as { stillKept: boolean }).stillKept;
+
+    step = "effacer";
+    a.setTool("edittext");
+    await replaceLine("Texte bleu", "");
+    const erased = await until(async () => (!(await a.textLines(0)).some((l) => l.text.startsWith("Texte bleu")) ? true : null), 6000);
+    checks.erase = !!erased;
+
+    step = "enregistrer et relire";
+    a.setTool("select");
+    const saved = await actions.save(doc.id);
+    await actions.closeDoc(doc.id);
+    await sleep(200);
+    const back = await actions.openPath(work);
+    if (!back) throw new Error("relecture impossible");
+    const a2 = await waitFor(() => (actions.activeId() === back.id ? actions.doc() : null));
+    const texts = (await a2.textLines(0)).map((l) => l.text);
+    r.reload = { saved, texts };
+    checks.reload = saved && texts.join("|") === "Bonjour monde|Une ligne simple avec peu de lettres.";
+    await actions.closeDoc(back.id);
+  } catch (err) {
+    r.error = `${step} : ${String(err)}`;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 5;
   return r;
 }
 

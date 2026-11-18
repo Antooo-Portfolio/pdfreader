@@ -17,6 +17,8 @@ import {
   Check,
   BookOpen,
   Bold,
+  FilePenLine,
+  Undo2,
   ImageDown,
   Italic,
   TextCursorInput,
@@ -58,7 +60,7 @@ import { DEFAULT_STYLES, hitTest, isMarkupTool, isMultiPoint, KIND_LABELS, SHAPE
 import { PropertyBar } from "./AnnotTools";
 import { CommentsPanel } from "./CommentsPanel";
 import { SignatureDialog } from "./FillTools";
-import type { DocInfo, FontFamily, SaveResult, TextBlock, TextStyle, ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
+import type { DocInfo, FontFamily, SaveResult, TextBlock, TextLine, TextStyle, ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
 import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
 import { CompressDialog } from "./CompressDialog";
@@ -126,6 +128,7 @@ const TOOLBAR_TOOLS: [Exclude<Tool, "select">, string][] = [
   ["eraser", msg("Gomme")],
   ["text", msg("Texte")],
   ["pagetext", msg("Texte dans la page")],
+  ["edittext", msg("Modifier le texte")],
   ["textbox", msg("Zone de texte")],
   ["callout", msg("Légende")],
   ["shape", msg("Formes")],
@@ -187,6 +190,8 @@ export interface DocActions {
   place: (page: number, x: number, y: number) => void;
   /** Texte écrit dans la page : blocs d'une page (rechargés). */
   pageTexts: (page: number) => Promise<TextBlock[]>;
+  /** Texte existant : lignes d'une page (rechargées). */
+  textLines: (page: number) => Promise<TextLine[]>;
 }
 
 /** Point d'ancrage : garde la même portion du document sous les yeux quand le zoom, la rotation
@@ -242,6 +247,7 @@ const TOOL_LABELS: Record<Exclude<Tool, "select" | "eraser">, string> = {
   shape: msg("Formes"),
   stamp: msg("Tampon"),
   pagetext: msg("Texte dans la page"),
+  edittext: msg("Modifier le texte"),
 };
 
 /** Polices d'écran proches des polices standard du PDF (aperçu pendant la saisie). */
@@ -1344,6 +1350,54 @@ export function DocumentView({
   const ptKeys = useRef({ selectedBlockNow, ptDraft, editBlock, moveBlock, removePageText, selectBlock });
   ptKeys.current = { selectedBlockNow, ptDraft, editBlock, moveBlock, removePageText, selectBlock };
 
+  // ------------------------------------------------------------ texte existant (modifier)
+  const [editLines, setEditLines] = useState<Map<number, TextLine[]>>(() => new Map());
+  const [lineDraft, setLineDraft] = useState<TextLine | null>(null);
+  const [textUndo, setTextUndo] = useState(false);
+  useEffect(() => {
+    setEditLines(new Map());
+    setLineDraft(null);
+  }, [info.generation]);
+  useEffect(() => {
+    if (tool !== "edittext") setLineDraft(null);
+  }, [tool]);
+  const loadEditLines = useCallback(
+    async (p: number) => {
+      const r = await engine.textEdit(info.id, p, { kind: "list" }).catch(() => null);
+      if (r) setEditLines((m) => new Map(m).set(p, r.lines));
+    },
+    [engine, info.id],
+  );
+  const commitLine = useCallback(
+    async (l: TextLine, text: string) => {
+      if (text === l.text) return;
+      try {
+        const r = await engine.textEdit(info.id, l.page, { kind: "edit", objects: l.objects, expected: l.text, text });
+        setEditLines((m) => new Map(m).set(l.page, r.lines));
+        setTextUndo(r.canUndo);
+        onAnnotated(l.page);
+        if (!r.keptFont) toast({ tone: "info", message: t("La police d'origine ne contient pas certains de ces caractères : une police proche a été utilisée.") });
+      } catch (e) {
+        const m = String(e);
+        toast({ tone: "error", message: m.includes("stale") ? t("La page a changé entre-temps : cliquez de nouveau sur la ligne.") : t("Le texte n'a pas pu être modifié ({detail}).", { detail: m }) });
+        void loadEditLines(l.page);
+      }
+    },
+    [engine, info.id, onAnnotated, toast, loadEditLines],
+  );
+  const undoTextEdit = useCallback(async () => {
+    try {
+      const r = await engine.pages(info.id, { kind: "undo" });
+      onPagesChanged(r.info);
+      setTextUndo(r.canUndo);
+      setPageHistory({ canUndo: r.canUndo, canRedo: r.canRedo });
+    } catch {
+      setTextUndo(false);
+    }
+  }, [engine, info.id, onPagesChanged]);
+  const undoTextRef = useRef(undoTextEdit);
+  undoTextRef.current = undoTextEdit;
+
   const placeRef = useRef<(p: number, x: number, y: number) => void>(() => undefined);
   const onPlace = useCallback(
     (p: number, t: Tool, x: number, y: number) => {
@@ -1565,6 +1619,7 @@ export function DocumentView({
       setTool: onToolChange,
       place: (p, x, y) => placeRef.current(p, x, y),
       pageTexts: async (p) => (await engine.pageText(info.id, p, { kind: "list" })).blocks,
+      textLines: async (p) => (await engine.textEdit(info.id, p, { kind: "list" })).lines,
     });
   }, [register, onToolChange, jump, goBack, goForward, openAdvanced, readPage, stopReading, createShape, placeStamp, replyTo, setStatus, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, addTextBox, saveSignature, placeSignature]);
   useEffect(() => () => register?.(null), [register]);
@@ -1614,6 +1669,11 @@ export function DocumentView({
       if (e.ctrlKey && e.altKey && !e.shiftKey && (key === "ArrowRight" || key === "ArrowLeft")) {
         e.preventDefault();
         c.rotate(key === "ArrowRight" ? 1 : -1);
+        return;
+      }
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && key.toLowerCase() === "z" && c.tool === "edittext" && !typing) {
+        e.preventDefault();
+        void undoTextRef.current();
         return;
       }
       if (e.ctrlKey) {
@@ -1780,6 +1840,10 @@ export function DocumentView({
     }
   }, [visibleKey, isActive, loadAnnots, loadFields, annots, fields]);
   useEffect(() => {
+    if (!isActive || tool !== "edittext") return;
+    for (const p of visibleKey.split(",")) if (p !== "" && !editLines.has(Number(p))) void loadEditLines(Number(p));
+  }, [visibleKey, isActive, tool, editLines, loadEditLines]);
+  useEffect(() => {
     if (!isActive || tool !== "pagetext") return;
     for (const p of visibleKey.split(",")) if (p !== "" && !pageTexts.has(Number(p))) void loadPageTexts(Number(p));
   }, [visibleKey, isActive, tool, pageTexts, loadPageTexts]);
@@ -1874,6 +1938,20 @@ export function DocumentView({
                   : t("Modification du contenu désactivée par l'auteur")
             }
             icon={<TextCursorInput size={18} />}
+            isDisabled={!canEditContent}
+          />
+          )}
+          {shown("edittext") && (
+          <ToolButton
+            id="edittext"
+            label={
+              canEditContent
+                ? t("Modifier le texte existant")
+                : protectedOn
+                  ? t("Vue protégée : activez la modification pour modifier le texte")
+                  : t("Modification du contenu désactivée par l'auteur")
+            }
+            icon={<FilePenLine size={18} />}
             isDisabled={!canEditContent}
           />
           )}
@@ -2063,6 +2141,25 @@ export function DocumentView({
                   {t("Ajouter mon nom et la date")}
                 </Checkbox>
                 <span className="text-sm text-muted">{t("Cliquez sur la page pour le poser.")}</span>
+              </div>
+            }
+          />
+        ) : styleTool === "edittext" ? (
+          <PropertyBar
+            title={t("Modifier le texte")}
+            style={styles.text}
+            showColor={false}
+            showOpacity={false}
+            showWidth={false}
+            onChange={() => undefined}
+            extra={
+              <div className="flex min-w-0 items-center gap-3" data-edittext-bar>
+                <Button size="sm" variant="ghost" icon={<Undo2 size={16} />} onPress={() => void undoTextEdit()} isDisabled={!textUndo}>
+                  {t("Annuler")}
+                </Button>
+                <span className="min-w-0 truncate text-sm text-muted" title={t("Les lignes voisines ne sont pas remises en page : un texte plus long peut en chevaucher un autre.")}>
+                  {t("Cliquez sur une ligne pour la modifier ; Entrée valide, Échap annule.")}
+                </span>
               </div>
             }
           />
@@ -2347,7 +2444,7 @@ export function DocumentView({
                       annots={pageAnnots.get(i) ?? null}
                       selectedId={selected?.page === i ? selected.id : null}
                       editing={editing?.page === i ? editing : null}
-                      tool={!immersive && (tool === "pagetext" ? canEditContent : canAnnotate) ? tool : "select"}
+                      tool={!immersive && (tool === "pagetext" || tool === "edittext" ? canEditContent : canAnnotate) ? tool : "select"}
                       toolStyle={styles.ink}
                       onPlace={onPlace}
                       fields={fields.get(i) ?? null}
@@ -2355,13 +2452,25 @@ export function DocumentView({
                       highlightFields={highlightFields}
                       onSetField={(pg, idx, input) => void setField(pg, idx, input)}
                       onSignField={(f) => void signAt(f.page, 0, 0, "signature", f)}
+                      editLines={editLines.get(i) ?? null}
+                      editingLine={lineDraft?.page === i ? lineDraft.objects.join(",") : null}
+                      onEditLine={setLineDraft}
                       pageTexts={pageTexts.get(i) ?? null}
                       selectedTextId={ptSelected?.page === i ? ptSelected.id : null}
                       onPressText={pressBlock}
                       onEditText={editBlock}
                       onMoveText={moveBlock}
                       textDraft={
-                        ptDraft?.page === i
+                        lineDraft?.page === i
+                          ? {
+                              x: lineDraft.rect[0],
+                              y: lineDraft.rect[1],
+                              size: lineDraft.size,
+                              color: toHex(lineDraft.color),
+                              initial: lineDraft.text,
+                              font: { family: CSS_FAMILY[lineDraft.family], bold: lineDraft.bold, italic: lineDraft.italic, cover: lineDraft.rect[2] + 4 },
+                            }
+                          : ptDraft?.page === i
                           ? {
                               x: ptDraft.x,
                               y: ptDraft.y,
@@ -2375,6 +2484,12 @@ export function DocumentView({
                           : null
                       }
                       onCommitText={(pg, x, y, t) => {
+                        if (lineDraft) {
+                          const l = lineDraft;
+                          setLineDraft(null);
+                          void commitLine(l, t);
+                          return;
+                        }
                         if (ptDraft) {
                           const pd = ptDraft;
                           setPtDraft(null);
@@ -2389,6 +2504,7 @@ export function DocumentView({
                       onCancelText={() => {
                         setTextDraft(null);
                         setPtDraft(null);
+                        setLineDraft(null);
                       }}
                       onCreateInk={createInk}
                       shapeKind={shapeKind}
