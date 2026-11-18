@@ -430,6 +430,8 @@ export interface EngineClient {
   /** Exporte une page en image ; `unique` : renomme si le fichier existe. */
   exportImage(doc: number, page: number, options: ImageOptions, path: string, unique: boolean): Promise<{ path: string; width: number; height: number; dpi: number; bytes: number }>;
 
+  /** Texte écrit dans le contenu d'une page (pas un commentaire) : liste, ajout / remplacement, suppression. */
+  pageText(doc: number, page: number, op: PageTextOp): Promise<{ id: string | null; blocks: TextBlock[] }>;
   /** Organiser les pages du document ouvert (annulable) ; la génération du document change. */
   pages(doc: number, op: PageOp): Promise<PagesResult>;
   /** Écrit des pages dans un nouveau fichier ; renvoie sa taille. */
@@ -535,6 +537,31 @@ export interface ImageOptions {
   /** Commentaires et champs remplis inclus. */
   annotations: boolean;
 }
+
+export type FontFamily = "sans" | "serif" | "mono";
+export interface TextStyle {
+  family: FontFamily;
+  bold: boolean;
+  italic: boolean;
+  /** Taille en points. */
+  size: number;
+  color: Rgb;
+}
+/** Bloc de texte ajouté dans le contenu d'une page (points, depuis le haut). */
+export interface TextBlock {
+  id: string;
+  page: number;
+  x: number;
+  y: number;
+  /** Rectangle occupé (gauche, haut, largeur, hauteur). */
+  rect: [number, number, number, number];
+  text: string;
+  style: TextStyle;
+}
+export type PageTextOp =
+  | { kind: "list" }
+  | { kind: "set"; id: string | null; x: number; y: number; text: string; style: TextStyle }
+  | { kind: "delete"; id: string };
 
 /** Opération sur les pages (index à partir de 0, dans l'ordre actuel). */
 export type PageOp =

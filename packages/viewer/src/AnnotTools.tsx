@@ -97,7 +97,7 @@ export function AnnotLayer(p: LayerProps) {
     }
   };
 
-  const placing = p.tool === "note" || p.tool === "text" || p.tool === "textbox" || p.tool === "callout" || p.tool === "check" || p.tool === "sign" || p.tool === "stamp";
+  const placing = p.tool === "note" || p.tool === "text" || p.tool === "textbox" || p.tool === "callout" || p.tool === "check" || p.tool === "sign" || p.tool === "stamp" || p.tool === "pagetext";
   const active = placing || p.tool === "ink" || p.tool === "eraser" || shaping;
   const cssW = pw * p.k;
   const cssH = ph * p.k;
@@ -130,7 +130,7 @@ export function AnnotLayer(p: LayerProps) {
         <div
           className="absolute inset-0 touch-none"
           data-draw-layer
-          style={{ cursor: p.tool === "text" || p.tool === "textbox" ? "text" : p.tool === "callout" || shaping ? "crosshair" : placing ? "copy" : p.tool === "ink" ? "crosshair" : "cell" }}
+          style={{ cursor: p.tool === "text" || p.tool === "textbox" || p.tool === "pagetext" ? "text" : p.tool === "callout" || shaping ? "crosshair" : placing ? "copy" : p.tool === "ink" ? "crosshair" : "cell" }}
           onDoubleClick={(e) => {
             if (!multi) return;
             e.preventDefault();

@@ -16,7 +16,10 @@ import {
   BookOpenText,
   Check,
   BookOpen,
+  Bold,
   ImageDown,
+  Italic,
+  TextCursorInput,
   Shrink,
   LayoutGrid,
   Lock,
@@ -55,7 +58,7 @@ import { DEFAULT_STYLES, hitTest, isMarkupTool, isMultiPoint, KIND_LABELS, SHAPE
 import { PropertyBar } from "./AnnotTools";
 import { CommentsPanel } from "./CommentsPanel";
 import { SignatureDialog } from "./FillTools";
-import type { DocInfo, SaveResult, ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
+import type { DocInfo, FontFamily, SaveResult, TextBlock, TextStyle, ReviewStatus, ShapeKind, StampPreset, Attachment, Annot, AnnotPatch, AnnotResult, Field, FieldInput, SavedSignature, SignatureKind, Bookmark, Box, EngineClient, Layout, LinkAction, MarkupKind, PageLink, PanelId, Rotation, TextWord, ViewState, ZoomMode } from "./engine";
 import { PT_TO_CSS } from "./engine";
 import { clampZoom, computeLayout, type DocLayout, fitZoom, groupRows, isContinuous, isSpread, PAGE_GAP, rotateBox, rowAt, unrotatePoint } from "./layout";
 import { CompressDialog } from "./CompressDialog";
@@ -122,6 +125,7 @@ const TOOLBAR_TOOLS: [Exclude<Tool, "select">, string][] = [
   ["ink", msg("Dessin")],
   ["eraser", msg("Gomme")],
   ["text", msg("Texte")],
+  ["pagetext", msg("Texte dans la page")],
   ["textbox", msg("Zone de texte")],
   ["callout", msg("Légende")],
   ["shape", msg("Formes")],
@@ -179,6 +183,10 @@ export interface DocActions {
   setMarked: (page: number, id: string, marked: boolean) => Promise<boolean>;
   setShapeKind: (k: ShapeKind) => void;
   setTool: (t: Tool) => void;
+  /** Clic sur la page avec l'outil actif, au point (x, y) en points depuis le haut. */
+  place: (page: number, x: number, y: number) => void;
+  /** Texte écrit dans la page : blocs d'une page (rechargés). */
+  pageTexts: (page: number) => Promise<TextBlock[]>;
 }
 
 /** Point d'ancrage : garde la même portion du document sous les yeux quand le zoom, la rotation
@@ -233,6 +241,14 @@ const TOOL_LABELS: Record<Exclude<Tool, "select" | "eraser">, string> = {
   sign: msg("Signer"),
   shape: msg("Formes"),
   stamp: msg("Tampon"),
+  pagetext: msg("Texte dans la page"),
+};
+
+/** Polices d'écran proches des polices standard du PDF (aperçu pendant la saisie). */
+const CSS_FAMILY: Record<FontFamily, string> = {
+  sans: "Helvetica, Arial, sans-serif",
+  serif: "'Times New Roman', Times, serif",
+  mono: "'Courier New', Courier, monospace",
 };
 
 const SHAPE_ICONS: Record<ShapeKind, React.ReactNode> = {
@@ -1218,8 +1234,132 @@ export function DocumentView({
     [getSignature, placeSignature],
   );
 
+  // ------------------------------------------------------------ texte écrit dans la page
+  // Vrai texte dans le contenu (pas un commentaire) : poser, modifier, déplacer, supprimer.
+  const canEditContent = perms.modify && !protectedOn;
+  const [ptStyle, setPtStyle] = useState<TextStyle>({ family: "sans", bold: false, italic: false, size: 12, color: [0, 0, 0] });
+  const [pageTexts, setPageTexts] = useState<Map<number, TextBlock[]>>(() => new Map());
+  const [ptSelected, setPtSelected] = useState<{ page: number; id: string } | null>(null);
+  const [ptDraft, setPtDraft] = useState<{ page: number; id: string | null; x: number; y: number; text: string } | null>(null);
+  useEffect(() => {
+    setPageTexts(new Map());
+    setPtSelected(null);
+    setPtDraft(null);
+  }, [info.generation]);
+  useEffect(() => {
+    if (tool !== "pagetext") {
+      setPtSelected(null);
+      setPtDraft(null);
+    }
+  }, [tool]);
+  const loadPageTexts = useCallback(
+    async (p: number) => {
+      const r = await engine.pageText(info.id, p, { kind: "list" }).catch(() => null);
+      if (r) setPageTexts((m) => new Map(m).set(p, r.blocks));
+    },
+    [engine, info.id],
+  );
+  // État le plus récent (mis à jour tout de suite, avant la réponse du moteur) et écritures en
+  // file : des actions rapprochées (flèche maintenue, gras puis déplacement) partent toujours du
+  // dernier état voulu et ne s'écrasent pas.
+  const pageTextsRef = useRef(pageTexts);
+  pageTextsRef.current = pageTexts;
+  const ptSelRef = useRef(ptSelected);
+  ptSelRef.current = ptSelected;
+  const ptQueue = useRef<Promise<void>>(Promise.resolve());
+  const setTexts = (p: number, blocks: TextBlock[]) => {
+    const m = new Map(pageTextsRef.current).set(p, blocks);
+    pageTextsRef.current = m;
+    setPageTexts(m);
+  };
+  const selectBlock = (sel: { page: number; id: string } | null) => {
+    ptSelRef.current = sel;
+    setPtSelected(sel);
+  };
+  const latest = (page: number, id: string) => pageTextsRef.current.get(page)?.find((b) => b.id === id);
+  const writePageText = useCallback(
+    (p: number, id: string | null, x: number, y: number, text: string, style: TextStyle) => {
+      const [pw, ph] = info.pages[p] ?? [612, 792];
+      const cx = Math.min(Math.max(0, x), pw - 4);
+      const cy = Math.min(Math.max(0, y), ph - 4);
+      if (id) {
+        const list = pageTextsRef.current.get(p) ?? [];
+        setTexts(p, list.map((b) => (b.id === id ? { ...b, x: cx, y: cy, text, style, rect: [b.rect[0] + (cx - b.x), b.rect[1] + (cy - b.y), b.rect[2], b.rect[3]] } : b)));
+      }
+      ptQueue.current = ptQueue.current.then(async () => {
+        const r = await attempt(() => engine.pageText(info.id, p, { kind: "set", id, x: cx, y: cy, text, style }), t("Le texte n'a pas pu être écrit dans la page"));
+        if (!r) return;
+        setTexts(p, r.blocks);
+        selectBlock(r.id ? { page: p, id: r.id } : null);
+        onAnnotated(p);
+      });
+      return ptQueue.current;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [attempt, engine, info.id, info.pages, onAnnotated],
+  );
+  const removePageText = useCallback(
+    (p: number, id: string) => {
+      selectBlock(null);
+      ptQueue.current = ptQueue.current.then(async () => {
+        const r = await attempt(() => engine.pageText(info.id, p, { kind: "delete", id }), t("Le texte n'a pas pu être supprimé"));
+        if (!r) return;
+        setTexts(p, r.blocks);
+        onAnnotated(p);
+      });
+      return ptQueue.current;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [attempt, engine, info.id, onAnnotated],
+  );
+  const ptBlock = ptSelected ? pageTexts.get(ptSelected.page)?.find((b) => b.id === ptSelected.id) : undefined;
+  const pressBlock = (b: TextBlock) => {
+    const cur = latest(b.page, b.id) ?? b;
+    selectBlock({ page: cur.page, id: cur.id });
+    setPtStyle(cur.style);
+    setPtDraft(null);
+  };
+  const editBlock = (b: TextBlock) => {
+    const cur = latest(b.page, b.id) ?? b;
+    selectBlock({ page: cur.page, id: cur.id });
+    setPtStyle(cur.style);
+    setPtDraft({ page: cur.page, id: cur.id, x: cur.x, y: cur.y, text: cur.text });
+  };
+  const moveBlock = (b: TextBlock, dx: number, dy: number) => {
+    const cur = latest(b.page, b.id) ?? b;
+    void writePageText(cur.page, cur.id, cur.x + dx, cur.y + dy, cur.text, cur.style);
+  };
+  const changePtStyle = (patch: Partial<TextStyle>) => {
+    const next = { ...ptStyle, ...patch };
+    setPtStyle(next);
+    // Bloc choisi (pas en cours de saisie) : le style s'applique tout de suite.
+    const sel = ptSelRef.current;
+    const cur = sel && latest(sel.page, sel.id);
+    if (cur && !ptDraft) void writePageText(cur.page, cur.id, cur.x, cur.y, cur.text, next);
+  };
+  const selectedBlockNow = () => {
+    const sel = ptSelRef.current;
+    return sel ? latest(sel.page, sel.id) : undefined;
+  };
+  const ptKeys = useRef({ selectedBlockNow, ptDraft, editBlock, moveBlock, removePageText, selectBlock });
+  ptKeys.current = { selectedBlockNow, ptDraft, editBlock, moveBlock, removePageText, selectBlock };
+
+  const placeRef = useRef<(p: number, x: number, y: number) => void>(() => undefined);
   const onPlace = useCallback(
     (p: number, t: Tool, x: number, y: number) => {
+      if (t === "pagetext") {
+        const hit = pageTexts.get(p)?.find((b) => x >= b.rect[0] - 2 && x <= b.rect[0] + b.rect[2] + 2 && y >= b.rect[1] - 2 && y <= b.rect[1] + b.rect[3] + 2);
+        if (hit) {
+          ptSelRef.current = { page: hit.page, id: hit.id };
+          setPtSelected({ page: hit.page, id: hit.id });
+          setPtStyle(hit.style);
+        } else {
+          ptSelRef.current = null;
+          setPtSelected(null);
+          setPtDraft({ page: p, id: null, x, y, text: "" });
+        }
+        return;
+      }
       if (t === "note") void createNote(p, Math.max(0, x - 10), Math.max(0, y - 10));
       else if (t === "text") setTextDraft({ page: p, x, y });
       else if (t === "textbox") setTextDraft({ page: p, x, y, box: true });
@@ -1235,8 +1375,9 @@ export function DocumentView({
       else if (t === "sign") void signAt(p, x, y, sigKind);
       else if (t === "stamp") void placeStamp(p, x, y);
     },
-    [createNote, addMark, signAt, sigKind, info.pages, placeStamp],
+    [createNote, addMark, signAt, sigKind, info.pages, placeStamp, pageTexts],
   );
+  placeRef.current = (p, x, y) => onPlace(p, tool, x, y);
 
   /** Clic sur la page avec l'outil de sélection : sélectionne le commentaire sous le pointeur. */
   const onDocClick = (e: React.MouseEvent) => {
@@ -1422,6 +1563,8 @@ export function DocumentView({
       setMarked: (p, id, marked) => setStatus(p, id, null, marked),
       setShapeKind,
       setTool: onToolChange,
+      place: (p, x, y) => placeRef.current(p, x, y),
+      pageTexts: async (p) => (await engine.pageText(info.id, p, { kind: "list" })).blocks,
     });
   }, [register, onToolChange, jump, goBack, goForward, openAdvanced, readPage, stopReading, createShape, placeStamp, replyTo, setStatus, markupSelection, createNote, createInk, updateAnnot, deleteAnnot, loadAnnots, loadFields, setField, addText, addMark, addTextBox, saveSignature, placeSignature]);
   useEffect(() => () => register?.(null), [register]);
@@ -1522,6 +1665,34 @@ export function DocumentView({
         return;
       }
       if (typing || e.altKey || e.metaKey) return;
+      // Texte écrit dans la page, choisi : Suppr l'efface, Entrée le modifie, flèches le déplacent.
+      const pt = ptKeys.current;
+      const ptb = pt.selectedBlockNow();
+      if (ptb && !pt.ptDraft) {
+        const b = ptb;
+        const step = e.shiftKey ? 10 : 1;
+        const moves: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+        if (key === "Delete" || key === "Backspace") {
+          e.preventDefault();
+          void pt.removePageText(b.page, b.id);
+          return;
+        }
+        if (key === "Enter") {
+          e.preventDefault();
+          pt.editBlock(b);
+          return;
+        }
+        if (key === "Escape") {
+          pt.selectBlock(null);
+          return;
+        }
+        const mv = moves[key];
+        if (mv) {
+          e.preventDefault();
+          pt.moveBlock(b, mv[0], mv[1]);
+          return;
+        }
+      }
       if ((key === "Delete" || key === "Backspace") && c.selected) {
         e.preventDefault();
         void c.deleteAnnot(c.selected.page, c.selected.id);
@@ -1608,6 +1779,10 @@ export function DocumentView({
       void loadFields(Number(p));
     }
   }, [visibleKey, isActive, loadAnnots, loadFields, annots, fields]);
+  useEffect(() => {
+    if (!isActive || tool !== "pagetext") return;
+    for (const p of visibleKey.split(",")) if (p !== "" && !pageTexts.has(Number(p))) void loadPageTexts(Number(p));
+  }, [visibleKey, isActive, tool, pageTexts, loadPageTexts]);
   const selectedAnnot = selected ? annots.get(selected.page)?.find((a) => a.id === selected.id) : undefined;
   // Les réponses n'existent que dans la liste des commentaires.
   const pageAnnots = useMemo(() => {
@@ -1687,6 +1862,20 @@ export function DocumentView({
           {shown("text") && (
           <ToolButton
             id="text" label={t("Ajouter du texte (cliquez sur la page)")} shortcut="T" icon={<Type size={18} />} isDisabled={!canAnnotate} />
+          )}
+          {shown("pagetext") && (
+          <ToolButton
+            id="pagetext"
+            label={
+              canEditContent
+                ? t("Écrire dans la page (texte modifiable)")
+                : protectedOn
+                  ? t("Vue protégée : activez la modification pour écrire dans la page")
+                  : t("Modification du contenu désactivée par l'auteur")
+            }
+            icon={<TextCursorInput size={18} />}
+            isDisabled={!canEditContent}
+          />
           )}
           {shown("textbox") && (
           <ToolButton
@@ -1874,6 +2063,42 @@ export function DocumentView({
                   {t("Ajouter mon nom et la date")}
                 </Checkbox>
                 <span className="text-sm text-muted">{t("Cliquez sur la page pour le poser.")}</span>
+              </div>
+            }
+          />
+        ) : styleTool === "pagetext" ? (
+          <PropertyBar
+            title={ptBlock ? t("Texte choisi") : t("Texte dans la page")}
+            style={{ color: ptStyle.color, opacity: 1, width: ptStyle.size }}
+            showOpacity={false}
+            showWidth
+            widthLabel={t("Taille")}
+            widthRange={[6, 72, 1]}
+            onChange={(patch) => changePtStyle({ ...(patch.color ? { color: patch.color } : {}), ...(patch.width !== undefined ? { size: patch.width } : {}) })}
+            extra={
+              <div className="flex min-w-0 items-center gap-3" data-pagetext-bar>
+                <Select
+                  aria-label={t("Police")}
+                  size="sm"
+                  options={[
+                    { id: "sans", label: t("Sans empattement") },
+                    { id: "serif", label: t("Avec empattements") },
+                    { id: "mono", label: t("Chasse fixe") },
+                  ]}
+                  selectedKey={ptStyle.family}
+                  onSelectionChange={(k) => changePtStyle({ family: k as FontFamily })}
+                  className="w-44"
+                />
+                <ToolButton label={t("Gras")} icon={<Bold size={16} />} size="sm" isSelected={ptStyle.bold} onChange={(v) => changePtStyle({ bold: v })} />
+                <ToolButton label={t("Italique")} icon={<Italic size={16} />} size="sm" isSelected={ptStyle.italic} onChange={(v) => changePtStyle({ italic: v })} />
+                {ptBlock && (
+                  <Button size="sm" variant="ghost" onPress={() => void removePageText(ptBlock.page, ptBlock.id)}>
+                    {t("Supprimer")}
+                  </Button>
+                )}
+                <span className="min-w-0 truncate text-sm text-muted" title={ptBlock ? t("Double-clic ou Entrée pour modifier, glisser ou flèches pour déplacer, Suppr pour effacer.") : undefined}>
+                  {ptBlock ? t("Double-clic : modifier · Suppr : effacer") : t("Cliquez sur la page pour écrire.")}
+                </span>
               </div>
             }
           />
@@ -2122,7 +2347,7 @@ export function DocumentView({
                       annots={pageAnnots.get(i) ?? null}
                       selectedId={selected?.page === i ? selected.id : null}
                       editing={editing?.page === i ? editing : null}
-                      tool={canAnnotate && !immersive ? tool : "select"}
+                      tool={!immersive && (tool === "pagetext" ? canEditContent : canAnnotate) ? tool : "select"}
                       toolStyle={styles.ink}
                       onPlace={onPlace}
                       fields={fields.get(i) ?? null}
@@ -2130,18 +2355,41 @@ export function DocumentView({
                       highlightFields={highlightFields}
                       onSetField={(pg, idx, input) => void setField(pg, idx, input)}
                       onSignField={(f) => void signAt(f.page, 0, 0, "signature", f)}
+                      pageTexts={pageTexts.get(i) ?? null}
+                      selectedTextId={ptSelected?.page === i ? ptSelected.id : null}
+                      onPressText={pressBlock}
+                      onEditText={editBlock}
+                      onMoveText={moveBlock}
                       textDraft={
-                        textDraft?.page === i
+                        ptDraft?.page === i
+                          ? {
+                              x: ptDraft.x,
+                              y: ptDraft.y,
+                              size: ptStyle.size,
+                              color: toHex(ptStyle.color),
+                              initial: ptDraft.id ? ptDraft.text : undefined,
+                              font: { family: CSS_FAMILY[ptStyle.family], bold: ptStyle.bold, italic: ptStyle.italic },
+                            }
+                          : textDraft?.page === i
                           ? { x: textDraft.x, y: textDraft.y, size: styles.text.width, color: toHex(styles.text.color), boxWidth: textDraft.box ? TEXTBOX_WIDTH : undefined }
                           : null
                       }
                       onCommitText={(pg, x, y, t) => {
+                        if (ptDraft) {
+                          const pd = ptDraft;
+                          setPtDraft(null);
+                          void writePageText(pg, pd.id, pd.x, pd.y, t, ptStyle);
+                          return;
+                        }
                         const d = textDraft;
                         setTextDraft(null);
                         if (d?.box) void addTextBox(pg, [x, y, TEXTBOX_WIDTH, 20], t, d.anchor ?? null);
                         else void addText(pg, x, y, t);
                       }}
-                      onCancelText={() => setTextDraft(null)}
+                      onCancelText={() => {
+                        setTextDraft(null);
+                        setPtDraft(null);
+                      }}
                       onCreateInk={createInk}
                       shapeKind={shapeKind}
                       shapeFill={shapeFill}

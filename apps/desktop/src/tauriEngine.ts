@@ -8,6 +8,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 const BASE = navigator.userAgent.includes("Windows") ? "http://pdfpage.localhost" : "pdfpage://localhost";
+/** Identifiant de ce lancement, dans l'adresse des tuiles : les numéros de document repartent de 1
+ *  à chaque lancement et les tuiles sont gardées en cache, une tuile d'une session précédente ne
+ *  doit jamais être resservie (autre fichier, ou même fichier modifié autrement). */
+const SESSION = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 /** Implémentation du moteur par les commandes Tauri (Rust + PDFium). */
 export const tauriEngine: EngineClient = {
@@ -68,7 +72,7 @@ export const tauriEngine: EngineClient = {
   removeRecent: (id) => invoke("recent_remove", { id }),
   starRecent: (id, starred) => invoke("recent_star", { id, starred }),
   author: () => invoke<string>("author"),
-  tileUrl: (doc, gen, ver, page, scale, x, y) => `${BASE}/tile/${doc}/${gen}/${ver}/${page}/${scale.toFixed(4)}/${x}/${y}`,
+  tileUrl: (doc, gen, ver, page, scale, x, y) => `${BASE}/tile/${SESSION}/${doc}/${gen}/${ver}/${page}/${scale.toFixed(4)}/${x}/${y}`,
   thumbUrl: (id, bust) => `${BASE}/thumb/${id}?v=${bust}`,
   async pickFiles(kind = "pdf") {
     const pdf = { name: t("Documents PDF"), extensions: ["pdf"] };
@@ -88,6 +92,7 @@ export const tauriEngine: EngineClient = {
   protect: (doc, protection, path) => invoke<{ info: DocInfo; save: SaveResult }>("doc_protect", { doc, protection, path }),
   exportImage: (doc, page, options, path, unique) => invoke("doc_export_image", { doc, page, options, path, unique }),
   pages: (doc, op) => invoke<PagesResult>("doc_pages", { doc, op }),
+  pageText: (doc, page, op) => invoke("doc_page_text", { doc, page, op }),
   extractPages: (doc, pages, path) => invoke<number>("doc_extract_pages", { doc, pages, path }),
   splitPages: (doc, perFile, folder) => invoke<string[]>("doc_split_pages", { doc, perFile, folder }),
   combine: (paths, path, imagePage) => invoke<number>("pdf_combine", { paths, path, imagePage }),

@@ -9,7 +9,7 @@ mod protocol;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use engine::{AnnotOp, DocInfo, Engine, PageOp, Request, SaveResult};
+use engine::{AnnotOp, DocInfo, Engine, PageOp, PageTextOp, Request, SaveResult};
 use pdfreader_engine::OpenError;
 use serde_json::Value;
 use tauri::http::Response;
@@ -590,6 +590,12 @@ async fn doc_set_bookmarks(doc: u32, items: Vec<pdfreader_engine::outline::Outli
     engine.ask(Request::SetBookmarks { doc, items }).await
 }
 
+/// Texte écrit dans le contenu d'une page : liste, ajout ou remplacement, suppression.
+#[tauri::command]
+async fn doc_page_text(doc: u32, page: i32, op: PageTextOp, engine: State<'_, Engine>) -> Result<Value, String> {
+    engine.ask(Request::PageText { doc, page, op }).await
+}
+
 /// Organiser les pages : pivoter, supprimer, déplacer, insérer, annuler, rétablir.
 #[tauri::command]
 async fn doc_pages(doc: u32, op: PageOp, engine: State<'_, Engine>) -> Result<Value, String> {
@@ -944,7 +950,9 @@ fn repo_root() -> Option<PathBuf> {
     }
 }
 
-/// `pdfpage://localhost/tile/<doc>/<gen>/<ver>/<page>/<scale>/<x>/<y>` (WebP) et `/thumb/<id>` (PNG).
+/// `pdfpage://localhost/tile/<session>/<doc>/<gen>/<ver>/<page>/<scale>/<x>/<y>` (WebP) et `/thumb/<id>`
+/// (PNG). `session` (propre à chaque lancement) et `gen` / `ver` ne servent qu'à rendre l'adresse
+/// unique : les tuiles sont gardées en cache par la WebView, d'une session à l'autre.
 fn handle_protocol(app: &AppHandle, request: tauri::http::Request<Vec<u8>>, responder: tauri::UriSchemeResponder) {
     let path = request.uri().path().trim_start_matches('/').to_string();
     let parts: Vec<&str> = path.split('/').collect();
@@ -952,9 +960,9 @@ fn handle_protocol(app: &AppHandle, request: tauri::http::Request<Vec<u8>>, resp
         responder.respond(Response::builder().status(400).body(b"requete invalide".to_vec()).unwrap());
     };
     match parts.first().copied() {
-        Some("tile") if parts.len() == 8 => {
+        Some("tile") if parts.len() == 9 => {
             let n = |i: usize| parts[i].parse::<f32>().ok();
-            let (Some(doc), Some(page), Some(scale), Some(x), Some(y)) = (n(1), n(4), n(5), n(6), n(7)) else {
+            let (Some(doc), Some(page), Some(scale), Some(x), Some(y)) = (n(2), n(5), n(6), n(7), n(8)) else {
                 return bad(responder);
             };
             if !(0.01..=64.0).contains(&scale) {
@@ -1067,6 +1075,7 @@ fn main() {
             doc_bookmarks,
             doc_properties,
             doc_pages,
+            doc_page_text,
             doc_extract_pages,
             doc_split_pages,
             pdf_combine,

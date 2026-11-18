@@ -3,7 +3,7 @@ import { locale, msg, t } from "@pdfreader/ui";
  *  détection du commentaire sous le pointeur). */
 import type { Annot, AnnotKind, MarkupKind, ReviewStatus, Rgb, ShapeKind, StampPreset } from "./engine";
 
-export type Tool = "select" | MarkupKind | "note" | "ink" | "eraser" | "text" | "textbox" | "callout" | "check" | "sign" | "shape" | "stamp";
+export type Tool = "select" | MarkupKind | "note" | "ink" | "eraser" | "text" | "textbox" | "callout" | "check" | "sign" | "shape" | "stamp" | "pagetext";
 export const MARKUP_TOOLS: MarkupKind[] = ["highlight", "underline", "strikeout"];
 export const isMarkupTool = (t: Tool): t is MarkupKind => (MARKUP_TOOLS as string[]).includes(t);
 

@@ -157,10 +157,16 @@ export function TextDraft({
   pageSize,
   color,
   boxWidth,
+  initial = "",
+  font,
   onCommit,
   onCancel,
 }: {
   at: { x: number; y: number };
+  /** Texte de départ (modification d'un bloc existant). */
+  initial?: string;
+  /** Police (texte écrit dans la page) : famille CSS, gras, italique ; fond opaque pour cacher l'ancien texte. */
+  font?: { family: string; bold: boolean; italic: boolean };
   /** Zone de texte : largeur en points ; le texte revient à la ligne dans le cadre. */
   boxWidth?: number;
   size: number;
@@ -172,14 +178,15 @@ export function TextDraft({
   onCancel: () => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initial);
   const done = useRef(false);
   useEffect(() => ref.current?.focus(), []);
   const [dx, dy] = rotateBox([at.x, at.y, 0, 0], pageSize[0], pageSize[1], rotation);
   const finish = (commit: boolean) => {
     if (done.current) return;
     done.current = true;
-    if (commit && text.trim()) onCommit(text);
+    // Modification d'un bloc : un texte vidé le supprime (validé comme tel).
+    if (commit && (text.trim() || initial)) onCommit(text);
     else onCancel();
   };
   const lines = Math.max(1, text.split("\n").length);
@@ -195,7 +202,7 @@ export function TextDraft({
   return (
     <textarea
       ref={ref}
-      aria-label={t("Texte à ajouter sur la page")}
+      aria-label={font ? t("Texte écrit dans la page") : t("Texte à ajouter sur la page")}
       value={text}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => finish(true)}
@@ -221,7 +228,20 @@ export function TextDraft({
       style={
         boxWidth
           ? { left: dx * k, top: dy * k, width: boxWidth * k, fontSize: size * k, fontFamily: fieldFont, color, borderColor: color, padding: Math.max(3, size * 0.4) * k }
-          : { left: dx * k, top: dy * k, fontSize: size * k, fontFamily: fieldFont, color, width: `${longest * 0.6 + 1}em`, minWidth: 40 }
+          : font
+            ? {
+                left: dx * k,
+                top: dy * k,
+                fontSize: size * k,
+                fontFamily: font.family,
+                fontWeight: font.bold ? 700 : 400,
+                fontStyle: font.italic ? "italic" : "normal",
+                color,
+                width: `${longest * 0.62 + 1}em`,
+                minWidth: 40,
+                background: "var(--color-page, #fff)",
+              }
+            : { left: dx * k, top: dy * k, fontSize: size * k, fontFamily: fieldFont, color, width: `${longest * 0.6 + 1}em`, minWidth: 40 }
       }
     />
   );

@@ -332,7 +332,11 @@ export function OrganizeView({
       if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 6) return;
       const pages = p.selected ? chosen : [p.index];
       if (!p.selected) setSelected(new Set([keyOf(p.index)]));
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {
+        // Pointeur déjà relâché : le glisser continue sans capture.
+      }
       setDrag({ pages, before: p.index, bar: null });
     }
     // Défilement quand le pointeur approche du bord.

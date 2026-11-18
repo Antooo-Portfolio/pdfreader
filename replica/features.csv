@@ -81,7 +81,7 @@ Exporter en texte brut,conversion,should,yes,no,
 Exporter vers Word,conversion,should,yes,no,F10 ; fidélité de mise en page difficile ; traitement local
 Exporter vers Excel / PowerPoint,conversion,could,yes,no,
 Modifier le texte existant,édition,must,yes,no,S18 F09 ; la fonction payante phare
-Ajouter du texte,édition,must,yes,no,
+Ajouter du texte,édition,must,yes,yes,"Phase 2 : outil « Écrire dans la page » : vrai texte dans le contenu (sélectionnable, cherchable, imprimé), pas un commentaire ; plusieurs lignes, police sans / avec empattements / chasse fixe, gras, italique, taille, couleur ; bloc choisi au clic, modifié au double-clic ou Entrée, déplacé au glisser ou aux flèches (Maj : 10 points), supprimé avec Suppr ; polices standard (aucun ajout au fichier) pour l'Europe de l'Ouest, Arial / Times / Courier New intégrées une fois pour le reste (cyrillique, grec, Europe de l'Est) ; blocs marqués pour être retrouvés après enregistrement ; refusé si l'auteur interdit la modification"
 Ajouter / remplacer / supprimer des images,édition,should,yes,no,
 Ajouter et modifier des liens,édition,should,yes,no,
 Filigrane / arrière-plan,édition,should,yes,no,S27

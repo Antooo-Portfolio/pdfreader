@@ -79,6 +79,7 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
     steps.phase2images = await runPhase2Images(engine, actions, path);
     steps.phase2password = await runPhase2Password(engine, actions, path);
     steps.phase2compress = await runPhase2Compress(engine, actions, path);
+    steps.phase2pagetext = await runPhase2PageText(engine, actions, path);
     steps.ok =
       m1 &&
       (steps.m2 as { ok: boolean }).ok &&
@@ -95,7 +96,8 @@ export async function runE2E(engine: EngineClient, actions: AppActions, first: D
       (steps.phase2image as { ok: boolean }).ok &&
       (steps.phase2images as { ok: boolean }).ok &&
       (steps.phase2password as { ok: boolean }).ok &&
-      (steps.phase2compress as { ok: boolean }).ok;
+      (steps.phase2compress as { ok: boolean }).ok &&
+      (steps.phase2pagetext as { ok: boolean }).ok;
   } catch (e) {
     steps.error = String(e);
     steps.ok = false;
@@ -1634,6 +1636,150 @@ async function runPhase2Compress(engine: EngineClient, actions: AppActions, path
   }
   r.checks = checks;
   r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 3;
+  return r;
+}
+
+/** Phase 2, « Ajouter du texte » : outil « Écrire dans la page », texte tapé dans la zone de
+ *  saisie, devenu du vrai texte (couche de texte) ; bloc choisi, mis en gras, déplacé au clavier,
+ *  modifié par double-clic ; enregistré et relu ; supprimé ; cyrillique accepté. */
+async function runPhase2PageText(engine: EngineClient, actions: AppActions, path: string) {
+  const r: Record<string, unknown> = {};
+  const checks: Record<string, boolean> = {};
+  const dir = dirOf(path);
+  const visible = <T extends Element>(sel: string) => Array.from(document.querySelectorAll<T>(sel)).find((el) => !el.closest("[hidden]") && !el.closest(".hidden"));
+  const typeInDraft = async (text: string) => {
+    const ta = await waitFor(() => visible<HTMLTextAreaElement>('textarea[aria-label="Texte écrit dans la page"]'), 4000);
+    setNativeValue(ta, text);
+    await sleep(50);
+    ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  };
+  const press = (el: Element) => {
+    const b = el.getBoundingClientRect();
+    const init: PointerEventInit = { bubbles: true, cancelable: true, pointerType: "mouse", pointerId: 1, isPrimary: true, button: 0, buttons: 1, clientX: b.left + 3, clientY: b.top + 3 };
+    el.dispatchEvent(new PointerEvent("pointerdown", init));
+    el.dispatchEvent(new PointerEvent("pointerup", { ...init, buttons: 0 }));
+  };
+  const words = async (id: number) => (await engine.textLayer(id, 0)).flat().map((w) => w.t).join("");
+  let step = "début";
+  try {
+    const work = dir + "texte-ajoute.pdf";
+    await engine.combine([dir + "01-texte-10p.pdf"], work, { size: { kind: "a4" }, margin: 0 });
+    const doc = await actions.openPath(work);
+    if (!doc) throw new Error("copie introuvable");
+    const a = await waitFor(() => (actions.activeId() === doc.id ? actions.doc() : null));
+    await waitFor(() => Array.from(document.querySelectorAll('[data-page-index="0"] img')).find((el) => !el.closest("[hidden]")), 8000);
+
+    step = "écrire";
+    a.setTool("pagetext");
+    await sleep(150);
+    a.place(0, 300, 650);
+    await typeInDraft("Bonjour PDFReader\nDeuxième ligne");
+    const b1 = await until(async () => ((await a.pageTexts(0)).length === 1 ? (await a.pageTexts(0))[0] : null), 6000);
+    const dirty = actions.openDocs().find((d) => d.id === doc.id)?.dirty;
+    const w1 = await words(doc.id);
+    r.write = { text: b1?.text, x: b1?.x, dirty, inTextLayer: w1.includes("Bonjour") && w1.includes("Deuxième") };
+    checks.write = b1?.text === "Bonjour PDFReader\nDeuxième ligne" && dirty === true && w1.includes("Bonjour");
+
+    step = "choisir, gras, déplacer";
+    const outline = await waitFor(() => visible<HTMLElement>("[data-page-text]"), 4000);
+    press(outline);
+    await waitFor(() => (visible("[data-pagetext-bar]")?.textContent ? true : null), 3000);
+    visible<HTMLButtonElement>('[data-pagetext-bar] button[aria-label="Gras"]')?.click();
+    await until(async () => ((await a.pageTexts(0))[0]?.style.bold ? true : null), 6000);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", shiftKey: true, bubbles: true, cancelable: true }));
+    const b2 = await until(async () => {
+      const b = (await a.pageTexts(0))[0];
+      return b && b.x === 310 ? b : null;
+    }, 6000);
+    r.select = { bold: b2?.style.bold, x: b2?.x };
+    checks.select = b2?.style.bold === true && b2.x === 310;
+
+    step = "déplacer après enregistrement";
+    await actions.save(doc.id);
+    await sleep(800);
+    // Après l'enregistrement (nouvelle génération), seule la version 0 est demandée : une ancienne
+    // version de la page, gardée en cache, montrerait un contenu périmé.
+    const afterSave = Array.from(document.querySelectorAll<HTMLImageElement>('[data-page-index="0"] img'))
+      .filter((i) => !i.closest("[hidden]"))
+      .map((i) => i.src.split("/").slice(-7, -4).join("/"));
+    r.afterSaveTiles = [...new Set(afterSave)];
+    checks.freshAfterSave = afterSave.length > 0 && afterSave.every((x) => x.split("/")[2] === "0");
+    const outlineS = await waitFor(() => visible<HTMLElement>("[data-page-text]"), 4000);
+    // Glisser à la souris : appui, mouvements, relâchement (comme une vraie main).
+    {
+      const bb = outlineS.getBoundingClientRect();
+      const base: PointerEventInit = { bubbles: true, cancelable: true, pointerType: "mouse", pointerId: 7, isPrimary: true, button: 0, buttons: 1 };
+      let cx = bb.left + 5;
+      let cy = bb.top + 5;
+      outlineS.dispatchEvent(new PointerEvent("pointerdown", { ...base, clientX: cx, clientY: cy }));
+      for (let k = 0; k < 10; k++) {
+        cx += 6;
+        cy += 4;
+        await sleep(16);
+        outlineS.dispatchEvent(new PointerEvent("pointermove", { ...base, clientX: cx, clientY: cy }));
+      }
+      await sleep(30);
+      outlineS.dispatchEvent(new PointerEvent("pointerup", { ...base, buttons: 0, clientX: cx, clientY: cy }));
+    }
+    await sleep(2000);
+    const imgs = () =>
+      Array.from(document.querySelectorAll<HTMLImageElement>('[data-page-index="0"] img'))
+        .filter((i) => !i.closest("[hidden]"))
+        .map((i) => `${i.src.split("/").slice(-7).join("/")} op=${i.style.opacity || "1"}`);
+    const afterDrag = (await a.pageTexts(0))[0];
+    const shown = imgs().filter((x) => x.endsWith("op=1"));
+    r.dragAfterSave = { x: afterDrag?.x, y: afterDrag?.y, shownVersion: shown[1]?.split("/")[2] ?? null };
+    // Bloc déplacé vers la droite et le bas ; la page affichée est la nouvelle version (1 après l'enregistrement).
+    checks.drag = !!afterDrag && afterDrag.x > 330 && afterDrag.y > 655 && shown.length > 0 && shown.every((x) => x.split("/")[2] === "1");
+    step = "modifier";
+    const outline2 = await waitFor(() => visible<HTMLElement>("[data-page-text]"), 4000);
+    outline2.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+    const ta = await waitFor(() => visible<HTMLTextAreaElement>('textarea[aria-label="Texte écrit dans la page"]'), 4000);
+    const initial = ta.value;
+    await typeInDraft("Texte modifié");
+    const b3 = await until(async () => ((await a.pageTexts(0))[0]?.text === "Texte modifié" ? (await a.pageTexts(0))[0] : null), 6000);
+    const w3 = await words(doc.id);
+    r.edit = { initial, text: b3?.text, gone: !w3.includes("Bonjour") };
+    checks.edit = initial === "Bonjour PDFReader\nDeuxième ligne" && b3?.text === "Texte modifié" && b3.style.bold && !w3.includes("Bonjour");
+
+    step = "cyrillique";
+    a.place(0, 60, 760);
+    await typeInDraft("Привет, мир");
+    await until(async () => ((await a.pageTexts(0)).length === 2 ? true : null), 6000);
+    checks.cyrillic = (await words(doc.id)).includes("Привет");
+
+    step = "enregistrer et relire";
+    a.setTool("select");
+    const saved = await actions.save(doc.id);
+    await actions.closeDoc(doc.id);
+    await sleep(200);
+    const back = await actions.openPath(work);
+    if (!back) throw new Error("relecture impossible");
+    const a2 = await waitFor(() => (actions.activeId() === back.id ? actions.doc() : null));
+    const blocks = await a2.pageTexts(0);
+    const wb = await words(back.id);
+    r.reload = { saved, blocks: blocks.map((b) => [b.text, b.x, b.y, b.style.bold]), original: wb.includes("page 1") || wb.includes("Textesimple") };
+    checks.reload = saved && blocks.length === 2 && blocks.some((b) => b.text === "Texte modifié" && b.x > 330 && b.style.bold) && wb.includes("Привет");
+
+    step = "supprimer";
+    a2.setTool("pagetext");
+    await waitFor(() => visible<HTMLElement>("[data-page-text]"), 4000);
+    const target = Array.from(document.querySelectorAll<HTMLElement>("[data-page-text]")).find((el) => !el.closest("[hidden]") && el.getAttribute("aria-label")?.includes("Texte modifié"));
+    if (target) press(target);
+    await sleep(150);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }));
+    const left = await until(async () => ((await a2.pageTexts(0)).length === 1 ? true : null), 6000);
+    const remaining = (await a2.pageTexts(0)).map((x) => x.text);
+    r.delete = { targetFound: !!target, remaining };
+    checks.delete = !!left && remaining.length === 1 && remaining[0] === "Привет, мир";
+    a2.setTool("select");
+    await actions.save(back.id);
+    await actions.closeDoc(back.id);
+  } catch (err) {
+    r.error = `${step} : ${String(err)}`;
+  }
+  r.checks = checks;
+  r.ok = Object.values(checks).every(Boolean) && Object.keys(checks).length >= 8;
   return r;
 }
 

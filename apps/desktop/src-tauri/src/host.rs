@@ -14,7 +14,7 @@ use pdfreader_engine as eng;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::protocol::{AnnotOp, Answer, DocInfo, Envelope, OpenResult, PageOp, Request, SaveResult, read_frame, write_frame};
+use crate::protocol::{AnnotOp, Answer, DocInfo, Envelope, OpenResult, PageOp, PageTextOp, Request, SaveResult, read_frame, write_frame};
 
 /// Commentaire créé (s'il y en a un) et liste à jour des commentaires de la page.
 #[derive(Debug, Serialize)]
@@ -48,6 +48,8 @@ struct Entry {
     /// Des pages ont été supprimées : le prochain enregistrement réécrit tout le fichier, pour
     /// qu'elles n'y restent pas (un enregistrement incrémental garde l'ancienne version en tête).
     full_save: bool,
+    /// Polices TrueType intégrées pour le texte ajouté dans les pages (une fois chacune).
+    fonts: eng::pagetext::FontCache,
 }
 
 /// Copie complète du document en mémoire, avec ses signets en attente.
@@ -196,7 +198,7 @@ pub fn main(lib_dir: PathBuf) {
                     let (path, password, generation) = (e.path.clone(), e.password.clone(), e.generation + 1);
                     let fresh = eng::open_typed(pdfium, &path, password.as_deref()).map_err(|e| e.to_string())?;
                     let fingerprint = eng::fingerprint(&path).map_err(|e| e.to_string())?;
-                    let entry = Entry { doc: fresh, mtime: eng::file_mtime(&path), path, password, generation, fingerprint, outline: None, form_scripts: None, undo: Vec::new(), redo: Vec::new(), full_save: false };
+                    let entry = Entry { doc: fresh, mtime: eng::file_mtime(&path), path, password, generation, fingerprint, outline: None, form_scripts: None, undo: Vec::new(), redo: Vec::new(), full_save: false, fonts: Default::default() };
                     let info = info_of(doc, &entry);
                     docs.insert(doc, entry);
                     Ok(info)
@@ -211,7 +213,7 @@ pub fn main(lib_dir: PathBuf) {
                     // Copie de récupération : empreinte du fichier d'origine s'il existe encore.
                     let fingerprint = eng::fingerprint(&shown).or_else(|_| eng::fingerprint(&path)).map_err(|e| eng::OpenError::Other(e.to_string()))?;
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    let entry = Entry { doc, mtime: eng::file_mtime(&shown), path: shown, password: password.clone(), generation: generation.max(1), fingerprint, outline: None, form_scripts: None, undo: Vec::new(), redo: Vec::new(), full_save: false };
+                    let entry = Entry { doc, mtime: eng::file_mtime(&shown), path: shown, password: password.clone(), generation: generation.max(1), fingerprint, outline: None, form_scripts: None, undo: Vec::new(), redo: Vec::new(), full_save: false, fonts: Default::default() };
                     let info = info_of(doc_id, &entry);
                     docs.insert(doc_id, entry);
                     Ok((OpenResult { info, size }, thumbnail))
@@ -232,6 +234,14 @@ pub fn main(lib_dir: PathBuf) {
             Request::Annot { doc, page, op } => {
                 let changes = !matches!(op, AnnotOp::List);
                 let r = annot(&docs, doc, page, op, data);
+                if changes && r.is_ok() {
+                    forget_page_history(&mut docs, doc);
+                }
+                out.reply(id, r);
+            }
+            Request::PageText { doc, page, op } => {
+                let changes = !matches!(op, PageTextOp::List);
+                let r = page_text(&mut docs, doc, page, op);
                 if changes && r.is_ok() {
                     forget_page_history(&mut docs, doc);
                 }
@@ -526,9 +536,39 @@ fn save(pdfium: &'static Pdfium, docs: &mut HashMap<u32, Entry>, id: u32, target
     let doc = eng::open_typed(pdfium, &target, password.as_deref()).map_err(|e| e.to_string())?;
     let bytes = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
     let fingerprint = eng::fingerprint(&target).map_err(|e| e.to_string())?;
-    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone(), outline: None, form_scripts: None, undo: Vec::new(), redo: Vec::new(), full_save: false };
+    let entry = Entry { doc, path: target.clone(), password, mtime: eng::file_mtime(&target), generation, fingerprint: fingerprint.clone(), outline: None, form_scripts: None, undo: Vec::new(), redo: Vec::new(), full_save: false, fonts: Default::default() };
     docs.insert(id, entry);
     Ok(SaveResult { path: target.display().to_string(), bytes, generation, fingerprint, old_fingerprint })
+}
+
+/// Texte ajouté dans le contenu de la page : liste, ajout ou remplacement, suppression ; renvoie les
+/// blocs de la page et l'identifiant du bloc écrit.
+#[derive(Debug, Serialize)]
+struct PageTextResult {
+    id: Option<String>,
+    blocks: Vec<eng::pagetext::TextBlock>,
+}
+
+fn page_text(docs: &mut HashMap<u32, Entry>, doc: u32, page: i32, op: PageTextOp) -> Result<PageTextResult, String> {
+    let e = docs.get_mut(&doc).ok_or("document fermé")?;
+    let mut p = e.doc.pages().get(page).map_err(|e| format!("{e:?}"))?;
+    let id = match op {
+        PageTextOp::List => None,
+        PageTextOp::Set { id, x, y, text, style } => {
+            if !eng::permissions(&e.doc).modify {
+                return Err("modify_forbidden".into());
+            }
+            eng::pagetext::set(&e.doc, &mut p, &mut e.fonts, id.as_deref(), x, y, &text, &style).map_err(|e| e.to_string())?
+        }
+        PageTextOp::Delete { id } => {
+            if !eng::permissions(&e.doc).modify {
+                return Err("modify_forbidden".into());
+            }
+            eng::pagetext::delete(&mut p, &id).map_err(|e| e.to_string())?;
+            None
+        }
+    };
+    Ok(PageTextResult { id, blocks: eng::pagetext::list(&p, page) })
 }
 
 /// Une autre modification (commentaire, champ, signet) rend les états mémorisés obsolètes : les
@@ -552,6 +592,7 @@ fn page_state(e: &Entry) -> Option<PageState> {
 fn restore(pdfium: &'static Pdfium, e: &mut Entry, s: PageState) -> Result<(), String> {
     e.doc = pdfium.load_pdf_from_byte_vec(s.bytes, e.password.as_deref()).map_err(|err| format!("{err:?}"))?;
     e.outline = s.outline;
+    e.fonts.clear();
     // Document relu depuis la mémoire : enregistrement complet.
     e.full_save = true;
     Ok(())
@@ -751,6 +792,7 @@ fn rewrite_doc(
         undo: Vec::new(),
         redo: Vec::new(),
         full_save: false,
+        fonts: Default::default(),
     };
     let info = info_of(id, &entry);
     docs.insert(id, entry);

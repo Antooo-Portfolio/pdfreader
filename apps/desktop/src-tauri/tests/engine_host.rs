@@ -171,3 +171,49 @@ fn engine_host_round_trip_crash_and_garbage() {
     host.input = None;
     assert!(host.wait_exit().success());
 }
+
+/// Texte écrit dans la page, enregistré, puis déplacé : la tuile rendue par le processus moteur
+/// change (même enchaînement que l'interface).
+#[test]
+fn page_text_move_after_save_changes_tile() {
+    if !lib_dir().join("pdfium.dll").exists() || !corpus("01-texte-10p.pdf").exists() {
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("pdfreader-host-pt-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let work = dir.join("w.pdf");
+    std::fs::copy(corpus("01-texte-10p.pdf"), &work).unwrap();
+    let mut host = Host::start(false);
+    let style = json!({ "family": "sans", "bold": true, "italic": false, "size": 12.0, "color": [0, 0, 0] });
+    let (h, _) = host.call(json!({ "cmd": "Open", "doc": 1, "path": work, "shown_as": null, "password": null, "generation": 1 }));
+    assert_eq!(h["t"], "ok", "{h}");
+    // Comme l'affichage d'une page dans l'interface : tuiles, texte, liens, commentaires, champs.
+    let views = |host: &mut Host| {
+        host.call(json!({ "cmd": "Tile", "doc": 1, "page": 0, "scale": 0.2016, "x": 0, "y": 0, "size": 512 }));
+        host.call(json!({ "cmd": "Tile", "doc": 1, "page": 0, "scale": 1.9693, "x": 512, "y": 1024, "size": 512 }));
+        host.call(json!({ "cmd": "TextLayer", "doc": 1, "page": 0 }));
+        host.call(json!({ "cmd": "Links", "doc": 1, "page": 0 }));
+        host.call(json!({ "cmd": "Annot", "doc": 1, "page": 0, "op": { "op": "List" } }));
+        host.call(json!({ "cmd": "Fields", "doc": 1, "page": 0 }));
+        host.call(json!({ "cmd": "PageText", "doc": 1, "page": 0, "op": { "kind": "list" } }));
+    };
+    views(&mut host);
+    let (h, _) = host.call(json!({ "cmd": "PageText", "doc": 1, "page": 0, "op": { "kind": "set", "id": null, "x": 310.0, "y": 650.0, "text": "Bonjour", "style": style } }));
+    assert_eq!(h["t"], "ok", "{h}");
+    let id = h["value"]["id"].as_str().unwrap().to_string();
+    // Comme l'interface : gras, puis déplacement aux flèches, avant d'enregistrer.
+    let bold = json!({ "family": "sans", "bold": true, "italic": false, "size": 12.0, "color": [0, 0, 0] });
+    host.call(json!({ "cmd": "PageText", "doc": 1, "page": 0, "op": { "kind": "set", "id": id, "x": 310.0, "y": 650.0, "text": "Bonjour", "style": bold } }));
+    host.call(json!({ "cmd": "PageText", "doc": 1, "page": 0, "op": { "kind": "set", "id": id, "x": 320.0, "y": 650.0, "text": "Bonjour", "style": bold } }));
+    let (h, _) = host.call(json!({ "cmd": "Save", "doc": 1, "path": null }));
+    assert_eq!(h["t"], "ok", "{h}");
+    views(&mut host);
+    let tile = |host: &mut Host| host.call(json!({ "cmd": "Tile", "doc": 1, "page": 0, "scale": 1.9693, "x": 512, "y": 1024, "size": 512 })).1;
+    let before = tile(&mut host);
+    let (h, _) = host.call(json!({ "cmd": "PageText", "doc": 1, "page": 0, "op": { "kind": "set", "id": id, "x": 340.0, "y": 670.0, "text": "Bonjour", "style": style } }));
+    assert_eq!(h["t"], "ok", "{h}");
+    let after = tile(&mut host);
+    eprintln!("processus moteur : tuile avant {} octets, après {} octets, identiques : {}", before.len(), after.len(), before == after);
+    assert_ne!(before, after);
+    let _ = std::fs::remove_dir_all(&dir);
+}

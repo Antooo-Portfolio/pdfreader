@@ -1,11 +1,11 @@
 import { t } from "@pdfreader/ui";
 import { clsx } from "clsx";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Tool, ToolStyle } from "./annot";
 import { AnnotLayer, NoteEditor } from "./AnnotTools";
 import { FormLayer, TextDraft } from "./FillTools";
-import { type Annot, type Box, type ShapeKind, type Field, type FieldInput, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextWord, thumbScale } from "./engine";
-import { type PageBox, rotationTransform } from "./layout";
+import { type Annot, type Box, type ShapeKind, type Field, type FieldInput, type EngineClient, type LinkAction, type PageLink, PT_TO_CSS, type Rotation, TILE, type TextBlock, type TextWord, thumbScale } from "./engine";
+import { type PageBox, rotateBox, rotationTransform } from "./layout";
 
 const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
 
@@ -45,7 +45,13 @@ interface Props {
   onSetField: (page: number, index: number, input: FieldInput) => void;
   onSignField: (f: Field) => void;
   /** Texte libre en cours de saisie sur cette page. */
-  textDraft: { x: number; y: number; size: number; color: string; boxWidth?: number } | null;
+  textDraft: { x: number; y: number; size: number; color: string; boxWidth?: number; initial?: string; font?: { family: string; bold: boolean; italic: boolean } } | null;
+  /** Texte écrit dans la page (outil « pagetext ») : blocs, bloc choisi, actions. */
+  pageTexts?: TextBlock[] | null;
+  selectedTextId?: string | null;
+  onPressText?: (block: TextBlock) => void;
+  onEditText?: (block: TextBlock) => void;
+  onMoveText?: (block: TextBlock, dx: number, dy: number) => void;
   onCommitText: (page: number, x: number, y: number, text: string) => void;
   onCancelText: () => void;
   onCreateInk: (page: number, strokes: [number, number][][]) => void;
@@ -69,14 +75,16 @@ export const PageView = memo(function PageView(p: Props) {
   const devW = Math.ceil(pw * scale);
   const devH = Math.ceil(ph * scale);
   const cacheKey = `${docId}:${generation}:${index}`;
-  const [lines, setLines] = useState<TextWord[][] | null>(() => textCache.get(cacheKey) ?? null);
+  // La couche de texte suit aussi la version de la page (texte écrit dans la page).
+  const textKey = `${cacheKey}:${p.version}`;
+  const [lines, setLines] = useState<TextWord[][] | null>(() => textCache.get(textKey) ?? null);
   const [links, setLinks] = useState<PageLink[] | null>(() => linkCache.get(cacheKey) ?? null);
   const [textError, setTextError] = useState(false);
 
   useEffect(() => {
-    setLines(textCache.get(cacheKey) ?? null);
+    setLines(textCache.get(textKey) ?? null);
     setLinks(linkCache.get(cacheKey) ?? null);
-  }, [cacheKey, textCache, linkCache]);
+  }, [cacheKey, textKey, textCache, linkCache]);
 
   useEffect(() => {
     if (!active || lines) return;
@@ -84,14 +92,14 @@ export const PageView = memo(function PageView(p: Props) {
     engine
       .textLayer(docId, index)
       .then((l) => {
-        textCache.set(cacheKey, l);
+        textCache.set(textKey, l);
         if (alive) setLines(l);
       })
       .catch(() => alive && setTextError(true));
     return () => {
       alive = false;
     };
-  }, [active, lines, engine, docId, index, cacheKey, textCache]);
+  }, [active, lines, engine, docId, index, textKey, textCache]);
 
   useEffect(() => {
     if (!active || links) return;
@@ -117,16 +125,27 @@ export const PageView = memo(function PageView(p: Props) {
 
   // Après une modification (nouvelle version de la page), les anciennes tuiles restent affichées
   // jusqu'à ce que toutes les nouvelles soient chargées : pas de page floue qui clignote.
-  const [shownVersion, setShownVersion] = useState(version);
-  const waiting = useRef(0);
-  useEffect(() => {
+  // Version affichée, propre à la génération du document : après un enregistrement (nouvelle
+  // génération, versions remises à zéro), une ancienne version ne doit jamais être demandée dans la
+  // nouvelle génération (elle serait gardée en cache avec un contenu périmé).
+  const [shown, setShown] = useState({ gen: generation, ver: version });
+  const shownVersion = shown.gen === generation ? shown.ver : version;
+  const setShownVersion = (ver: number) => setShown({ gen: generation, ver });
+  // Tuiles de la nouvelle version déjà arrivées (chargées ou en erreur). Compter par tuile, et non
+  // avec un compteur remis à zéro après l'affichage : une tuile très rapide pouvait arriver avant
+  // la remise à zéro, et l'ancienne image restait affichée pour de bon.
+  const arrived = useRef(new Set<string>());
+  useLayoutEffect(() => {
     if (version === shownVersion) return;
-    waiting.current = tiles.length;
     if (tiles.length === 0) setShownVersion(version);
   }, [version, shownVersion, tiles.length]);
-  const onNewTile = () => {
-    waiting.current -= 1;
-    if (waiting.current <= 0) setShownVersion(version);
+  const onNewTile = (ver: number, key: string) => {
+    if (ver !== version) return;
+    arrived.current.add(`${ver}:${key}`);
+    if (tiles.every((t) => arrived.current.has(`${ver}:${t.x}-${t.y}-${scale}`))) {
+      arrived.current = new Set();
+      setShownVersion(ver);
+    }
   };
   const tileLayer = (ver: number, hidden: boolean) =>
     tiles.map((t) => (
@@ -137,8 +156,8 @@ export const PageView = memo(function PageView(p: Props) {
         draggable={false}
         decoding="async"
         src={engine.tileUrl(docId, generation, ver, index, scale, t.x, t.y)}
-        onLoad={hidden ? onNewTile : undefined}
-        onError={hidden ? onNewTile : undefined}
+        onLoad={hidden ? () => onNewTile(ver, `${t.x}-${t.y}-${scale}`) : undefined}
+        onError={hidden ? () => onNewTile(ver, `${t.x}-${t.y}-${scale}`) : undefined}
         className="pointer-events-none absolute max-w-none"
         style={{ left: t.x / dpr, top: t.y / dpr, width: t.w / dpr, height: t.h / dpr, opacity: hidden ? 0 : 1 }}
       />
@@ -209,8 +228,23 @@ export const PageView = memo(function PageView(p: Props) {
           onErase={(id) => p.onDeleteAnnot(index, id)}
         />
       )}
+      {active && p.tool === "pagetext" && p.pageTexts && (
+        <PageTextLayer
+          blocks={p.pageTexts}
+          selectedId={p.selectedTextId ?? null}
+          k={k}
+          rotation={rotation}
+          size={size}
+          hiddenId={p.textDraft?.initial !== undefined ? (p.selectedTextId ?? null) : null}
+          onPress={(b) => p.onPressText?.(b)}
+          onEdit={(b) => p.onEditText?.(b)}
+          onMove={(b, dx, dy) => p.onMoveText?.(b, dx, dy)}
+        />
+      )}
       {active && p.textDraft && (
         <TextDraft
+          initial={p.textDraft.initial}
+          font={p.textDraft.font}
           at={p.textDraft}
           size={p.textDraft.size}
           color={p.textDraft.color}
@@ -325,5 +359,95 @@ function TextLayer({ lines, k }: { lines: TextWord[][]; k: number }) {
         </span>
       ))}
     </div>
+  );
+}
+
+/** Contours des blocs de texte écrits dans la page : clic pour choisir, double-clic pour modifier,
+ *  glisser pour déplacer (vue non pivotée). */
+function PageTextLayer({
+  blocks,
+  selectedId,
+  hiddenId,
+  k,
+  rotation,
+  size,
+  onPress,
+  onEdit,
+  onMove,
+}: {
+  blocks: TextBlock[];
+  selectedId: string | null;
+  hiddenId: string | null;
+  k: number;
+  rotation: Rotation;
+  size: [number, number];
+  onPress: (b: TextBlock) => void;
+  onEdit: (b: TextBlock) => void;
+  onMove: (b: TextBlock, dx: number, dy: number) => void;
+}) {
+  type Drag = { id: string; x0: number; y0: number; dx: number; dy: number; moved: boolean };
+  // Référence immédiate (un appui et un relâchement très rapprochés ne passent pas par un rendu),
+  // et état pour l'affichage pendant le glisser.
+  const dragRef = useRef<Drag | null>(null);
+  const [drag, setDragState] = useState<Drag | null>(null);
+  const setDrag = (v: Drag | null) => {
+    dragRef.current = v;
+    setDragState(v);
+  };
+  return (
+    <>
+      {blocks.map((b) => {
+        if (b.id === hiddenId) return null;
+        const pad = 2;
+        const [x, y, w, h] = rotateBox([b.rect[0] - pad, b.rect[1] - pad, b.rect[2] + pad * 2, b.rect[3] + pad * 2], size[0], size[1], rotation);
+        const d = drag?.id === b.id ? drag : null;
+        const selected = b.id === selectedId;
+        return (
+          <div
+            key={b.id}
+            role="button"
+            tabIndex={-1}
+            data-page-text={b.id}
+            aria-label={t("Texte écrit dans la page : {text}", { text: b.text.slice(0, 80) })}
+            aria-pressed={selected}
+            className={clsx(
+              "absolute z-(--z-annotation) rounded-[2px] outline-offset-0",
+              selected ? "cursor-move outline-2 outline-accent" : "cursor-pointer outline-1 outline-accent/60 outline-dashed hover:outline-accent",
+            )}
+            style={{ left: x * k + (d?.dx ?? 0), top: y * k + (d?.dy ?? 0), width: w * k, height: h * k }}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.stopPropagation();
+              try {
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+              } catch {
+                // Pointeur déjà relâché (clic très bref) : le glisser se fera sans capture.
+              }
+              setDrag({ id: b.id, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, moved: false });
+            }}
+            onPointerMove={(e) => {
+              const d = dragRef.current;
+              if (!d || d.id !== b.id) return;
+              const dx = e.clientX - d.x0;
+              const dy = e.clientY - d.y0;
+              if (d.moved || Math.hypot(dx, dy) > 4) setDrag({ ...d, dx: rotation ? 0 : dx, dy: rotation ? 0 : dy, moved: true });
+            }}
+            onPointerUp={(e) => {
+              e.stopPropagation();
+              const cur = dragRef.current;
+              setDrag(null);
+              if (!cur || cur.id !== b.id) return;
+              if (cur.moved && !rotation && (cur.dx || cur.dy)) onMove(b, cur.dx / k, cur.dy / k);
+              else onPress(b);
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              onEdit(b);
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        );
+      })}
+    </>
   );
 }

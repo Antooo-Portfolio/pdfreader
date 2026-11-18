@@ -684,3 +684,45 @@ Les photos de test sont synthétiques (dégradés) : sur de vraies photos, le ga
 | ID | date | état | manque | plus dur que prévu |
 | --- | --- | --- | --- | --- |
 | Compresser | 2026-11-17 | fait | réduction des polices (sous-ensembles), images CMJN, aperçu de la taille avant d'enregistrer | — |
+
+## Phase 2 — lot « ajouter du texte » (2026-11-18)
+
+Branche `phase2-ajouter-texte`. `crates/engine/src/pagetext.rs` : du vrai texte dans le contenu
+de la page (objets texte PDFium, un par ligne, contenu régénéré), pas un commentaire. Chaque objet
+porte une marque de contenu « PDFReaderText » (identifiant ; la première ligne porte aussi le texte
+complet, la position et le style, encodés en hexadécimal) : le bloc est retrouvé après
+enregistrement, modifié, déplacé ou supprimé. Polices : les polices standard (Helvetica, Times,
+Courier, avec gras et italique) pour tout ce que couvre Windows-1252, sans rien ajouter au fichier ;
+au-delà, Arial / Times New Roman / Courier New de Windows intégrées, une seule fois par document.
+
+Interface : outil « Écrire dans la page (texte modifiable) » ; clic sur la page : zone de saisie
+(Entrée valide, Maj+Entrée va à la ligne) ; blocs entourés en pointillés ; clic : choisir ;
+double-clic ou Entrée : modifier ; glisser ou flèches (Maj : 10 points) : déplacer ; Suppr :
+effacer ; barre de style (police, gras, italique, taille, couleur) appliquée tout de suite au bloc
+choisi. Écritures en file, chacune partant du dernier état voulu du bloc.
+
+Défauts trouvés et corrigés :
+- actions rapprochées qui s'écrasaient (gras puis déplacement, flèche maintenue) ;
+- clic très bref (appui et relâchement dans le même instant) non pris en compte ;
+- **défaut ancien de l'affichage**, trouvé par l'essai à la vraie souris : après un enregistrement
+  (nouvelle génération, versions remises à zéro), la couche affichée demandait encore l'ancien
+  numéro de version dans la nouvelle génération ; ces tuiles, gardées en cache, revenaient après la
+  modification suivante avec un contenu périmé (le texte déplacé restait affiché à l'ancienne
+  place ; même risque pour un commentaire ajouté après un enregistrement). La version affichée est
+  désormais liée à la génération ;
+- le compteur des tuiles arrivées pouvait rester bloqué si une tuile arrivait avant sa mise à zéro ;
+- les adresses des tuiles portent un identifiant propre à chaque lancement : les numéros de
+  document repartent de 1 et les tuiles sont gardées en cache d'une session à l'autre.
+
+Tests : `text_in_page_content`, `moved_text_is_rendered_at_new_place`,
+`tile_after_move_following_save` (moteur), `page_text_move_after_save_changes_tile` (processus
+moteur, avec les demandes d'affichage de l'interface). Partie `phase2pagetext` du scénario
+(3 passages verts) : écrire par la vraie zone de saisie, choisir, gras, flèche, enregistrer, seule
+la version 0 affichée après l'enregistrement, glisser au pointeur, double-clic et modifier,
+cyrillique, relire après réouverture, supprimer. Essai réel (souris et clavier pilotés par
+Windows) : texte tapé, enregistré, glissé, réenregistré ; pypdf retrouve le texte et la nouvelle
+position ; capture : texte affiché à la nouvelle place.
+
+| ID | date | état | manque | plus dur que prévu |
+| --- | --- | --- | --- | --- |
+| Ajouter du texte | 2026-11-18 | fait | annuler / rétablir ; chinois, japonais, coréen (polices en collection .ttc) ; retour à la ligne automatique dans un cadre | le défaut d'affichage après enregistrement (versions de tuiles périmées), présent depuis M1 |

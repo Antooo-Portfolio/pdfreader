@@ -113,6 +113,8 @@ pub enum Request {
     Search { doc: u32, from: i32, count: i32, query: String, match_case: bool, whole_word: bool },
     Close { doc: u32 },
     Tile { doc: u32, page: i32, scale: f32, x: i32, y: i32, size: i32 },
+    /// Texte écrit dans le contenu d'une page (pas un commentaire).
+    PageText { doc: u32, page: i32, op: PageTextOp },
     /// Organiser les pages du document ouvert (annulable).
     Pages { doc: u32, op: PageOp },
     /// Écrit des pages dans un nouveau fichier.
@@ -161,6 +163,7 @@ impl Request {
             | Search { doc, .. }
             | Close { doc }
             | Pages { doc, .. }
+            | PageText { doc, .. }
             | ExtractPages { doc, .. }
             | SplitPages { doc, .. }
             | ExportImage { doc, .. }
@@ -195,6 +198,15 @@ impl Request {
         };
         std::time::Duration::from_secs(secs)
     }
+}
+
+/// Texte ajouté dans une page : liste des blocs, ajout ou remplacement (`id`), suppression.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PageTextOp {
+    List,
+    Set { id: Option<String>, x: f32, y: f32, text: String, style: eng::pagetext::TextStyle },
+    Delete { id: String },
 }
 
 /// Opération sur les pages (index dans l'ordre actuel du document).
